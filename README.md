@@ -114,15 +114,15 @@ code generator for another language can start from it.
 ## Using it in a Rust project
 
 <!-- ANCHOR: usage -->
-1. Install the compiler: `cargo install --git https://github.com/lpj145/graven graven-compiler` (provides `gravenc`).
+1. Install the compiler: `cargo install graven-compiler` (provides `gravenc`).
    Add the runtime and the code generator to your crate's `Cargo.toml`:
 
    ```toml
    [dependencies]
-   graven = { git = "https://github.com/lpj145/graven" }
+   graven = "0.1"
 
    [build-dependencies]
-   graven-compiler = { git = "https://github.com/lpj145/graven" }
+   graven-compiler = "0.1"
    ```
 
 2. Write `schemas/bank.graven` and create its lockfile once: `gravenc update schemas/bank.graven --init`.

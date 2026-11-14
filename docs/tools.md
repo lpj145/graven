@@ -16,7 +16,7 @@ it decodes exactly what generated code would.
 | [`gravenc from-json`](#to-json-and-from-json) | Encode JSON as messages. |
 | [`gravenc scan`](#scan) | Check a file of envelopes: intact records, a cut-off tail, corruption. |
 
-Install it with `cargo install --git https://github.com/lpj145/graven graven-compiler`, or from a clone with
+Install it with `cargo install graven-compiler`, or from a clone with
 `cargo install --path crates/graven-compiler`.
 
 Exit codes are the same for every command: `0` success, `1` an error or a problem found

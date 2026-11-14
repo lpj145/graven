@@ -113,15 +113,15 @@ or out of date. Always commit the lockfile with the schema. Details: [tools](too
 
 ## Using it from Rust
 
-Install the compiler with `cargo install --git https://github.com/lpj145/graven graven-compiler`, and add to
+Install the compiler with `cargo install graven-compiler`, and add to
 `Cargo.toml`:
 
 ```toml
 [dependencies]
-graven = { git = "https://github.com/lpj145/graven" }
+graven = "0.1"
 
 [build-dependencies]
-graven-compiler = { git = "https://github.com/lpj145/graven" }
+graven-compiler = "0.1"
 ```
 
 `build.rs`:

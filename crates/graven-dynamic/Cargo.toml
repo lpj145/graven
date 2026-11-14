@@ -4,9 +4,12 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+categories = ["encoding"]
 description = "Schema-driven reader and writer for the Graven binary format (schemas as data, no generated code)."
 
 [dependencies]
-graven = { path = "../graven" }
-graven-layout = { path = "../graven-layout" }
+graven = { version = "0.1.0", path = "../graven" }
+graven-layout = { version = "0.1.0", path = "../graven-layout" }
 serde = { version = "1", features = ["derive"] }

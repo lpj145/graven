@@ -4,6 +4,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
+publish = false
 description = "Example schemas (bank, game, iot, stream) compiled with gravenc, plus evolution fixtures."
 
 [dependencies]
