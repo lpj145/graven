@@ -1,0 +1,1 @@
+namespace t; table L { n @0: u8; } table M { s @0: string?; } union U { L @2: L, M @1: M } table T { u @0: U?; }

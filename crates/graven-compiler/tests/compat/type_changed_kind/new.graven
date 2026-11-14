@@ -1,0 +1,1 @@
+namespace t; table L { n @0: u8; } table T { a @0: L?; }

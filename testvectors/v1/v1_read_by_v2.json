@@ -1,0 +1,22 @@
+{
+  "schema": "conformance.v1.RootV2",
+  "enveloped": false,
+  "expect": {
+    "value": {
+      "Table": {
+        "a_u32": {
+          "UInt": "7"
+        },
+        "a_u8": {
+          "UInt": "42"
+        },
+        "flag2": {
+          "Bool": true
+        },
+        "name": {
+          "Str": "v1"
+        }
+      }
+    }
+  }
+}

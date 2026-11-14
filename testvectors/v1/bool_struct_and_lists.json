@@ -1,0 +1,58 @@
+{
+  "schema": "conformance.v1.Extra",
+  "enveloped": false,
+  "expect": {
+    "value": {
+      "Table": {
+        "bools": {
+          "List": [
+            {
+              "Bool": false
+            },
+            {
+              "Bool": true
+            },
+            {
+              "Bool": true
+            }
+          ]
+        },
+        "colors": {
+          "List": [
+            {
+              "UInt": "0"
+            },
+            {
+              "UInt": "2"
+            },
+            {
+              "UInt": "9"
+            }
+          ]
+        },
+        "flags": {
+          "Table": {
+            "c": {
+              "UInt": "1"
+            },
+            "on": {
+              "Bool": true
+            }
+          }
+        },
+        "pick": {
+          "Union": {
+            "tag": 1,
+            "value": {
+              "Table": {
+                "n": {
+                  "UInt": "1"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

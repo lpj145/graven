@@ -1,0 +1,60 @@
+[package]
+name = "graven-fuzz"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+arbitrary = { version = "1", features = ["derive"] }
+bytes = "1"
+graven = { path = "../crates/graven" }
+graven-schemas = { path = "../crates/graven-schemas" }
+graven-conformance = { path = "../crates/graven-conformance" }
+graven-codegen-tests = { path = "../crates/graven-codegen-tests" }
+graven-compiler = { path = "../crates/graven-compiler" }
+
+# A crate of its own, outside the repository workspace (needs nightly + cargo-fuzz).
+[workspace]
+members = ["."]
+
+[profile.release]
+debug = 1
+
+[[bin]]
+name = "read"
+path = "fuzz_targets/read.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "verify"
+path = "fuzz_targets/verify.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "envelope"
+path = "fuzz_targets/envelope.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "differential"
+path = "fuzz_targets/differential.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "schema"
+path = "fuzz_targets/schema.rs"
+test = false
+doc = false
+bench = false

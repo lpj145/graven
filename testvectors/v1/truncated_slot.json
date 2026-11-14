@@ -1,0 +1,7 @@
+{
+  "schema": "conformance.v1.Root",
+  "enveloped": false,
+  "expect": {
+    "error": "Truncated"
+  }
+}

@@ -1,0 +1,38 @@
+{
+  "name": "graven",
+  "displayName": "Graven",
+  "description": "Syntax highlighting for the Graven schema language (.graven)",
+  "version": "0.1.0",
+  "publisher": "graven",
+  "license": "MIT",
+  "repository": { "type": "git", "url": "https://github.com/lpj145/graven.git" },
+  "engines": { "vscode": "^1.75.0" },
+  "categories": ["Programming Languages"],
+  "contributes": {
+    "languages": [
+      {
+        "id": "graven",
+        "aliases": ["Graven", "graven"],
+        "extensions": [".graven"],
+        "configuration": "./language-configuration.json"
+      },
+      {
+        "id": "graven-lock",
+        "aliases": ["Graven lockfile"],
+        "filenamePatterns": ["*.graven.lock"]
+      }
+    ],
+    "grammars": [
+      {
+        "language": "graven",
+        "scopeName": "source.graven",
+        "path": "./syntaxes/graven.tmLanguage.json"
+      },
+      {
+        "language": "graven-lock",
+        "scopeName": "source.toml.graven-lock",
+        "path": "./syntaxes/graven-lock.tmLanguage.json"
+      }
+    ]
+  }
+}

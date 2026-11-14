@@ -1,0 +1,1 @@
+namespace t; struct K { a: u16 } struct S { k: K } table T { s @0: S; }

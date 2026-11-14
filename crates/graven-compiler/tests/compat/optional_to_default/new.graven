@@ -1,0 +1,1 @@
+namespace t; table T { a @0: f32 = 0.5; }

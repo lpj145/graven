@@ -1,0 +1,1 @@
+namespace t; table C { z @0: u16; } table B { y @0: u8; }

@@ -1,0 +1,57 @@
+namespace conformance.v1;
+
+enum Color : u8 { Red = 0, Green = 1, Blue = 2 }
+
+struct Point { x: i32, y: i32 }
+
+table Leaf { n @0: u32; s @1: string?; next @2: Leaf?; }
+
+union Choice { Leaf @1: Leaf }
+
+table Root {
+  a_u8 @0: u8;           a_i16 @1: i16?;        a_u32 @2: u32 = 7;
+  a_i64 @3: i64?;        a_u128 @4: u128?;      a_i128 @5: i128?;
+  a_f32 @6: f32?;        a_f64 @7: f64?;
+  flag @8: bool?;        flag2 @9: bool;
+  color @10: Color?;     point @11: Point?;
+  name @12: string?;     blob @13: bytes?;
+  nums @14: [u16]?;      points @15: [Point]?;  leaves @16: [Leaf]?;
+  names @17: [string]?;  blobs @18: [bytes]?;
+  child @19: Leaf?;      choice @20: Choice?;
+  @21: reserved u32;       // was `old @21: u32?`
+}
+
+// Evolution vectors: `Root` plus one appended field.
+table RootV2 {
+  a_u8 @0: u8;           a_i16 @1: i16?;        a_u32 @2: u32 = 7;
+  a_i64 @3: i64?;        a_u128 @4: u128?;      a_i128 @5: i128?;
+  a_f32 @6: f32?;        a_f64 @7: f64?;
+  flag @8: bool?;        flag2 @9: bool;
+  color @10: Color?;     point @11: Point?;
+  name @12: string?;     blob @13: bytes?;
+  nums @14: [u16]?;      points @15: [Point]?;  leaves @16: [Leaf]?;
+  names @17: [string]?;  blobs @18: [bytes]?;
+  child @19: Leaf?;      choice @20: Choice?;
+  @21: reserved u32;
+  extra @22: u64?;
+}
+
+// Vectors for §10.3 that Root cannot reach without changing the meaning of the frozen vectors.
+struct Flags { on: bool, c: Color }
+struct Empty {}
+
+table Extra {
+  flags  @0: Flags?;
+  bools  @1: [bool]?;
+  colors @2: [Color]?;
+  names  @3: [string]?;
+  blobs  @4: [bytes]?;
+  pick   @5: Choice;        // required union
+  leaves @6: [Leaf]?;
+  e      @7: Empty?;        // zero-size slot
+  @8: reserved u64;
+  tail   @9: string?;       // pointer after the reserved field
+}
+
+// Reads `[Leaf]` with an elem_fixed_len different from the reader's layout.
+table Holder { items @0: [Leaf]; }

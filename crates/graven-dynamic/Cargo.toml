@@ -1,0 +1,12 @@
+[package]
+name = "graven-dynamic"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Schema-driven reader and writer for the Graven binary format (schemas as data, no generated code)."
+
+[dependencies]
+graven = { path = "../graven" }
+graven-layout = { path = "../graven-layout" }
+serde = { version = "1", features = ["derive"] }

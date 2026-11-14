@@ -1,0 +1,28 @@
+{
+  "schema": "conformance.v1.Holder",
+  "enveloped": false,
+  "expect": {
+    "value": {
+      "Table": {
+        "items": {
+          "List": [
+            {
+              "Table": {
+                "n": {
+                  "UInt": "1"
+                }
+              }
+            },
+            {
+              "Table": {
+                "n": {
+                  "UInt": "2"
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+}

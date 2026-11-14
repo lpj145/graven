@@ -1,0 +1,25 @@
+{
+  "schema": "conformance.v1.Extra",
+  "enveloped": false,
+  "expect": {
+    "value": {
+      "Table": {
+        "e": {
+          "Table": {}
+        },
+        "pick": {
+          "Union": {
+            "tag": 1,
+            "value": {
+              "Table": {
+                "n": {
+                  "UInt": "1"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,17 @@
+namespace bench_fbs;
+
+table Entry { account: ulong; amount: long; memo: string; }
+table Transaction {
+  id: ulong; ts: ulong; currency: ushort; from_shard: uint; to_shard: uint;
+  entries: [Entry]; note: string;
+}
+
+struct Vec3 { x: float; y: float; z: float; }
+table Entity { id: uint; pos: Vec3; vel: Vec3; hp: ushort; alive: bool; }
+table Frame { tick: ulong; entities: [Entity]; }
+
+table Telemetry { device: uint; ts: ulong; temp: float; humidity: float = null; battery: ubyte; }
+
+table Chunk { stream_id: ulong; seq: uint; data: [ubyte]; }
+
+root_type Transaction;

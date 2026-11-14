@@ -1,0 +1,1 @@
+namespace bank.v2; table T { a @0: u64; }

@@ -1,0 +1,7 @@
+namespace stream;
+
+table Chunk {
+  stream_id @0: u64;
+  seq       @1: u32;
+  data      @2: bytes;
+}

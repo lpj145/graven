@@ -1,0 +1,59 @@
+// Schemas for the "Binary layout" page. Every example on that page is encoded by
+// `gravenc from-json` from these declarations at site build time.
+namespace layout;
+
+enum Unit : u8 { Celsius = 0, Fahrenheit = 1 }
+
+table Reading {
+  device  @0: u32;
+  temp    @1: f32?;
+  battery @2: u8?;
+  unit    @3: Unit;
+  online  @4: bool;
+}
+
+table Note {
+  title @0: string;
+  body  @1: string?;
+  tag   @2: bytes?;
+}
+
+struct Point { x: i16, y: i16 }
+
+table Path {
+  ids    @0: [u16];
+  points @1: [Point];
+}
+
+table Product {
+  name  @0: string;
+  price @1: u32;
+}
+
+table Catalog {
+  products @0: [Product];
+}
+
+table Tags {
+  tags @0: [string];
+}
+
+table Card { last4 @0: u16; }
+table Pix  { key @0: string; }
+
+union Method { Card @1: Card, Pix @2: Pix }
+
+table Payment {
+  amount @0: u32;
+  method @1: Method;
+}
+
+table Customer {
+  name @0: string;
+  home @1: Address?;
+}
+
+table Address {
+  city @0: string;
+  zip  @1: u32;
+}

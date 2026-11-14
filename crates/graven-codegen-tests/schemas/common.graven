@@ -1,0 +1,24 @@
+// Shared types, imported by `orders.graven`.
+namespace common;
+
+/// RFC 4122 identifier, stored inline as 16 bytes.
+struct Uuid { hi: u64, lo: u64 }
+
+/// ISO 4217 currency.
+enum Currency : u16 { BRL = 986, USD = 840 }
+
+/// An amount in minor units.
+struct Money { cents: i64, currency: Currency }
+
+/// A postal address.
+table Address {
+  street  @0: string;
+  city    @1: string;
+  country @2: Currency = BRL;
+}
+
+table Email { address @0: string; }
+table Phone { number @0: string; }
+
+/// How to reach a customer.
+union Contact { Email @1: Email, Phone @2: Phone }

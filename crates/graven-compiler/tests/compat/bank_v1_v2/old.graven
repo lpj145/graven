@@ -1,0 +1,33 @@
+namespace bank;
+
+/// ISO 4217 currency of a transaction.
+enum Currency : u16 {
+  /// Brazilian real.
+  BRL = 0,
+  /// United States dollar.
+  USD = 1,
+  /// Euro.
+  EUR = 2
+}
+
+/// One leg of a transaction: an amount moved in or out of an account.
+table Entry {
+  account @0: u64;
+  /// Signed amount in minor units (cents): negative leaves the account.
+  amount  @1: i64;
+  memo    @2: string?;
+}
+
+/// A double-entry transaction between two shards.
+///
+/// The entries of a transaction always sum to zero.
+table Transaction {
+  id         @0: u64;
+  /// Unix time, in seconds.
+  ts         @1: u64;
+  currency   @2: Currency;
+  from_shard @3: u32;
+  to_shard   @4: u32;
+  entries    @5: [Entry];
+  note       @6: string?;
+}

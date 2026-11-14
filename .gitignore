@@ -1,0 +1,9 @@
+target/
+/.superpowers
+/fuzz/target
+/fuzz/corpus
+/fuzz/artifacts
+/fuzz/Cargo.lock
+__pycache__/
+node_modules/
+*.vsix

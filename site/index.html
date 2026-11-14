@@ -1,0 +1,323 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Graven — an open specification for a zero-copy binary format</title>
+<meta name="description" content="Graven is an open specification for a zero-copy binary format and its schema language, with frozen conformance vectors and a reference implementation in Rust.">
+<link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+<link rel="icon" href="assets/favicon.ico" sizes="48x48">
+<link rel="apple-touch-icon" href="assets/apple-touch-icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/site.css">
+<link rel="alternate" hreflang="en" href="./">
+<link rel="alternate" hreflang="pt-BR" href="pt-br/">
+<link rel="alternate" hreflang="es" href="es/">
+<link rel="alternate" hreflang="zh-CN" href="zh/">
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="top">
+  <div class="wrap top-inner">
+    <a class="wordmark" href="./" aria-label="Graven home"><svg class="mark" viewBox="0 0 32 32" aria-hidden="true"><rect class="mk-bg" width="32" height="32" rx="7"/><rect class="mk-l" x="7" y="8.5" width="18" height="3.5" rx="1.75"/><rect class="mk-l" x="7" y="14.25" width="13" height="3.5" rx="1.75"/><rect class="mk-a" x="7" y="20" width="8" height="3.5" rx="1.75"/></svg>Graven</a>
+    <nav aria-label="Main">
+      <a href="docs/index.html">Docs</a>
+      <a href="https://github.com/lpj145/graven">GitHub</a>
+    </nav>
+    <nav class="langs" aria-label="Language">
+      <a href="./" hreflang="en" lang="en" aria-current="page">English</a>
+      <a href="pt-br/" hreflang="pt-BR" lang="pt-BR">Português</a>
+      <a href="es/" hreflang="es" lang="es">Español</a>
+      <a href="zh/" hreflang="zh-CN" lang="zh-CN">中文</a>
+    </nav>
+  </div>
+</header>
+
+<main id="main">
+
+<section class="hero">
+  <div class="wrap hero-grid">
+    <div class="hero-text">
+      <h1>A binary format for data that has to last.</h1>
+      <p class="lede">Graven is an open specification for a zero-copy serialization format and its schema language.
+        Messages are read in place, straight from the buffer. The format is frozen and fully specified, and its
+        conformance vectors let an implementation in any language prove that it reads every message correctly.</p>
+      <p class="lineage">Inspired by FlatBuffers and Cap'n Proto. We started from their ideas, measured their trade-offs in benchmarks, and kept exploring until we reached this format. <a href="docs/history/index.html">How we got here</a></p>
+      <div class="actions">
+        <a class="btn primary" href="docs/spec/graven-format-v1.html">Read the specification</a>
+        <a class="btn" href="#implementations">Implementations</a>
+      </div>
+      <p class="status">Format v1 is frozen. Reference implementation in Rust. MIT licensed.</p>
+    </div>
+
+    <figure class="anatomy" aria-labelledby="anatomy-title">
+      <figcaption id="anatomy-title" class="anatomy-title">One message, byte by byte</figcaption>
+      <pre class="schema" aria-label="Schema"><span class="sl" data-f="sid">namespace bank;</span>
+
+<span class="sl" data-f="sid">table Entry {</span>
+<span class="sl" data-f="account">  account @0: u64;</span>
+<span class="sl" data-f="amount">  amount  @1: i64;</span>
+<span class="sl" data-f="memo">  memo    @2: string?;</span>
+<span class="sl" data-f="sid">}</span></pre>
+      <div class="hex" id="hex" role="group" aria-label="The 59 bytes of an enveloped Entry message"></div>
+      <p class="explain" id="explain" aria-live="polite"></p>
+      <ul class="legend" id="legend" aria-label="Fields"></ul>
+    </figure>
+  </div>
+</section>
+
+<section class="band" id="why">
+  <div class="wrap two">
+    <h2>Built for data that outlives the code that wrote it</h2>
+    <div class="prose">
+      <p>Business data is written once and read for years: by the next release, by a service that upgrades
+        later, by an audit long after the original team has moved on. Graven is designed around that reality.</p>
+      <dl class="points">
+        <dt>Read in place</dt>
+        <dd>Fields are read directly from the bytes. Strings and byte slices borrow from the buffer, so reading a
+          large record costs nothing until you touch a field.</dd>
+        <dt>Evolve without guessing</dt>
+        <dd>A lockfile records every layout. The compiler refuses changes that would make old and new code
+          disagree, and asks for explicit confirmation before anything breaks an older reader.</dd>
+        <dt>Untrusted bytes are safe to open</dt>
+        <dd>A single <code>verify</code> pass walks the whole message under fixed depth and work limits. After
+          that, a verified view reads without re-checking, and malformed input can only ever produce an error.</dd>
+        <dt>Know what happened to a file</dt>
+        <dd>The optional envelope carries a schema id and a CRC32C. A write cut short by a crash is reported as
+          incomplete; a flipped bit is reported as corruption. They are never confused.</dd>
+      </dl>
+    </div>
+  </div>
+</section>
+
+<section class="band" id="assurance">
+  <div class="wrap">
+    <div class="section-head">
+      <h2>How the format is kept honest</h2>
+      <p>Every claim the specification makes is pinned by something that runs. This is what is checked, and how.</p>
+    </div>
+    <div class="table-scroll">
+    <table class="ledger">
+      <thead>
+        <tr><th scope="col">Guarantee</th><th scope="col">How it is checked</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <th scope="row">The wire format does not drift</th>
+          <td>A normative specification (RFC 2119 language) and 42 frozen conformance vectors, each a <code>.bin</code>
+            with its expected result. The reference writer must reproduce the canonical vectors byte for byte.</td>
+        </tr>
+        <tr>
+          <th scope="row">Two implementations agree</th>
+          <td>Within the reference implementation, an independent interpreter driven by the schema as data and the
+            generated code read every vector and every single-byte mutation of it. They must accept, reject and decode
+            identically. Every new implementation is held to the same vectors.</td>
+        </tr>
+        <tr>
+          <th scope="row">Hostile input stays bounded</th>
+          <td><code>verify</code> limits depth to 64 and total work to <code>max(len × 8, 1 MiB)</code>, so cycles and
+            shared-data amplification are rejected. Five fuzz targets ran more than 80 million inputs with overflow
+            checks enabled, with no findings.</td>
+        </tr>
+        <tr>
+          <th scope="row">The unsafe fast path is sound</th>
+          <td>In the Rust implementation, the only <code>unsafe</code> code skips UTF-8 revalidation after <code>verify</code>. Its invariants are
+            written down, enforced by a mutation gate, and the runtime and generated code run under Miri with no
+            undefined behaviour reported.</td>
+        </tr>
+        <tr>
+          <th scope="row">Schema changes cannot corrupt silently</th>
+          <td>The compiler compares every change against the lockfile: 15 rules reject changes that would misread
+            old data, 2 warnings require confirmation in the schema. A corpus of version chains tests each rule.</td>
+        </tr>
+        <tr>
+          <th scope="row">Crashes and corruption are told apart</th>
+          <td>The envelope's check order is normative, so a truncated tail and a damaged record produce different,
+            predictable errors on every implementation.</td>
+        </tr>
+      </tbody>
+    </table>
+    </div>
+  </div>
+</section>
+
+<section class="band" id="evolution">
+  <div class="wrap">
+    <div class="section-head">
+      <h2>Schema changes are reviewed by the compiler</h2>
+      <p>Change a type or add a required field, and <code>gravenc update</code> refuses, naming the rule and the line.
+        Add the field with a default instead, and the new lock is written. This is real output.</p>
+    </div>
+    <div class="evo">
+      <div class="evo-col">
+        <p class="evo-label">Rejected</p>
+<pre class="code"><code>table Entry {
+  account  @0: u64;
+  amount   @1: <mark class="bad">i32</mark>;
+  memo     @2: string?;
+  <mark class="bad">currency @3: u16;</mark>
+}</code></pre>
+<pre class="term"><code>$ gravenc update ledger.graven
+ledger.graven:5:3: field `Entry.amount` (@1): type changed
+  from `i64` to `i32` (type-changed)
+ledger.graven:7:3: new field `Entry.currency` (@3) is
+  required: every new reader would fail on old messages;
+  use `u16?` or a default (new-required)</code></pre>
+      </div>
+      <div class="evo-col">
+        <p class="evo-label">Accepted</p>
+<pre class="code"><code>table Entry {
+  account  @0: u64;
+  amount   @1: i64;
+  memo     @2: string?;
+  <mark class="good">currency @3: u16 = 986;</mark>
+}</code></pre>
+<pre class="term"><code>$ gravenc update ledger.graven
+ledger.graven.lock: written</code></pre>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="band" id="build">
+  <div class="wrap">
+    <div class="section-head">
+      <h2>What it is for</h2>
+      <p>Graven fits wherever records are written once, kept for a long time and read by software that changes.</p>
+    </div>
+    <dl class="uses">
+      <div>
+        <dt>Ledgers and event logs</dt>
+        <dd>Append envelopes to a file and never rewrite them. Each record carries its schema id and checksum, a
+          crash leaves a detectably incomplete tail, and reports can scan the file without deserializing it.</dd>
+      </div>
+      <div>
+        <dt>Service and SDK protocols</dt>
+        <dd>Route requests by schema id, verify once at the edge and pass the verified view along without copying.
+          The compatibility rules mean an older client keeps working when the server moves ahead.</dd>
+      </div>
+      <div>
+        <dt>Archives and audit trails</dt>
+        <dd>A frozen format with public conformance vectors is something you can still decode in ten years, with
+          a different implementation if need be.</dd>
+      </div>
+      <div>
+        <dt>Devices and offline sync</dt>
+        <dd>The format needs no allocator and no alignment, and the Rust runtime is <code>no_std</code> with two
+          dependencies, so the same records can come from point-of-sale terminals and embedded devices that batch
+          them while offline.</dd>
+      </div>
+      <div>
+        <dt>Caches and storage values</dt>
+        <dd>Store records in a key-value store and read only the field you need, straight from the stored bytes.</dd>
+      </div>
+      <div>
+        <dt>Plugin boundaries</dt>
+        <dd>Exchange buffers with untrusted extensions, for example WebAssembly modules, and let <code>verify</code>
+          protect the host from whatever they send back.</dd>
+      </div>
+    </dl>
+  </div>
+</section>
+
+<section class="band" id="implementations">
+  <div class="wrap">
+    <div class="section-head">
+      <h2>Implementations</h2>
+      <p>The specification is the product; implementations are measured against it. A conforming implementation
+        reads all 42 vectors with exactly the expected result (spec §10).</p>
+    </div>
+    <div class="table-scroll">
+    <table class="ledger impls">
+      <thead>
+        <tr><th scope="col">Language</th><th scope="col">Status</th><th scope="col">What it includes</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <th scope="row">Rust</th>
+          <td>Reference implementation. Passes all v1 vectors.</td>
+          <td>Runtime (<code>no_std</code>), the <code>gravenc</code> compiler with lockfile and compatibility
+            checks, Rust code generation, and the conformance interpreter.
+            <a href="api/graven/index.html">API reference</a></td>
+        </tr>
+      </tbody>
+    </table>
+    </div>
+    <div class="two-text">
+      <div>
+        <h3>Writing an implementation</h3>
+        <p>Start with the layout algorithm (spec §3.3), the read rules (§4–§6) and <code>verify</code> (§7), then run
+          the <a href="docs/conformance-vectors.html">conformance vectors</a>. Each vector is a <code>.bin</code> with a
+          <code>.json</code> stating the decoded value or the exact error, and each invalid one has a single defect,
+          so a failure points at one rule.</p>
+      </div>
+      <div>
+        <h3>Generating code for another language</h3>
+        <p>The schema language and its compatibility rules are language-neutral. The lockfile written by
+          <code>gravenc</code> already records every table's layout, schema id and field presence, which is what a code
+          generator for another language needs to emit readers and writers.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="band" id="start">
+  <div class="wrap">
+    <div class="section-head">
+      <h2>Getting started with Rust</h2>
+      <p>Using the reference implementation needs only the Rust toolchain.</p>
+    </div>
+    <ol class="steps">
+      <li>
+        <h3>Install the compiler</h3>
+<pre class="code"><code>cargo install --path crates/graven-compiler</code></pre>
+      </li>
+      <li>
+        <h3>Write a schema and create its lockfile</h3>
+<pre class="code"><code>gravenc update schemas/bank.graven --init</code></pre>
+      </li>
+      <li>
+        <h3>Generate code from <code>build.rs</code></h3>
+<pre class="code"><code>graven_compiler::build::Build::new()
+    .schema("schemas/bank.graven")
+    .compile()
+    .unwrap_or_else(|e| panic!("{e}"));</code></pre>
+      </li>
+      <li>
+        <h3>Write and read</h3>
+<pre class="code"><code>let bytes = TransactionW::to_bytes(&amp;mut b, |t| {
+    t.id(42).currency(Currency::USD);
+})?;
+let tx = Transaction::from_bytes(&amp;bytes)?;
+println!("{}", tx.id());</code></pre>
+      </li>
+    </ol>
+    <p class="more">The <a href="docs/getting-started.html">getting started guide</a> and the
+      <a href="docs/graven-language.html">schema language reference</a> cover the full workflow.</p>
+  </div>
+</section>
+
+</main>
+
+<footer class="foot">
+  <div class="wrap foot-inner">
+    <p>Graven · format v1 · MIT license</p>
+    <nav aria-label="Footer">
+      <a href="docs/spec/graven-format-v1.html">Specification</a>
+      <a href="docs/graven-language.html">Schema language</a>
+      <a href="docs/tools.html">Tools</a>
+      <a href="docs/conformance-vectors.html">Conformance vectors</a>
+      <a href="api/graven/index.html">Rust API</a>
+      <a href="docs/testing.html">Testing</a>
+      <a href="docs/changelog.html">Changelog</a>
+      <a href="https://github.com/lpj145/graven">GitHub</a>
+    </nav>
+  </div>
+</footer>
+
+<script src="assets/anatomy.js"></script>
+</body>
+</html>

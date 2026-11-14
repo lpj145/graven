@@ -1,0 +1,25 @@
+// Uses every kind of type from `common`.
+namespace orders;
+
+import common;
+
+table Line {
+  sku  @0: string;
+  qty  @1: u32 = 1;
+  unit @2: common.Money;
+}
+
+union Delivery { Address @1: common.Address, Pickup @2: Pickup }
+
+table Pickup { store @0: u32; }
+
+table Order {
+  id       @0: common.Uuid;
+  total    @1: common.Money;
+  ship_to  @2: common.Address?;
+  lines    @3: [Line];
+  contact  @4: common.Contact?;
+  history  @5: [common.Address]?;
+  delivery @6: Delivery?;
+  currency @7: common.Currency = USD;
+}

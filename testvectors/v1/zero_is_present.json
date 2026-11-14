@@ -1,0 +1,53 @@
+{
+  "schema": "conformance.v1.Root",
+  "enveloped": false,
+  "expect": {
+    "value": {
+      "Table": {
+        "a_f32": {
+          "F32": "f32:0x00000000"
+        },
+        "a_f64": {
+          "F64": "f64:0x0000000000000000"
+        },
+        "a_i128": {
+          "Int": "0"
+        },
+        "a_i16": {
+          "Int": "0"
+        },
+        "a_i64": {
+          "Int": "0"
+        },
+        "a_u128": {
+          "UInt": "0"
+        },
+        "a_u32": {
+          "UInt": "0"
+        },
+        "a_u8": {
+          "UInt": "0"
+        },
+        "color": {
+          "UInt": "0"
+        },
+        "flag": {
+          "Bool": false
+        },
+        "flag2": {
+          "Bool": false
+        },
+        "point": {
+          "Table": {
+            "x": {
+              "Int": "0"
+            },
+            "y": {
+              "Int": "0"
+            }
+          }
+        }
+      }
+    }
+  }
+}

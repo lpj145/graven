@@ -1,0 +1,156 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "Graven",
+  "scopeName": "source.graven",
+  "patterns": [
+    {
+      "include": "#comments"
+    },
+    {
+      "include": "#import"
+    },
+    {
+      "include": "#namespace"
+    },
+    {
+      "include": "#declaration"
+    },
+    {
+      "include": "#attribute"
+    },
+    {
+      "include": "#reserved"
+    },
+    {
+      "include": "#field-id"
+    },
+    {
+      "include": "#types"
+    },
+    {
+      "include": "#literals"
+    },
+    {
+      "include": "#punctuation"
+    }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        {
+          "name": "comment.line.documentation.graven",
+          "match": "///(?!/).*$"
+        },
+        {
+          "name": "comment.line.double-slash.graven",
+          "match": "//.*$"
+        },
+        {
+          "name": "comment.block.graven",
+          "begin": "/\\*",
+          "end": "\\*/"
+        }
+      ]
+    },
+    "namespace": {
+      "match": "\\b(namespace)\\s+([A-Za-z_][A-Za-z0-9_]*(?:\\.[A-Za-z_][A-Za-z0-9_]*)*)",
+      "captures": {
+        "1": {
+          "name": "keyword.other.namespace.graven"
+        },
+        "2": {
+          "name": "entity.name.namespace.graven"
+        }
+      }
+    },
+    "declaration": {
+      "match": "\\b(enum|struct|table|union)\\s+([A-Za-z_][A-Za-z0-9_]*)",
+      "captures": {
+        "1": {
+          "name": "storage.type.graven"
+        },
+        "2": {
+          "name": "entity.name.type.graven"
+        }
+      }
+    },
+    "attribute": {
+      "match": "#\\[\\s*([A-Za-z_][A-Za-z0-9_]*)\\s*\\]",
+      "name": "meta.attribute.graven",
+      "captures": {
+        "1": {
+          "name": "entity.other.attribute-name.graven"
+        }
+      }
+    },
+    "reserved": {
+      "match": "\\breserved\\b",
+      "name": "keyword.other.reserved.graven"
+    },
+    "field-id": {
+      "match": "@[0-9]+",
+      "name": "constant.numeric.field-id.graven"
+    },
+    "types": {
+      "patterns": [
+        {
+          "match": "\\b(u8|u16|u32|u64|u128|i8|i16|i32|i64|i128|f32|f64|bool|string|bytes)\\b",
+          "name": "support.type.primitive.graven"
+        },
+        {
+          "match": "\\b[A-Z][A-Za-z0-9_]*\\b",
+          "name": "entity.name.type.graven"
+        }
+      ]
+    },
+    "literals": {
+      "patterns": [
+        {
+          "match": "\\b(true|false)\\b",
+          "name": "constant.language.boolean.graven"
+        },
+        {
+          "match": "-?\\b0x[0-9A-Fa-f_]+\\b",
+          "name": "constant.numeric.hex.graven"
+        },
+        {
+          "match": "-?\\b[0-9][0-9_]*(\\.[0-9_]+)?([eE][+-]?[0-9_]+)?\\b",
+          "name": "constant.numeric.graven"
+        }
+      ]
+    },
+    "punctuation": {
+      "patterns": [
+        {
+          "match": "\\?",
+          "name": "keyword.operator.optional.graven"
+        },
+        {
+          "match": "=",
+          "name": "keyword.operator.assignment.graven"
+        },
+        {
+          "match": "[:;,]",
+          "name": "punctuation.separator.graven"
+        }
+      ]
+    },
+    "import": {
+      "match": "\\b(import)\\s+([A-Za-z_][A-Za-z0-9_]*(?:\\.[A-Za-z_][A-Za-z0-9_]*)*)(?:\\s+(as)\\s+([A-Za-z_][A-Za-z0-9_]*))?",
+      "captures": {
+        "1": {
+          "name": "keyword.other.import.graven"
+        },
+        "2": {
+          "name": "entity.name.namespace.graven"
+        },
+        "3": {
+          "name": "keyword.other.as.graven"
+        },
+        "4": {
+          "name": "entity.name.namespace.graven"
+        }
+      }
+    }
+  }
+}

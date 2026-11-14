@@ -1,0 +1,1 @@
+namespace t; enum Color : u8 { Red = 0, Green = 1 } table T { c @0: Color; cs @1: [Color]?; }

@@ -1,0 +1,1 @@
+error table-removed A

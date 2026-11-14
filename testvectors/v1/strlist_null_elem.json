@@ -1,0 +1,42 @@
+{
+  "schema": "conformance.v1.Extra",
+  "enveloped": false,
+  "expect": {
+    "value": {
+      "Table": {
+        "blobs": {
+          "List": [
+            {
+              "Bytes": ""
+            }
+          ]
+        },
+        "names": {
+          "List": [
+            {
+              "Str": "a"
+            },
+            {
+              "Str": ""
+            },
+            {
+              "Str": "c"
+            }
+          ]
+        },
+        "pick": {
+          "Union": {
+            "tag": 1,
+            "value": {
+              "Table": {
+                "n": {
+                  "UInt": "1"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

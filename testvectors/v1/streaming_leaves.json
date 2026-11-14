@@ -1,0 +1,60 @@
+{
+  "schema": "conformance.v1.Root",
+  "enveloped": false,
+  "expect": {
+    "value": {
+      "Table": {
+        "a_u32": {
+          "UInt": "7"
+        },
+        "a_u8": {
+          "UInt": "42"
+        },
+        "flag2": {
+          "Bool": true
+        },
+        "leaves": {
+          "List": [
+            {
+              "Table": {
+                "n": {
+                  "UInt": "1"
+                },
+                "s": {
+                  "Str": "um"
+                }
+              }
+            },
+            {
+              "Table": {
+                "n": {
+                  "UInt": "2"
+                },
+                "s": {
+                  "Str": "dois"
+                }
+              }
+            },
+            {
+              "Table": {
+                "n": {
+                  "UInt": "3"
+                },
+                "next": {
+                  "Table": {
+                    "n": {
+                      "UInt": "4"
+                    },
+                    "s": {
+                      "Str": "quatro"
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "name": "Graven lockfile",
+  "scopeName": "source.toml.graven-lock",
+  "patterns": [
+    { "name": "comment.line.number-sign.toml", "match": "#.*$" },
+    { "name": "entity.name.section.toml", "match": "^\\s*\\[\\[?[^\\]]+\\]\\]?" },
+    { "match": "^\\s*([A-Za-z_][A-Za-z0-9_]*)\\s*(=)", "captures": { "1": { "name": "variable.other.key.toml" }, "2": { "name": "keyword.operator.toml" } } },
+    { "name": "string.quoted.double.toml", "match": "\"(?:[^\"\\\\]|\\\\.)*\"" },
+    { "name": "constant.numeric.toml", "match": "\\b[0-9]+\\b" },
+    { "name": "constant.language.boolean.toml", "match": "\\b(true|false)\\b" }
+  ]
+}

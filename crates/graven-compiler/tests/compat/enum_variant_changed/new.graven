@@ -1,0 +1,1 @@
+namespace t; enum C : u8 { A = 1, B = 0 } table T { c @0: C; }

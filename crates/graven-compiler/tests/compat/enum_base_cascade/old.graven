@@ -1,0 +1,1 @@
+namespace t; enum Color : u8 { Red = 0 } struct Px { c: Color, v: u8 } struct Img { p: Px } table T { p @0: Px; i @1: Img?; n @2: u32?; }

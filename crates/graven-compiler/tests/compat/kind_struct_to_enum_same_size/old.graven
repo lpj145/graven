@@ -1,0 +1,1 @@
+namespace t; struct E { x: u8 } struct S { e: E } table T { s @0: S; l @1: [S]?; }

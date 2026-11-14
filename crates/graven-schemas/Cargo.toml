@@ -1,0 +1,18 @@
+[package]
+name = "graven-schemas"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Example schemas (bank, game, iot, stream) compiled with gravenc, plus evolution fixtures."
+
+[dependencies]
+graven = { path = "../graven" }
+
+[dev-dependencies]
+proptest = "1"
+bytes = "1"
+graven-layout = { path = "../graven-layout" }
+
+[build-dependencies]
+graven-compiler = { path = "../graven-compiler" }

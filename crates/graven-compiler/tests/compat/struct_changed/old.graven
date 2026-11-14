@@ -1,0 +1,1 @@
+namespace t; struct Point { x: i32, y: i32 } table T { p @0: Point; ps @1: [Point]?; }

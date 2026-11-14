@@ -1,0 +1,1 @@
+namespace t; table T { a @0: u32; b @1: u64?; }

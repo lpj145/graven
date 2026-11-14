@@ -1,0 +1,2 @@
+error union-variant-changed U.L
+error union-variant-changed U.M

@@ -1,0 +1,16 @@
+namespace game;
+
+struct Vec3 { x: f32, y: f32, z: f32 }
+
+table Entity {
+  id    @0: u32;
+  pos   @1: Vec3;
+  vel   @2: Vec3;
+  hp    @3: u16;
+  alive @4: bool;
+}
+
+table Frame {
+  tick     @0: u64;
+  entities @1: [Entity];
+}

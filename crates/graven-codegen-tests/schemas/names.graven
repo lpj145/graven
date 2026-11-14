@@ -1,0 +1,22 @@
+// Tricky names that `check` accepts: the generated Rust must compile (without warnings).
+namespace names;
+
+// Resemble the prelude: the generated code only uses absolute paths.
+struct Option { some: u8 }
+enum Result : u8 { Ok = 0, Err = 1, type = 2 }
+
+// Layout module `r#type`.
+table Type { fn @0: u32; match @1: Option?; }
+
+union String { loop @1: Type, Box @2: FnOnce }
+
+table FnOnce {
+  type      @0: Type?;
+  types     @1: [Type]?;
+  async     @2: Result = type;
+  str       @3: string?;
+  schema_id @4: u64?;
+  x         @5: string?;
+  x_bit     @6: u8?;
+  s         @7: String?;
+}

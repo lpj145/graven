@@ -1,0 +1,9 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc dfaee43b76d9b9ffe18eb068db663f970ce5e2fb9c7a660225fce2b3cade73dd # shrinks to v = Table({"a_u8": UInt(0), "flag2": Bool(false)})
+cc 1d1f5ed27832de94354ba44f9cd4456cd98f157e357c42ee5e0116417122f281 # shrinks to buf = []
+cc 7ab19c890a0c846942c4551c374fe84da43637eb5c82411617ee0c968c6567e3 # shrinks to v = Table({"a_f64": F64(4.8602619706953445e-61), "a_u8": UInt(0), "flag2": Bool(false)})

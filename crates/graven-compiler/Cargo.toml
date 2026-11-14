@@ -1,0 +1,33 @@
+[package]
+name = "graven-compiler"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "gravenc: compiler for the .graven schema language, with lockfile and compatibility checks."
+publish = false
+
+[lib]
+name = "graven_compiler"
+
+[dependencies]
+serde = { version = "1.0.229", features = ["derive"] }
+toml = "1.2.1"
+graven = { version = "0.1.0", path = "../graven" }
+graven-layout = { path = "../graven-layout" }
+graven-dynamic = { path = "../graven-dynamic" }
+serde_json = { version = "1", features = ["preserve_order"] }
+bytes = "1"
+proc-macro2 = "1"
+quote = "1"
+syn = { version = "2", features = ["full"] }
+prettyplease = "0.2"
+
+[dev-dependencies]
+proptest = "1"
+graven-schemas = { path = "../graven-schemas" }
+graven-conformance = { path = "../graven-conformance" }
+
+[[bin]]
+name = "gravenc"
+path = "src/main.rs"

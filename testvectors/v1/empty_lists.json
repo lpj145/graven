@@ -1,0 +1,40 @@
+{
+  "schema": "conformance.v1.Root",
+  "enveloped": false,
+  "expect": {
+    "value": {
+      "Table": {
+        "a_u32": {
+          "UInt": "7"
+        },
+        "a_u8": {
+          "UInt": "42"
+        },
+        "blob": {
+          "Bytes": ""
+        },
+        "blobs": {
+          "List": []
+        },
+        "flag2": {
+          "Bool": true
+        },
+        "leaves": {
+          "List": []
+        },
+        "name": {
+          "Str": ""
+        },
+        "names": {
+          "List": []
+        },
+        "nums": {
+          "List": []
+        },
+        "points": {
+          "List": []
+        }
+      }
+    }
+  }
+}

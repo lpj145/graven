@@ -1,0 +1,2 @@
+error enum-variant-changed C.A
+error enum-variant-changed C.B

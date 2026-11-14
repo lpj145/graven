@@ -1,0 +1,112 @@
+//! AST of the `.graven` language.
+
+use std::fmt;
+
+/// Position in the source (1-based; `col` counts characters).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct Span {
+    pub line: u32,
+    pub col: u32,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Schema {
+    pub namespace: (String, Span),
+    /// `import a.b;` / `import a.b as x;`, in order.
+    pub imports: Vec<Import>,
+    pub items: Vec<Item>,
+    /// Documentation comments (`///`), keyed by what they document: `Type` for a type,
+    /// `Type.member` for a field, an enum variant or a union variant. Lines are joined with `\n`.
+    pub docs: std::collections::BTreeMap<String, String>,
+}
+
+/// `import <namespace> [as <alias>];`
+#[derive(Debug, Clone, PartialEq)]
+pub struct Import {
+    pub namespace: String,
+    /// The name the file uses: the alias, or the namespace's last segment.
+    pub name: String,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum Item {
+    Enum(EnumDecl),
+    Struct(StructDecl),
+    Table(TableDecl),
+    Union(UnionDecl),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct EnumDecl {
+    pub name: String,
+    pub base: TypeRef,
+    pub values: Vec<(String, i128, Span)>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct StructDecl {
+    pub name: String,
+    pub fields: Vec<(String, TypeRef, Span)>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct TableDecl {
+    pub name: String,
+    pub fields: Vec<FieldDecl>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct FieldDecl {
+    pub id: u16,
+    /// `None` = a `reserved` field.
+    pub name: Option<String>,
+    pub ty: Option<TypeRef>,
+    pub optional: bool,
+    pub default: Option<Literal>,
+    pub attrs: Vec<String>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct UnionDecl {
+    pub name: String,
+    pub variants: Vec<(String, u16, TypeRef, Span)>,
+    pub span: Span,
+}
+
+/// `u8..i128`, `f32`, `f64`, `bool`, `string`, `bytes` are also `Named`. An imported type is
+/// `Named("common.Uuid")` (import name, dot, type name).
+#[derive(Debug, Clone, PartialEq)]
+pub enum TypeRef {
+    Named(String),
+    List(Box<TypeRef>),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum Literal {
+    /// An integer in the `i128` range (negative values included).
+    Int(i128),
+    /// A positive integer above `i128::MAX` (only valid for `u128`).
+    UInt(u128),
+    Float(f64),
+    Bool(bool),
+    Ident(String),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ParseError {
+    pub span: Span,
+    pub msg: String,
+}
+
+impl fmt::Display for ParseError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}:{}: {}", self.span.line, self.span.col, self.msg)
+    }
+}
+
+impl std::error::Error for ParseError {}

@@ -1,0 +1,28 @@
+// Defaults at the extremes of every type: parse → check → lock → generated code → read.
+namespace defaults;
+
+enum Big : u32 { Low = 0, High = 0xFFFF_FFFF }
+
+table Extremes {
+  id       @0: u8;
+  u8_max   @1: u8 = 255;
+  u16_max  @2: u16 = 65535;
+  u32_max  @3: u32 = 4294967295;
+  u64_max  @4: u64 = 0xFFFF_FFFF_FFFF_FFFF;
+  u128_max @5: u128 = 340282366920938463463374607431768211455;
+  u128_mid @6: u128 = 170141183460469231731687303715884105728;
+  i8_min   @7: i8 = -128;
+  i16_min  @8: i16 = -32768;
+  i32_min  @9: i32 = -0x8000_0000;
+  i64_min  @10: i64 = -9223372036854775808;
+  i128_min @11: i128 = -170141183460469231731687303715884105728;
+  i128_max @12: i128 = 170141183460469231731687303715884105727;
+  f32_max  @13: f32 = 3.4028235e38;
+  f32_tiny @14: f32 = 1e-45;
+  f32_neg0 @15: f32 = -0.0;
+  f64_max  @16: f64 = 1.7976931348623157e308;
+  f64_tiny @17: f64 = 5e-324;
+  f64_int  @18: f64 = -2;
+  flag     @19: bool = true;
+  big      @20: Big = High;
+}

@@ -1,0 +1,22 @@
+namespace bank;
+
+enum Currency : u16 { BRL = 0, USD = 1, EUR = 2 }
+
+table Entry {
+  account @0: u64;
+  amount  @1: i64;
+  memo    @2: string?;
+}
+
+// Evolution fixture v3: v2 + `to_shard` retired. It was required, so the break for
+// old readers (`Missing`) is confirmed with `#[allow_breaking_readers]`.
+table Transaction {
+  id         @0: u64;
+  ts         @1: u64;
+  currency   @2: Currency;
+  #[allow_breaking_readers] from_shard @3: u32?; // was required (required-relaxed)
+  #[allow_breaking_readers] @4: reserved;           // was `to_shard @4: u32` (required)
+  entries    @5: [Entry];
+  @6: reserved string;     // was `note @6: string?`
+  fee        @7: i64?;
+}

@@ -1,0 +1,22 @@
+[package]
+name = "graven-conformance"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Conformance interpreter and frozen test-vector generator for Graven format v1."
+publish = false
+
+[dependencies]
+graven = { path = "../graven" }
+graven-dynamic = { path = "../graven-dynamic" }
+graven-layout = { path = "../graven-layout" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[dev-dependencies]
+proptest = "1"
+graven-schemas = { path = "../graven-schemas" }
+
+[build-dependencies]
+graven-compiler = { path = "../graven-compiler" }

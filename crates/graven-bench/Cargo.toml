@@ -1,0 +1,25 @@
+[package]
+name = "graven-bench"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Benchmarks of Graven against other serialization formats."
+publish = false
+
+[dependencies]
+graven = { path = "../graven" }
+graven-schemas = { path = "../graven-schemas" }
+bytes = "1"
+flatbuffers = "25.12.19"
+capnp = "0.27.3"
+
+[[bench]]
+name = "codec"
+harness = false
+
+[build-dependencies]
+capnpc = "0.27.0"
+
+[dev-dependencies]
+criterion = "0.8.2"

@@ -1,0 +1,1 @@
+namespace t; table T { @0: reserved; b @1: u32; a @2: u32?; }

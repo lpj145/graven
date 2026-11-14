@@ -1,0 +1,1 @@
+namespace t; enum C : u16 { A = 0 } struct P { x: f64 } table L { n @0: u8; } union U { L @1: L } table T { c @0: C; p @1: P?; u @2: U?; l @3: [P]?; b @4: bool = false; @5: reserved string; }

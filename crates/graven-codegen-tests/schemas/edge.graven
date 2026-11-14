@@ -1,0 +1,44 @@
+// Codegen edge cases that the graven-schemas and conformance schemas do not cover.
+namespace edge;
+
+enum Mode : u16 { Off = 0, On = 1, Auto = 7 }
+enum Tiny : u8 { A = 1, B = 2 }
+
+struct Pixel { r: u8, on: bool, mode: Mode, tiny: Tiny }
+struct Pair { a: Pixel, w: f64 }
+
+// Scalars only: becomes FixedW, also when nested or as a union variant.
+table Small { v @0: u32; ok @1: bool?; }
+
+table Big { s @0: string; b @1: bytes; }
+
+union Pick { Small @1: Small, Big @2: Big }
+
+table Edge {
+  type      @0: u8;
+  req_str   @1: string;
+  req_bytes @2: bytes;
+  req_nums  @3: [i64];
+  req_names @4: [string];
+  req_blobs @5: [bytes];
+  req_small @6: [Small];
+  req_big   @7: [Big];
+  req_tab   @8: Small;
+  req_pick  @9: Pick;
+  d_i8      @10: i8 = -128;
+  d_i64     @11: i64 = -9223372036854775808;
+  d_f32     @12: f32 = -1.5;
+  d_f64     @13: f64 = 2;
+  d_bool    @14: bool = true;
+  d_mode    @15: Mode = Auto;
+  pixel     @16: Pixel?;
+  pair      @17: Pair;
+  bools     @18: [bool]?;
+  modes     @19: [Mode]?;
+  pixels    @20: [Pixel]?;
+  opt_tab   @21: Big?;
+  opt_pick  @22: Pick?;
+  @23: reserved string;
+  @24: reserved u64;
+  last      @25: u8?;
+}

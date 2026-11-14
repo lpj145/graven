@@ -1,0 +1,22 @@
+namespace bank;
+
+enum Currency : u16 { BRL = 0, USD = 1, EUR = 2 }
+
+table Entry {
+  account @0: u64;
+  amount  @1: i64;
+  memo    @2: string?;
+}
+
+// v2 (mirrors graven-schemas/schemas/evo/bank_v2.graven): `from_shard` becomes optional, `note`
+// is retired and `fee` is appended.
+table Transaction {
+  id         @0: u64;
+  ts         @1: u64;
+  currency   @2: Currency;
+  #[allow_breaking_readers] from_shard @3: u32?; // was required (required-relaxed)
+  to_shard   @4: u32;
+  entries    @5: [Entry];
+  @6: reserved string;     // was `note @6: string?`
+  fee        @7: i64?;
+}
