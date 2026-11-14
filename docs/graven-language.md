@@ -38,10 +38,12 @@ enum      = "enum" ident ":" type "{" [ evalue { "," evalue } [","] ] "}" ;
 evalue    = ident "=" int ;                    (* decimal or 0x…, unsigned *)
 struct    = "struct" ident "{" [ sfield { "," sfield } [","] ] "}" ;
 sfield    = ident ":" type ;
-table     = "table" ident "{" { tfield } "}" ;
-tfield    = { attr } ( "@" int ":" "reserved" [ type ] ";"
-                     | ident "@" int ":" type [ "?" ] [ "=" literal ] ";" ) ;
-attr      = "#" "[" ident "]" ;
+table     = { attrs } "table" ident "{" { tfield } "}" ;
+tfield    = { attrs } ( "@" int ":" "reserved" [ type ] ";"
+                      | ident "@" int ":" type [ "?" ] [ "=" literal ] ";" ) ;
+attrs     = "#" "[" attr { "," attr } [","] "]" ;
+attr      = ident [ "(" [ arg { "," arg } [","] ] ")" ] ;
+arg       = ident [ "=" literal ] ;
 union     = "union" ident "{" uvar { "," uvar } [","] "}" ;   (* at least one variant *)
 uvar      = ident "@" int ":" type ;
 type      = ident [ "." ident ] | "[" type "]" ;   (* `name.Type`: an imported type *)
@@ -140,12 +142,15 @@ table Root {
 - Reserving a **required** field breaks old readers (they get `Missing`): that is the
   `required-reserved` warning, which requires confirmation with the attribute below.
 
-## 5. Attributes
+## 5. Attributes and validation rules
 
-There is exactly one: `#[allow_breaking_readers]`, on a reserved, optional or defaulted
-field (never on a required one). It confirms the `required-reserved` and
-`required-relaxed` warnings: the field used to be required and new writers may omit it,
-so old readers get `Missing`:
+### Evolution confirmation
+
+`#[allow_breaking_readers]` confirms compatibility warnings:
+
+- on a reserved, optional or defaulted field that used to be required (`required-reserved`, `required-relaxed`),
+- on any field whose validation rules tightened or gained a check (`rule-tightened`, `check-added`),
+- on a table that gained a table-level `check(name)` (`check-added`).
 
 ```graven
 table T {
@@ -156,7 +161,48 @@ table T {
 ```
 
 The attribute may stay in the schema after `update`; it only has an effect in the step
-where the field stops being required.
+where the breaking change is introduced.
+
+### Validation rules
+
+Tables and table fields can declare value validation rules without changing the wire format
+(see [proposal 0002](proposals/0002-validation.md)):
+
+```graven
+enum Status : u8 { Active = 0, Draft = 1 }
+
+#[check(valid_period)]
+table Promo {
+  #[len(min = 1, max = 64), check(slug)]
+  name @0: string;
+
+  #[range(min = 1, max = 10_000_000)]
+  price @1: u32;
+
+  #[finite, range(min = 0.0, max = 100.0)]
+  discount @2: f32?;
+
+  #[known]
+  status @3: Status;
+
+  starts @4: u64;
+  ends @5: u64;
+}
+```
+
+| Rule | Applies to | Meaning |
+|---|---|---|
+| `range(min = a, max = b)` | integer and float fields | `a ≤ value ≤ b` (inclusive; NaN is outside); either bound may be omitted |
+| `len(min = a, max = b)` | `string`, `bytes`, `[T]` | byte length (`string`/`bytes`) or element count (`[T]`); either bound may be omitted |
+| `finite` | `f32`, `f64` | not NaN and not infinite |
+| `known` | enum fields and `[Enum]` | value is a variant declared in the reader's schema |
+| `check(name)` | any field or `table` | calls application-provided `Checks::name(&self, v) -> bool` |
+
+Validation never runs implicitly on `from_bytes` or `to_bytes` (so old data stays readable).
+When a schema declares rules, generated code provides `pub trait Checks`, `XVerified::validate(&checks)`
+(stops at the first failure, no allocation), `XVerified::validate_all(&checks)` (collects `Vec<Invalid>`),
+and `XW::to_bytes_validated(&mut b, &checks, |w| ...)`. Schemas without rules generate the exact same
+code as before.
 
 Any other attribute is an error.
 
@@ -271,9 +317,11 @@ size, slot, bit, presence) and the types of reserved fields, enums, structs and 
 | `namespace-changed` | the namespace changed, which changes every schema id; if that is intended, start a new lockfile (delete the lock and run `gravenc update --init`) |
 | `layout-changed` | defensive: a different slot/bit with the same types (the sequential layout never produces this) |
 
-**Warnings** (an error until confirmed with `#[allow_breaking_readers]` on the field):
-`required-reserved` (required → reserved) and `required-relaxed` (required →
-optional/default). Since the second one also requires confirmation, reserving in two
+**Warnings** (an error until confirmed with `#[allow_breaking_readers]` on the field or table):
+`required-reserved` (required → reserved), `required-relaxed` (required →
+optional/default), `rule-tightened` (a `range`/`len` bound tightened or a new built-in rule
+added to an existing field), and `check-added` (a new `check(name)` added to an existing
+field or table). Since `required-relaxed` also requires confirmation, reserving in two
 steps (required → optional → reserved) does not escape the warning.
 
 **Allowed**: a new optional or defaulted field (`new-optional`, `new-default`);

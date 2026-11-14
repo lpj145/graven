@@ -111,8 +111,18 @@ pub(crate) fn check_names(s: &ast::Schema, resolve: &dyn Fn(&str) -> Option<Ty>,
         })
         .collect();
 
+    let has_rules = s.items.iter().any(|i| match i {
+        Item::Table(t) => {
+            t.attrs.iter().any(|a| a.name != "allow_breaking_readers")
+                || t.fields.iter().any(|f| f.attrs.iter().any(|a| a.name != "allow_breaking_readers"))
+        }
+        _ => false,
+    });
     let (mut types, mut values) = (Scope::default(), Scope::default());
     values.map.insert("SCHEMA_ID".into(), (FIXED.into(), "root schema id".into()));
+    if has_rules {
+        types.map.insert("Checks".into(), (FIXED.into(), "validation checks trait".into()));
+    }
     let mut seen = HashSet::new();
 
     for item in &s.items {
@@ -163,7 +173,7 @@ pub(crate) fn check_names(s: &ast::Schema, resolve: &dyn Fn(&str) -> Option<Ty>,
                     }
                 }
             }
-            Item::Table(t) => table_fields(&mut nx, t, resolve, &unions),
+            Item::Table(t) => table_fields(&mut nx, t, resolve, &unions, has_rules),
         }
 
         if !type_ok {
@@ -240,6 +250,7 @@ fn table_fields(
     t: &ast::TableDecl,
     resolve: &dyn Fn(&str) -> Option<Ty>,
     unions: &HashMap<&str, &ast::UnionDecl>,
+    has_rules: bool,
 ) {
     let mut layout = Scope::default();
     let (mut reader, mut view, mut writer) = (Scope::default(), Scope::default(), Scope::default());
@@ -252,6 +263,12 @@ fn table_fields(
     view.map.insert("reader".into(), (FIXED.into(), "view method".into()));
     for m in ["root", "to_bytes", "seal"] {
         writer.map.insert(m.into(), (FIXED.into(), "writer method".into()));
+    }
+    if has_rules {
+        for m in ["validate", "validate_all", "validate_all_into"] {
+            view.map.insert(m.into(), (FIXED.into(), "validation method".into()));
+        }
+        writer.map.insert("to_bytes_validated".into(), (FIXED.into(), "validation writer method".into()));
     }
 
     let mut seen = HashSet::new();

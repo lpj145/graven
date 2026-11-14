@@ -73,7 +73,7 @@ fn attrs_and_defaults() {
     let t = table(&s, "T");
     let r = &t.fields[0];
     assert_eq!((r.id, r.name.clone(), r.ty.clone()), (3, None, None));
-    assert_eq!(r.attrs, vec!["allow_breaking_readers".to_string()]);
+    assert_eq!(r.attrs.iter().map(|a| a.name.as_str()).collect::<Vec<_>>(), vec!["allow_breaking_readers"]);
     let c = &t.fields[1];
     assert_eq!(c.name.as_deref(), Some("c"));
     assert_eq!(c.ty, Some(named("Color")));
@@ -104,7 +104,7 @@ fn comments_literals_and_lists() {
     assert_eq!(t.fields[2].default, Some(Literal::Bool(true)));
     assert!(t.fields[3].optional);
     assert_eq!(t.fields[4].ty, Some(TypeRef::List(Box::new(named("u8")))));
-    assert_eq!(t.fields[5].attrs, vec!["a".to_string(), "b".to_string()]);
+    assert_eq!(t.fields[5].attrs.iter().map(|a| a.name.as_str()).collect::<Vec<_>>(), vec!["a", "b"]);
     let Item::Union(u) = &s.items[3] else { panic!() };
     assert_eq!((u.variants[1].0.as_str(), u.variants[1].1), ("M", 2));
 }
@@ -219,4 +219,39 @@ fn imports_and_qualified_types() {
     assert_eq!(t.fields[1].ty, Some(TypeRef::List(Box::new(TypeRef::Named("m.Money".into())))));
     // `import` belongs before the declarations.
     assert!(parse("namespace o;\ntable T { a @0: u8; }\nimport common;").is_err());
+}
+
+#[test]
+fn validation_attrs_syntax() {
+    let s = parse(
+        "namespace shop;\n\
+         #[check(valid_period)]\n\
+         table Promo {\n\
+           #[len(min = 1, max = 64), check(slug)]\n\
+           name @0: string;\n\
+           #[range(min = -10, max = 10_000)]\n\
+           delta @1: i32;\n\
+         }",
+    )
+    .unwrap();
+    let t = table(&s, "Promo");
+    assert_eq!(t.attrs.len(), 1);
+    assert_eq!(t.attrs[0].name, "check");
+    assert_eq!(t.attrs[0].args[0].name, "valid_period");
+    assert_eq!(t.attrs[0].args[0].value, None);
+
+    let name = &t.fields[0];
+    assert_eq!(name.attrs.len(), 2);
+    assert_eq!(name.attrs[0].name, "len");
+    assert_eq!(name.attrs[0].args[0].name, "min");
+    assert_eq!(name.attrs[0].args[0].value, Some(Literal::Int(1)));
+    assert_eq!(name.attrs[0].args[1].name, "max");
+    assert_eq!(name.attrs[0].args[1].value, Some(Literal::Int(64)));
+    assert_eq!(name.attrs[1].name, "check");
+    assert_eq!(name.attrs[1].args[0].name, "slug");
+
+    let delta = &t.fields[1];
+    assert_eq!(delta.attrs[0].name, "range");
+    assert_eq!(delta.attrs[0].args[0].value, Some(Literal::Int(-10)));
+    assert_eq!(delta.attrs[0].args[1].value, Some(Literal::Int(10_000)));
 }

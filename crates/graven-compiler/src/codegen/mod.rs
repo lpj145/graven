@@ -43,6 +43,7 @@
 //! `unsafe`, as in hand-written code.
 
 mod read;
+mod validate;
 mod view;
 mod write;
 
@@ -156,6 +157,7 @@ fn items(ir: &Ir, lock: &Lock) -> TokenStream {
         out.extend(cx.view(&t));
         out.extend(cx.writer(&t));
     }
+    out.extend(cx.checks_trait());
     out
 }
 
@@ -235,6 +237,7 @@ struct F<'a> {
     name: &'a str,
     ty: &'a Ty,
     presence: &'a Presence,
+    rules: &'a FieldRules,
     slot: Option<u16>,
     bit: Option<(u16, u8)>,
     /// accessor / setter name
@@ -257,6 +260,7 @@ impl<'a> Cx<'a> {
                 name: &f.name,
                 ty: &f.ty,
                 presence: &f.presence,
+                rules: &f.rules,
                 slot: l.slot,
                 bit: l.presence,
                 id: ident(&f.name),

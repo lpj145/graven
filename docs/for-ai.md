@@ -88,6 +88,11 @@ Write schemas that `gravenc` accepts the first time:
 10. One namespace per file, and two files cannot share one. Imported types are always
     qualified by the last segment of their namespace (`common.Uuid`), or by an alias
     (`import acme.common as ac;`).
+11. Validation rules (`range`, `len`, `finite`, `known`, `check(name)`) live on table fields
+    (or `check(name)` on a `table`), never on structs. Reading (`from_bytes`) never runs
+    them implicitly; call `view.validate(&checks)` or `XW::to_bytes_validated(&mut b, &checks, ...)`.
+    Tightening or adding rules triggers `rule-tightened` / `check-added` warnings
+    (confirmed with `#[allow_breaking_readers]`).
 
 Renaming a field, adding an enum variant, adding a union variant and adding a table are
 all allowed.
@@ -118,10 +123,10 @@ Install the compiler with `cargo install graven-compiler`, and add to
 
 ```toml
 [dependencies]
-graven = "0.1"
+graven = "0.2"
 
 [build-dependencies]
-graven-compiler = "0.1"
+graven-compiler = "0.2"
 ```
 
 `build.rs`:

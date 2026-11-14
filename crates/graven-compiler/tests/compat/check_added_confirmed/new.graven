@@ -1,0 +1,1 @@
+namespace t; table T { #[allow_breaking_readers, check(slug)] a @0: string; }

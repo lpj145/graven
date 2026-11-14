@@ -68,6 +68,7 @@
 //! `Value` equality is exact: floats compare by bits (`NaN` payloads matter, `0.0 != -0.0`).
 pub mod interp;
 pub mod model;
+pub mod validate;
 
 pub use interp::{Value, field_kind, layout, read, write};
 pub use model::*;

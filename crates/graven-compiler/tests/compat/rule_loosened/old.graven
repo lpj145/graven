@@ -1,0 +1,1 @@
+namespace t; table T { #[range(min = 10, max = 50), finite] a @0: f64; #[len(min = 2, max = 10)] s @1: string; }

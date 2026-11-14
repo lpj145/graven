@@ -35,3 +35,8 @@ pub mod common {
 pub mod orders {
     include!(concat!(env!("OUT_DIR"), "/orders.rs"));
 }
+
+/// Validation rules (`schemas/validation.graven`): `range`, `len`, `finite`, `known`, `check`.
+pub mod validation {
+    include!(concat!(env!("OUT_DIR"), "/validation.rs"));
+}

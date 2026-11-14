@@ -1,0 +1,1 @@
+namespace t; #[check(valid_t)] table T { #[check(slug)] a @0: string; }

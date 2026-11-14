@@ -10,6 +10,6 @@ categories = ["encoding"]
 description = "Schema-driven reader and writer for the Graven binary format (schemas as data, no generated code)."
 
 [dependencies]
-graven = { version = "0.1.0", path = "../graven" }
-graven-layout = { version = "0.1.0", path = "../graven-layout" }
+graven = { version = "0.2.0", path = "../graven" }
+graven-layout = { version = "0.2.0", path = "../graven-layout" }
 serde = { version = "1", features = ["derive"] }

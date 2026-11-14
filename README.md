@@ -26,6 +26,9 @@ to discipline.
   refuses changes that would make old and new code disagree (changed types, reused IDs,
   changed defaults, …) and requires explicit confirmation for changes that break old
   readers.
+- **Opt-in value validation.** Declare `range`, `len`, `finite`, `known`, and named
+  application hooks (`check(name)`) in the schema without changing the wire format; reading
+  remains structural so old data stays readable, and `gravenc` warns when rules tighten.
 - **Optional envelope for disk and network:** magic, format version, schema id and
   CRC32C. Envelopes can be concatenated into append-only files; a crash-truncated tail
   is distinguished from real corruption.
@@ -119,10 +122,10 @@ code generator for another language can start from it.
 
    ```toml
    [dependencies]
-   graven = "0.1"
+   graven = "0.2"
 
    [build-dependencies]
-   graven-compiler = "0.1"
+   graven-compiler = "0.2"
    ```
 
 2. Write `schemas/bank.graven` and create its lockfile once: `gravenc update schemas/bank.graven --init`.
@@ -160,6 +163,7 @@ The [language guide](docs/graven-language.md) covers the full workflow.
 | [Binary layout](docs/binary-layout.md) | Every kind of value on the wire, byte by byte. |
 | [Good practice](docs/good-practice.md) | Advice for designing schemas and storing collections, with the reason behind each tip. |
 | [Schema language](docs/graven-language.md) | `.graven` grammar and types, evolution rules, `gravenc` commands, generated API. |
+| [Validation](docs/validation.md) | Built-in value rules (`range`, `len`, `finite`, `known`), `check(name)` hooks, and evolution warnings. |
 | [Coming from JSON](docs/coming-from-json.md) | Translating JSON data into a schema, piece by piece, with a worked example. |
 | [Tools](docs/tools.md) | `gravenc diff`, `inspect`, `to-json`, `from-json`, `scan`, and the VS Code extension. |
 | [Conformance vectors](testvectors/v1/README.md) | The 42 frozen vectors and how to check an implementation against them. |
@@ -205,7 +209,7 @@ npx wrangler pages deploy target/site --project-name graven   # Cloudflare Pages
 
 Format v1 is frozen: the specification and vectors will not change. Any change to the
 wire format will be format v2, announced by a new `format_version` in the envelope.
-The Rust API is at 0.1 and may still change.
+The Rust API is at 0.2 and may still change.
 
 ## License
 

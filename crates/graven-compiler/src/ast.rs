@@ -46,15 +46,32 @@ pub struct EnumDecl {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub struct AttrArg {
+    pub name: String,
+    pub value: Option<Literal>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Attr {
+    pub name: String,
+    pub args: Vec<AttrArg>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct StructDecl {
     pub name: String,
+    pub attrs: Vec<Attr>,
     pub fields: Vec<(String, TypeRef, Span)>,
+    pub field_attrs: Vec<Vec<Attr>>,
     pub span: Span,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct TableDecl {
     pub name: String,
+    pub attrs: Vec<Attr>,
     pub fields: Vec<FieldDecl>,
     pub span: Span,
 }
@@ -67,7 +84,7 @@ pub struct FieldDecl {
     pub ty: Option<TypeRef>,
     pub optional: bool,
     pub default: Option<Literal>,
-    pub attrs: Vec<String>,
+    pub attrs: Vec<Attr>,
     pub span: Span,
 }
 

@@ -37,6 +37,42 @@ pub struct LockTable {
     pub fixed_len: u16,
     /// In ID order (`fields[i].id == i`).
     pub fields: Vec<LockField>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub checks: Vec<String>,
+}
+
+fn is_false(b: &bool) -> bool {
+    !*b
+}
+
+#[derive(Serialize, Deserialize, PartialEq, Debug, Clone, Default)]
+pub struct LockRules {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub range: Option<LockRange>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub len: Option<LockLen>,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub finite: bool,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub known: bool,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub checks: Vec<String>,
+}
+
+#[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
+pub struct LockRange {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub min: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
+pub struct LockLen {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub min: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max: Option<u64>,
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
@@ -60,6 +96,8 @@ pub struct LockField {
     /// decimal for integers, the `{:?}` of the `f64` for floats (lossless round trip),
     /// `true`/`false` for bool and the variant name for enums.
     pub presence: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rules: Option<LockRules>,
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
@@ -212,9 +250,10 @@ pub fn lock_from_ir(ir: &Ir, prev: Option<&Lock>) -> Lock {
                     slot: l.slot,
                     bit: l.presence,
                     presence: presence_text(&f.presence, &f.ty),
+                    rules: lock_rules(&f.rules, &f.ty),
                 })
                 .collect();
-            LockTable { name: t.name.clone(), schema_id, fixed_len: t.layout.fixed_len, fields }
+            LockTable { name: t.name.clone(), schema_id, fixed_len: t.layout.fixed_len, fields, checks: t.checks.clone() }
         })
         .collect();
 
@@ -334,4 +373,28 @@ pub fn reserved_types(l: &Lock) -> impl Fn(&str, u16) -> Option<String> {
         .flat_map(|t| t.fields.iter().map(move |f| ((t.name.clone(), f.id), f.ty.clone())))
         .collect();
     move |table, id| map.get(&(table.to_string(), id)).cloned()
+}
+
+fn lock_rules(rules: &FieldRules, _ty: &Ty) -> Option<LockRules> {
+    if rules.is_empty() {
+        return None;
+    }
+    Some(LockRules {
+        range: rules.range.as_ref().map(|(min, max)| LockRange {
+            min: min.as_ref().map(range_bound_text),
+            max: max.as_ref().map(range_bound_text),
+        }),
+        len: rules.len.map(|(min, max)| LockLen { min, max }),
+        finite: rules.finite,
+        known: rules.known,
+        checks: rules.checks.clone(),
+    })
+}
+
+fn range_bound_text(b: &RangeBound) -> String {
+    match b {
+        RangeBound::Int(i) => i.to_string(),
+        RangeBound::UInt(u) => u.to_string(),
+        RangeBound::Float(x) => format!("{x:?}"),
+    }
 }

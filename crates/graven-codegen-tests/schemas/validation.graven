@@ -1,0 +1,40 @@
+namespace validation;
+
+enum Status : u8 { Active = 0, Draft = 1 }
+
+table Item {
+  #[len(min = 1, max = 32), check(slug)]
+  sku @0: string;
+
+  #[range(min = 1, max = 100)]
+  qty @1: u32;
+
+  #[known]
+  status @2: Status;
+}
+
+#[check(valid_period)]
+table Promo {
+  #[range(min = 1, max = 10_000_000)]
+  price @0: u32;
+
+  #[finite, range(min = 0.0, max = 100.0)]
+  discount @1: f32?;
+
+  #[len(max = 5)]
+  tags @2: [string]?;
+
+  #[known]
+  statuses @3: [Status]?;
+
+  items @4: [Item]?;
+
+  starts @5: u64;
+  ends @6: u64;
+}
+
+// Only built-in rules: `validate` takes `checks` but calls none of them.
+table Reading {
+  #[range(min = -40, max = 85)]
+  celsius @0: i16;
+}

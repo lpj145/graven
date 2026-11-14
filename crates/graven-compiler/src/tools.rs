@@ -42,6 +42,7 @@ struct Record {
     len: usize,
     table: Option<TableId>,
     result: Result<serde_json::Value, String>,
+    validation: Option<graven_dynamic::validate::BuiltinReport>,
 }
 
 fn explain(e: &Error) -> String {
@@ -57,12 +58,25 @@ fn explain(e: &Error) -> String {
 /// buffer that does not start with the magic, a single message of table `root`.
 fn decode_all(s: &Schema, data: &[u8], root: Option<TableId>, raw: bool) -> Result<(Vec<Record>, Option<String>), Failed> {
     let mut out = Vec::new();
+    let check_val = |t: TableId, v: &graven_dynamic::Value| {
+        if s.validation().tables.is_empty() {
+            None
+        } else {
+            Some(graven_dynamic::validate::Validator::validate_builtin(s.model(t), s.validation(), v))
+        }
+    };
     if raw || !data.starts_with(&MAGIC) {
         let Some(t) = root else {
             return Err(fail("the input is a raw message (no envelope): pass --root <Table>"));
         };
-        let result = graven_dynamic::read(data, s.model(t)).map(|v| table_to_json(&s.ir, t, &v)).map_err(|e| explain(&e));
-        out.push(Record { offset: 0, len: data.len(), table: Some(t), result });
+        let mut validation = None;
+        let result = graven_dynamic::read(data, s.model(t))
+            .map(|v| {
+                validation = check_val(t, &v);
+                table_to_json(&s.ir, t, &v)
+            })
+            .map_err(|e| explain(&e));
+        out.push(Record { offset: 0, len: data.len(), table: Some(t), result, validation });
         return Ok((out, None));
     }
     let mut at = 0;
@@ -70,14 +84,18 @@ fn decode_all(s: &Schema, data: &[u8], root: Option<TableId>, raw: bool) -> Resu
         match envelope::decode(&data[at..]) {
             Ok(env) => {
                 let table = s.table_by_schema_id(env.schema_id);
+                let mut validation = None;
                 let result = match table {
                     Some(t) if root.is_none_or(|r| r == t) => graven_dynamic::read(env.payload, s.model(t))
-                        .map(|v| table_to_json(&s.ir, t, &v))
+                        .map(|v| {
+                            validation = check_val(t, &v);
+                            table_to_json(&s.ir, t, &v)
+                        })
                         .map_err(|e| explain(&e)),
                     Some(t) => Err(format!("schema id is {}, not the --root table", s.qualified(t))),
                     None => Err(format!("unknown schema id {:#018x}: not a table of {}", env.schema_id, s.path.display())),
                 };
-                out.push(Record { offset: at, len: env.len(), table, result });
+                out.push(Record { offset: at, len: env.len(), table, result, validation });
                 at += env.len();
             }
             Err(e) => return Ok((out, Some(format!("offset {at}: {}", explain(&e))))),
@@ -97,7 +115,18 @@ pub fn inspect(schema: &Path, file: &Path, root: Option<&str>, raw: bool) -> Res
         let name = r.table.map(|t| s.qualified(t)).unwrap_or_else(|| "?".into());
         println!("#{i}  offset {}  {}  {} bytes", r.offset, name, r.len);
         match &r.result {
-            Ok(j) => println!("{}", serde_json::to_string_pretty(j).expect("JSON value")),
+            Ok(j) => {
+                println!("{}", serde_json::to_string_pretty(j).expect("JSON value"));
+                if let Some(val) = &r.validation {
+                    for inv in &val.invalid {
+                        bad = true;
+                        println!("  invalid: {inv}");
+                    }
+                    for name in &val.unchecked {
+                        println!("  validation: check({name}) not checked");
+                    }
+                }
+            }
             Err(e) => {
                 bad = true;
                 println!("  error: {e}");

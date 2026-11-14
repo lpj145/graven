@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.2.0 — validation rules in schemas
+
+- **Validation rules in schemas** ([proposal 0002](docs/proposals/0002-validation.md),
+  implemented). Built-in `range`, `len`, `finite` and `known` rules, named functions
+  (`check(name)`) that each application provides for any other rule, validation that runs
+  only when asked (`validate`, `validate_all`, `to_bytes_validated`), `graven-dynamic`
+  validator construction checks, `gravenc inspect` reporting, and lockfile checks for rules
+  that tighten over time (`rule-tightened`, `check-added`). No change to the wire format.
+
 ## 0.1.0 — format v1
 
 First public release.

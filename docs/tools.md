@@ -104,7 +104,8 @@ gravenc inspect <schema> <file> [--root <Table>] [--raw]
 Decodes every message in a file and prints it as indented JSON, with the offset and the
 table of each one. A file that starts with an envelope is read as a sequence of envelopes,
 and each message's table is found from its schema id. A bare message has no schema id, so
-it needs `--root`.
+it needs `--root`. If the schema declares validation rules, `inspect` checks the built-in
+rules (`range`, `len`, `finite`, `known`) and reports each `check(name)` as `not checked`.
 
 ```text
 $ gravenc inspect bank.graven log.bin

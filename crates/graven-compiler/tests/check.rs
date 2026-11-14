@@ -387,7 +387,7 @@ fn hand_table(f: FieldDecl) -> Schema {
     Schema {
         namespace: ("a".into(), sp),
         imports: Vec::new(),
-        items: vec![Item::Table(TableDecl { name: "T".into(), fields: vec![f], span: sp })],
+        items: vec![Item::Table(TableDecl { name: "T".into(), attrs: vec![], fields: vec![f], span: sp })],
         docs: Default::default(),
     }
 }
@@ -457,4 +457,51 @@ fn float_defaults_never_change_silently() {
     one_diag("namespace a; table T { x @0: u32 = 1.5; }", "default `1.5` is not a u32");
     // Rounding to the nearest representable value is normal float behavior, not an error.
     compile("namespace a; table T { x @0: f32 = 0.1; y @1: f32 = 1e-45; z @2: f64 = -0.0; }").unwrap();
+}
+
+#[test]
+fn validation_rules_checked() {
+    // Valid uses compile cleanly.
+    compile(
+        "namespace a;\n\
+         enum Color : u8 { Red = 0, Green = 1 }\n\
+         #[check(valid_t)]\n\
+         table T {\n\
+           #[range(min = 1, max = 100)] a @0: u32 = 5;\n\
+           #[range(min = -1.5, max = 1.5), finite] b @1: f32;\n\
+           #[len(min = 1, max = 64), check(slug)] s @2: string;\n\
+           #[len(max = 10)] bs @3: bytes?;\n\
+           #[known] c @4: Color;\n\
+           #[known] cs @5: [Color];\n\
+         }",
+    )
+    .unwrap();
+
+    // Type mismatches.
+    one_diag("namespace a; table T { #[range(min = 1)] s @0: string; }", "only valid on numeric fields");
+    one_diag("namespace a; table T { #[len(min = 1)] n @0: u32; }", "only valid on `string`, `bytes` or list fields");
+    one_diag("namespace a; table T { #[finite] n @0: u32; }", "only valid on `f32` or `f64`");
+    one_diag("namespace a; table T { #[known] n @0: u32; }", "only valid on enum fields or lists of enums");
+    one_diag("namespace a; table T { #[known] s @0: [string]; }", "only valid on enum fields or lists of enums");
+
+    // Structs cannot have attributes/rules.
+    one_diag("namespace a; #[check(x)] struct S { a: u32 }", "not allowed on struct");
+    one_diag("namespace a; struct S { #[range(min = 1)] a: u32 }", "not allowed on fields of struct");
+
+    // Bounds out of range / min > max.
+    one_diag("namespace a; table T { #[range(max = 300)] a @0: u8; }", "out of range for `u8`");
+    one_diag("namespace a; table T { #[range(min = -1)] a @0: u32; }", "out of range for `u32`");
+    one_diag("namespace a; table T { #[range(min = 10, max = 5)] a @0: u32; }", "min > max");
+    one_diag("namespace a; table T { #[len(min = -1)] s @0: string; }", "non-negative integer");
+    one_diag("namespace a; table T { #[len(min = 10, max = 5)] s @0: string; }", "min > max");
+
+    // Default violating its own rule.
+    one_diag("namespace a; table T { #[range(min = 10)] a @0: u32 = 5; }", "below `range` minimum");
+    one_diag("namespace a; table T { #[range(max = 10)] a @0: u32 = 15; }", "exceeds `range` maximum");
+
+    // Same check(name) with different input types.
+    one_diag(
+        "namespace a; table T { #[check(slug)] s @0: string; #[check(slug)] n @1: u32; }",
+        "`check(slug)` used on `u32`",
+    );
 }

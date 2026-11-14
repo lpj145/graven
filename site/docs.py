@@ -22,12 +22,13 @@ DOCS = os.path.join(ROOT, "docs")
 
 # (title in the sidebar, source under docs/, one-line description for the index)
 PAGES = [
-    ("Getting started", "getting-started.md", "Use the reference implementation in a Rust project."),
+    ("Getting started", "getting-started.md", "Install gravenc, create a schema and lockfile, and wire up code generation (including Rust build.rs)."),
     ("Coming from JSON", "coming-from-json.md", "Translate JSON data into a Graven schema, convert existing files, and choose how to store arrays."),
     ("Good practice", "good-practice.md", "Advice for designing schemas, storing collections and reading untrusted data, with the reason behind each tip."),
     ("Specification", "spec/graven-format-v1.md", "The normative wire format: layout, presence, verification, envelope, compatibility, conformance."),
     ("Binary layout", "binary-layout.md", "Every kind of value on the wire, byte by byte, with real messages encoded by the reference implementation."),
     ("Schema language", "graven-language.md", "The .graven language, evolution rules, the compiler workflow and the generated API."),
+    ("Validation", "validation.md", "Built-in rules (range, len, finite, known), custom checks, evolution and generated validation API."),
     ("Tools", "tools.md", "gravenc: check, update, diff, inspect, JSON conversion and log scanning; editor support."),
     ("Conformance vectors", "conformance-vectors.md", "The 42 frozen vectors and how to test an implementation against them."),
     ("Benchmarks", "benchmarks.md", "The reference implementation against FlatBuffers and Cap'n Proto: size, allocations and time on one machine."),
@@ -53,7 +54,7 @@ class GravenLexer(RegexLexer):
             (r"(import)(\s+)([\w.]+)", bygroups(Keyword.Namespace, Whitespace, Name.Namespace)),
             (r"\bas\b", Keyword.Namespace),
             (r"(enum|struct|table|union)(\s+)(\w+)", bygroups(Keyword.Declaration, Whitespace, Name.Class)),
-            (r"#\[\s*\w+\s*\]", Name.Decorator),
+            (r"#\[[^\]]*\]", Name.Decorator),
             (r"\breserved\b", Keyword),
             (r"@\d+", Name.Label),
             (words(("u8", "u16", "u32", "u64", "u128", "i8", "i16", "i32", "i64", "i128", "f32", "f64", "bool", "string", "bytes"), suffix=r"\b"), Keyword.Type),

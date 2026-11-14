@@ -20,6 +20,7 @@ pub struct Schema {
     pub ir: Ir,
     pub lock: Lock,
     tables: Vec<&'static dynm::TableDef>,
+    validation: dynm::validate::ValidationSchema,
     by_id: HashMap<u64, TableId>,
 }
 
@@ -43,13 +44,14 @@ impl Schema {
             ));
         }
         let tables = build_model(&a.ir);
+        let validation = build_validation(&a.ir, &tables);
         let mut by_id = HashMap::new();
         for (i, t) in a.ir.tables.iter().enumerate() {
             let lt = lock.tables.iter().find(|l| l.name == t.name).expect("lock matches the IR");
             let id = u64::from_str_radix(lt.schema_id.trim_start_matches("0x"), 16).expect("lock schema_id is valid");
             by_id.insert(id, TableId(i));
         }
-        Ok(Schema { path: path.to_path_buf(), ir: a.ir, lock, tables, by_id })
+        Ok(Schema { path: path.to_path_buf(), ir: a.ir, lock, tables, validation, by_id })
     }
 
     /// Table by its (unqualified) name.
@@ -75,6 +77,70 @@ impl Schema {
     /// Run-time model of a table, for `graven_dynamic::read` / `write`.
     pub fn model(&self, t: TableId) -> &'static dynm::TableDef {
         self.tables[t.0]
+    }
+
+    /// Validation rules of the schema, for `graven_dynamic::validate`.
+    pub fn validation(&self) -> &dynm::validate::ValidationSchema {
+        &self.validation
+    }
+}
+
+fn build_validation(ir: &Ir, tables: &[&'static dynm::TableDef]) -> dynm::validate::ValidationSchema {
+    use dynm::validate as dv;
+    let mut out = HashMap::new();
+    for (t, td) in ir.tables.iter().zip(tables) {
+        let mut fields = HashMap::new();
+        for f in &t.fields {
+            if f.rules.is_empty() {
+                continue;
+            }
+            let range = f.rules.range.as_ref().map(|(min, max)| {
+                (
+                    min.as_ref().map(conv_bound),
+                    max.as_ref().map(conv_bound),
+                )
+            });
+            let known = if f.rules.known {
+                let eid = match &f.ty {
+                    ir::Ty::Enum(id) => Some(*id),
+                    ir::Ty::List(elem) => match &**elem {
+                        ir::Ty::Enum(id) => Some(*id),
+                        _ => None,
+                    },
+                    _ => None,
+                };
+                eid.map(|id| {
+                    let vals: Vec<u32> = ir.enums[id.0].values.iter().map(|(_, v)| *v).collect();
+                    &*Box::leak(vals.into_boxed_slice())
+                })
+            } else {
+                None
+            };
+            let checks = f.rules.checks.iter().map(|c| leak(c)).collect();
+            fields.insert(
+                f.id,
+                dv::FieldRules {
+                    range,
+                    len: f.rules.len,
+                    finite: f.rules.finite,
+                    known,
+                    checks,
+                },
+            );
+        }
+        let checks: Vec<&'static str> = t.checks.iter().map(|c| leak(c)).collect();
+        if !checks.is_empty() || !fields.is_empty() {
+            out.insert(td.name, dv::TableRules { checks, fields });
+        }
+    }
+    dv::ValidationSchema { tables: out }
+}
+
+fn conv_bound(b: &ir::RangeBound) -> dynm::validate::RangeBound {
+    match b {
+        ir::RangeBound::Int(i) => dynm::validate::RangeBound::Int(*i),
+        ir::RangeBound::UInt(u) => dynm::validate::RangeBound::UInt(*u),
+        ir::RangeBound::Float(x) => dynm::validate::RangeBound::Float(*x),
     }
 }
 

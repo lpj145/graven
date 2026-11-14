@@ -72,6 +72,8 @@ pub fn check_with_imports(
                     layout: TableLayout { fixed_len: 0, fields: Vec::new() },
                     all_scalar: true,
                     ptr_slots: Vec::new(),
+                    checks: Vec::new(),
+                    allow_breaking: false,
                     span: t.span,
                     origin: None,
                 });
@@ -128,6 +130,7 @@ pub fn check_with_imports(
             ti += 1;
         }
     }
+    cx.check_named_sigs(&ir);
 
     // 5. Names that would break or collide in the generated Rust.
     let names = &cx.names;
@@ -271,6 +274,8 @@ fn copy_type(ir: &mut Ir, src: &Ir, ty: &Ty, memo: &mut HashMap<String, Ty>) -> 
                 layout: tb.layout.clone(),
                 all_scalar: tb.all_scalar,
                 ptr_slots: tb.ptr_slots.clone(),
+                checks: tb.checks.clone(),
+                allow_breaking: tb.allow_breaking,
                 span: Span::default(),
                 origin: Some(origin),
             });
@@ -402,6 +407,14 @@ impl Cx {
     }
 
     fn struct_fields(&mut self, ir: &Ir, d: &ast::StructDecl) -> Vec<(String, Ty)> {
+        if let Some(a) = d.attrs.first() {
+            self.err(a.span, format!("attributes are not allowed on struct `{}`", d.name));
+        }
+        for fattrs in &d.field_attrs {
+            if let Some(a) = fattrs.first() {
+                self.err(a.span, format!("attributes are not allowed on fields of struct `{}`", d.name));
+            }
+        }
         let mut out = Vec::new();
         let mut names = HashSet::new();
         for (fname, tr, sp) in &d.fields {
@@ -515,8 +528,54 @@ impl Cx {
                 _ => {}
             }
         }
+        let (checks, allow_breaking) = self.table_attrs(t);
         let all_scalar = !kinds.iter().any(|k| matches!(k, FieldKind::Ptr | FieldKind::Union));
-        Table { name: t.name.clone(), fields, layout, all_scalar, ptr_slots, span: t.span, origin: None }
+        Table { name: t.name.clone(), fields, layout, all_scalar, ptr_slots, checks, allow_breaking, span: t.span, origin: None }
+    }
+
+    fn table_attrs(&mut self, t: &ast::TableDecl) -> (Vec<String>, bool) {
+        let mut checks = Vec::new();
+        let mut seen_checks = HashSet::new();
+        let mut allow_breaking = false;
+        for a in &t.attrs {
+            match a.name.as_str() {
+                ALLOW_BREAKING => {
+                    if !a.args.is_empty() {
+                        self.err(a.span, format!("`#[{ALLOW_BREAKING}]` does not take arguments"));
+                    }
+                    allow_breaking = true;
+                }
+                "check" => {
+                    if let Some(name) = self.parse_check_arg(a)
+                        && !seen_checks.insert(name.clone())
+                    {
+                        self.err(a.span, format!("duplicate `check({name})` on table `{}`", t.name));
+                    } else if let Some(name) = self.parse_check_arg_quiet(a) {
+                        checks.push(name);
+                    }
+                }
+                other => {
+                    self.err(a.span, format!("attribute `#[{other}]` is not valid on a table"));
+                }
+            }
+        }
+        (checks, allow_breaking)
+    }
+
+    fn parse_check_arg(&mut self, a: &ast::Attr) -> Option<String> {
+        if a.args.len() != 1 || a.args[0].value.is_some() {
+            self.err(a.span, "`check` expects one function name: `#[check(name)]`".to_string());
+            return None;
+        }
+        Some(a.args[0].name.clone())
+    }
+
+    fn parse_check_arg_quiet(&self, a: &ast::Attr) -> Option<String> {
+        if a.args.len() == 1 && a.args[0].value.is_none() {
+            Some(a.args[0].name.clone())
+        } else {
+            None
+        }
     }
 
     fn field(
@@ -527,23 +586,21 @@ impl Cx {
         reserved_types: &dyn Fn(&str, u16) -> Option<String>,
     ) -> Field {
         let reserved = f.name.is_none();
-        let mut allow_breaking = false;
-        for a in &f.attrs {
-            if a != ALLOW_BREAKING {
-                self.err(f.span, format!("unknown attribute `#[{a}]`"));
-            } else if !reserved && !f.optional && f.default.is_none() {
-                self.err(
-                    f.span,
-                    format!("`#[{ALLOW_BREAKING}]` is only valid on a reserved, optional or defaulted field (formerly required)"),
-                );
-            } else {
-                allow_breaking = true;
-            }
-        }
         // Placeholder type for when the type does not resolve (the IR is discarded if there are errors).
         let placeholder = Ty::Scalar(Prim::U8);
 
         if reserved {
+            let mut allow_breaking = false;
+            for a in &f.attrs {
+                if a.name != ALLOW_BREAKING {
+                    self.err(a.span, format!("attribute `#[{}]` is not valid on a reserved field", a.name));
+                } else {
+                    if !a.args.is_empty() {
+                        self.err(a.span, format!("`#[{ALLOW_BREAKING}]` does not take arguments"));
+                    }
+                    allow_breaking = true;
+                }
+            }
             let name = format!("{RESERVED_PREFIX}{}", f.id);
             let presence = Presence::Reserved { allow_breaking };
             if f.optional || f.default.is_some() {
@@ -579,7 +636,7 @@ impl Cx {
                     placeholder
                 }
             };
-            return Field { id: f.id, name, ty, presence, allow_breaking, span: f.span };
+            return Field { id: f.id, name, ty, presence, allow_breaking, rules: FieldRules::default(), span: f.span };
         }
 
         let name = f.name.clone().unwrap();
@@ -611,7 +668,293 @@ impl Cx {
             (None, true) => Presence::Optional,
             (None, false) => Presence::Required,
         };
-        Field { id: f.id, name, ty: ty.unwrap_or(placeholder), presence, allow_breaking, span: f.span }
+        let resolved_ty = ty.unwrap_or(placeholder);
+        let (rules, allow_breaking) = self.field_attrs(ir, &name, f, &resolved_ty, &presence);
+        Field { id: f.id, name, ty: resolved_ty, presence, allow_breaking, rules, span: f.span }
+    }
+
+    fn field_attrs(
+        &mut self,
+        ir: &Ir,
+        field_name: &str,
+        f: &ast::FieldDecl,
+        ty: &Ty,
+        presence: &Presence,
+    ) -> (FieldRules, bool) {
+        let mut rules = FieldRules::default();
+        let mut allow_breaking_attr = None;
+        let mut seen_checks = HashSet::new();
+
+        for a in &f.attrs {
+            match a.name.as_str() {
+                ALLOW_BREAKING => {
+                    if !a.args.is_empty() {
+                        self.err(a.span, format!("`#[{ALLOW_BREAKING}]` does not take arguments"));
+                    }
+                    allow_breaking_attr = Some(a.span);
+                }
+                "range" => {
+                    if rules.range.is_some() {
+                        self.err(a.span, format!("duplicate `range` attribute on field `{field_name}`"));
+                        continue;
+                    }
+                    match ty {
+                        Ty::Scalar(p) => {
+                            if let Some(r) = self.parse_range(*p, a) {
+                                rules.range = Some(r);
+                            }
+                        }
+                        _ => {
+                            self.err(
+                                a.span,
+                                format!("`range` is only valid on numeric fields, not `{}`", ir.ty_name(ty)),
+                            );
+                        }
+                    }
+                }
+                "len" => {
+                    if rules.len.is_some() {
+                        self.err(a.span, format!("duplicate `len` attribute on field `{field_name}`"));
+                        continue;
+                    }
+                    match ty {
+                        Ty::Str | Ty::Bytes | Ty::List(_) => {
+                            if let Some(l) = self.parse_len(a) {
+                                rules.len = Some(l);
+                            }
+                        }
+                        _ => {
+                            self.err(
+                                a.span,
+                                format!("`len` is only valid on `string`, `bytes` or list fields, not `{}`", ir.ty_name(ty)),
+                            );
+                        }
+                    }
+                }
+                "finite" => {
+                    if !a.args.is_empty() {
+                        self.err(a.span, "`finite` does not take arguments".to_string());
+                    }
+                    if rules.finite {
+                        self.err(a.span, format!("duplicate `finite` attribute on field `{field_name}`"));
+                        continue;
+                    }
+                    match ty {
+                        Ty::Scalar(p) if p.is_float() => rules.finite = true,
+                        _ => self.err(a.span, format!("`finite` is only valid on `f32` or `f64`, not `{}`", ir.ty_name(ty))),
+                    }
+                }
+                "known" => {
+                    if !a.args.is_empty() {
+                        self.err(a.span, "`known` does not take arguments".to_string());
+                    }
+                    if rules.known {
+                        self.err(a.span, format!("duplicate `known` attribute on field `{field_name}`"));
+                        continue;
+                    }
+                    let is_enum = matches!(ty, Ty::Enum(_))
+                        || matches!(ty, Ty::List(elem) if matches!(&**elem, Ty::Enum(_)));
+                    if is_enum {
+                        rules.known = true;
+                    } else {
+                        self.err(
+                            a.span,
+                            format!("`known` is only valid on enum fields or lists of enums, not `{}`", ir.ty_name(ty)),
+                        );
+                    }
+                }
+                "check" => {
+                    if let Some(name) = self.parse_check_arg(a) {
+                        if !seen_checks.insert(name.clone()) {
+                            self.err(a.span, format!("duplicate `check({name})` on field `{field_name}`"));
+                        } else {
+                            rules.checks.push(name);
+                        }
+                    }
+                }
+                other => {
+                    self.err(a.span, format!("unknown attribute `#[{other}]`"));
+                }
+            }
+        }
+
+        let allow_breaking = if let Some(sp) = allow_breaking_attr {
+            if !f.optional && f.default.is_none() && rules.is_empty() {
+                self.err(
+                    sp,
+                    format!("`#[{ALLOW_BREAKING}]` is only valid on a reserved, optional or defaulted field (formerly required)"),
+                );
+                false
+            } else {
+                true
+            }
+        } else {
+            false
+        };
+
+        if let Presence::Default(val) = presence {
+            self.check_default_rules(f.span, field_name, val, &rules);
+        }
+
+        (rules, allow_breaking)
+    }
+
+    fn parse_range(&mut self, p: Prim, a: &ast::Attr) -> Option<(Option<RangeBound>, Option<RangeBound>)> {
+        let mut min: Option<RangeBound> = None;
+        let mut max: Option<RangeBound> = None;
+        for arg in &a.args {
+            let Some(lit) = &arg.value else {
+                self.err(arg.span, format!("`range` argument `{}` needs `= value`", arg.name));
+                continue;
+            };
+            let bound = match parse_range_bound(p, lit) {
+                Ok(b) => b,
+                Err(m) => {
+                    self.err(arg.span, format!("`range`: {m}"));
+                    continue;
+                }
+            };
+            match arg.name.as_str() {
+                "min" => {
+                    if min.is_some() {
+                        self.err(arg.span, "duplicate `min` in `range`".to_string());
+                    }
+                    min = Some(bound);
+                }
+                "max" => {
+                    if max.is_some() {
+                        self.err(arg.span, "duplicate `max` in `range`".to_string());
+                    }
+                    max = Some(bound);
+                }
+                other => self.err(arg.span, format!("unknown `range` argument `{other}` (expected `min` or `max`)")),
+            }
+        }
+        if min.is_none() && max.is_none() {
+            if a.args.is_empty() {
+                self.err(a.span, "`range` needs at least `min` or `max`".to_string());
+            }
+            return None;
+        }
+        if let (Some(lo), Some(hi)) = (&min, &max)
+            && cmp_range_bound(lo, hi) == std::cmp::Ordering::Greater
+        {
+            self.err(a.span, "`range` has `min > max`".to_string());
+        }
+        Some((min, max))
+    }
+
+    fn parse_len(&mut self, a: &ast::Attr) -> Option<(Option<u64>, Option<u64>)> {
+        let mut min: Option<u64> = None;
+        let mut max: Option<u64> = None;
+        for arg in &a.args {
+            let Some(lit) = &arg.value else {
+                self.err(arg.span, format!("`len` argument `{}` needs `= value`", arg.name));
+                continue;
+            };
+            let val = match lit {
+                ast::Literal::Int(i) if *i >= 0 => match u64::try_from(*i) {
+                    Ok(v) => v,
+                    Err(_) => {
+                        self.err(arg.span, "`len` bound exceeds u64".to_string());
+                        continue;
+                    }
+                },
+                ast::Literal::UInt(u) => match u64::try_from(*u) {
+                    Ok(v) => v,
+                    Err(_) => {
+                        self.err(arg.span, "`len` bound exceeds u64".to_string());
+                        continue;
+                    }
+                },
+                _ => {
+                    self.err(arg.span, "`len` expects a non-negative integer".to_string());
+                    continue;
+                }
+            };
+            match arg.name.as_str() {
+                "min" => {
+                    if min.is_some() {
+                        self.err(arg.span, "duplicate `min` in `len`".to_string());
+                    }
+                    min = Some(val);
+                }
+                "max" => {
+                    if max.is_some() {
+                        self.err(arg.span, "duplicate `max` in `len`".to_string());
+                    }
+                    max = Some(val);
+                }
+                other => self.err(arg.span, format!("unknown `len` argument `{other}` (expected `min` or `max`)")),
+            }
+        }
+        if min.is_none() && max.is_none() {
+            if a.args.is_empty() {
+                self.err(a.span, "`len` needs at least `min` or `max`".to_string());
+            }
+            return None;
+        }
+        if let (Some(lo), Some(hi)) = (min, max)
+            && lo > hi
+        {
+            self.err(a.span, "`len` has `min > max`".to_string());
+        }
+        Some((min, max))
+    }
+
+    fn check_default_rules(&mut self, span: Span, field_name: &str, val: &Value, rules: &FieldRules) {
+        let Some((min, max)) = &rules.range else { return };
+        let val_bound = match val {
+            Value::Int(i) => RangeBound::Int(*i),
+            Value::UInt(u) => RangeBound::UInt(*u),
+            Value::Float(x) => RangeBound::Float(*x),
+            _ => return,
+        };
+        if let Some(lo) = min
+            && cmp_range_bound(&val_bound, lo) == std::cmp::Ordering::Less
+        {
+            self.err(span, format!("default value of field `{field_name}` is below `range` minimum"));
+        }
+        if let Some(hi) = max
+            && cmp_range_bound(&val_bound, hi) == std::cmp::Ordering::Greater
+        {
+            self.err(span, format!("default value of field `{field_name}` exceeds `range` maximum"));
+        }
+    }
+
+    fn check_named_sigs(&mut self, ir: &Ir) {
+        #[derive(Clone, PartialEq, Eq)]
+        enum Sig {
+            Field(Ty),
+            Table(String),
+        }
+        let mut sigs: HashMap<String, (Sig, String)> = HashMap::new();
+        for t in ir.tables.iter().filter(|t| t.origin.is_none()) {
+            for name in &t.checks {
+                let sig = Sig::Table(t.name.clone());
+                let desc = format!("table `{}`", t.name);
+                if let Some((prev, prev_desc)) = sigs.get(name) {
+                    if *prev != sig {
+                        self.err(t.span, format!("`check({name})` used on {desc} after being used on {prev_desc}"));
+                    }
+                } else {
+                    sigs.insert(name.clone(), (sig, desc));
+                }
+            }
+            for f in &t.fields {
+                for name in &f.rules.checks {
+                    let sig = Sig::Field(f.ty.clone());
+                    let desc = format!("`{}` (field `{}.{}`)", ir.ty_name(&f.ty), t.name, f.name);
+                    if let Some((prev, prev_desc)) = sigs.get(name) {
+                        if *prev != sig {
+                            self.err(f.span, format!("`check({name})` used on {desc} after being used on {prev_desc}"));
+                        }
+                    } else {
+                        sigs.insert(name.clone(), (sig, desc));
+                    }
+                }
+            }
+        }
     }
 
     /// Resolves the canonical type text coming from the lock (the form of [`Ir::ty_name`]) against
@@ -774,5 +1117,60 @@ fn struct_sizes(cx: &mut Cx, ir: &mut Ir) {
         } else {
             s.size = sizes[i] as u16;
         }
+    }
+}
+
+fn parse_range_bound(p: Prim, lit: &ast::Literal) -> Result<RangeBound, String> {
+    if p.is_float() {
+        let x = match lit {
+            ast::Literal::Float(x) => *x,
+            ast::Literal::Int(i) => *i as f64,
+            ast::Literal::UInt(u) => *u as f64,
+            _ => return Err(format!("expected a numeric bound for `{}`", p.name())),
+        };
+        if !x.is_finite() {
+            return Err("bound must be finite".to_string());
+        }
+        if p == Prim::F32 && !(x as f32).is_finite() {
+            return Err("bound overflows `f32`".to_string());
+        }
+        return Ok(RangeBound::Float(if p == Prim::F32 { (x as f32) as f64 } else { x }));
+    }
+    if p == Prim::U128 {
+        return match lit {
+            ast::Literal::Int(i) if *i >= 0 => Ok(RangeBound::UInt(*i as u128)),
+            ast::Literal::UInt(u) => Ok(RangeBound::UInt(*u)),
+            ast::Literal::Int(_) => Err("bound is out of range for `u128`".to_string()),
+            _ => Err("expected an integer bound for `u128`".to_string()),
+        };
+    }
+    let (lo, hi) = p.int_range().unwrap();
+    match lit {
+        ast::Literal::Int(i) if *i >= lo && *i <= hi => Ok(RangeBound::Int(*i)),
+        ast::Literal::Int(_) | ast::Literal::UInt(_) => Err(format!("bound is out of range for `{}`", p.name())),
+        _ => Err(format!("expected an integer bound for `{}`", p.name())),
+    }
+}
+
+fn cmp_range_bound(a: &RangeBound, b: &RangeBound) -> std::cmp::Ordering {
+    match (a, b) {
+        (RangeBound::Int(x), RangeBound::Int(y)) => x.cmp(y),
+        (RangeBound::UInt(x), RangeBound::UInt(y)) => x.cmp(y),
+        (RangeBound::Int(x), RangeBound::UInt(y)) => {
+            if *x < 0 {
+                std::cmp::Ordering::Less
+            } else {
+                (*x as u128).cmp(y)
+            }
+        }
+        (RangeBound::UInt(x), RangeBound::Int(y)) => {
+            if *y < 0 {
+                std::cmp::Ordering::Greater
+            } else {
+                x.cmp(&(*y as u128))
+            }
+        }
+        (RangeBound::Float(x), RangeBound::Float(y)) => x.total_cmp(y),
+        _ => std::cmp::Ordering::Equal,
     }
 }

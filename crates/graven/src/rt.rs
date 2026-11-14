@@ -60,6 +60,8 @@
 //! that pass `verify`, every read through the verified view MUST equal the checked read.
 
 use crate::{Bit, Error, StrList, StreamListW, TableList, TableListW, TableRef, VerifyCtx, envelope};
+#[doc(hidden)]
+pub use alloc::vec::Vec;
 use core::marker::PhantomData;
 
 /// One required field of the reader's schema.

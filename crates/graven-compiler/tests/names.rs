@@ -176,3 +176,11 @@ fn type_whose_module_would_be_self_super_crate_rejected() {
     // Other keywords become raw identifiers (`mod r#type`).
     ok("namespace t; table Type { a @0: u32; } table Match { t @0: Type; }");
 }
+
+#[test]
+fn validation_generated_names_collide_only_when_rules_exist() {
+    ok("namespace t; table Checks { validate @0: u32; to_bytes_validated @1: u32; }");
+    one("namespace t; table Checks { #[range(min = 1)] a @0: u32; }", &["Checks", "collides"]);
+    one("namespace t; table T { #[range(min = 1)] validate @0: u32; }", &["validate", "collides"]);
+    one("namespace t; table T { #[range(min = 1)] to_bytes_validated @0: u32; }", &["to_bytes_validated", "collides"]);
+}

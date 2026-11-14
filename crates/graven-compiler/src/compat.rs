@@ -34,7 +34,7 @@ use std::fmt;
 
 use crate::ast::Span;
 use crate::ir::Ir;
-use crate::lock::{Lock, LockField, LockTable, lock_from_ir};
+use crate::lock::{Lock, LockField, LockLen, LockRange, LockRules, LockTable, lock_from_ir};
 
 /// Error rules (the compiler refuses).
 pub const ERROR_RULES: [&str; 15] = [
@@ -56,7 +56,7 @@ pub const ERROR_RULES: [&str; 15] = [
 ];
 
 /// Warning rules (an error without `#[allow_breaking_readers]`).
-pub const WARNING_RULES: [&str; 2] = ["required-reserved", "required-relaxed"];
+pub const WARNING_RULES: [&str; 4] = ["required-reserved", "required-relaxed", "rule-tightened", "check-added"];
 
 /// Allowed changes (never produce a finding); names for documentation and tests.
 pub const ALLOWED_RULES: [&str; 6] = [
@@ -531,6 +531,28 @@ impl<'a> Cx<'a> {
                 }
             }
         }
+
+        // Table-level `check(...)` additions.
+        for c in &nt.checks {
+            if !ot.checks.contains(c) {
+                let msg = format!(
+                    "validation `check({c})` added to table `{tname}`: old data may fail `validate`{} (check-added)",
+                    if it.allow_breaking {
+                        " (confirmed with `#[allow_breaking_readers]`)"
+                    } else {
+                        "; confirm with `#[allow_breaking_readers]` on the table"
+                    }
+                );
+                self.out.push(Finding::Warning {
+                    rule: "check-added",
+                    table: tname.to_string(),
+                    field: None,
+                    span: it.span,
+                    msg,
+                    confirmed: it.allow_breaking,
+                });
+            }
+        }
     }
 
     fn field(&mut self, tname: &str, of: &LockField, nf: &LockField, span: Span, confirmed: bool) {
@@ -622,5 +644,127 @@ impl<'a> Cx<'a> {
         }
         // Other transitions are allowed: required → optional/default (with the warning
         // above), default → optional, renaming.
+        self.field_rules(tname, name, id, &nf.ty, of.rules.as_ref(), nf.rules.as_ref(), span, confirmed);
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn field_rules(
+        &mut self,
+        tname: &str,
+        fname: &str,
+        id: u16,
+        ty: &str,
+        old: Option<&LockRules>,
+        new: Option<&LockRules>,
+        span: Span,
+        confirmed: bool,
+    ) {
+        let Some(nr) = new else { return };
+        let empty = LockRules::default();
+        let or = old.unwrap_or(&empty);
+        let suffix = if confirmed {
+            " (confirmed with `#[allow_breaking_readers]`)"
+        } else {
+            "; confirm with `#[allow_breaking_readers]` on the field"
+        };
+
+        let mut tightened_reasons: Vec<String> = Vec::new();
+        if let Some(nrange) = &nr.range {
+            match &or.range {
+                None => tightened_reasons.push("`range` rule added".to_string()),
+                Some(orange) if range_tightened(ty, orange, nrange) => {
+                    tightened_reasons.push("`range` bounds tightened".to_string());
+                }
+                Some(_) => {}
+            }
+        }
+        if let Some(nlen) = &nr.len {
+            match &or.len {
+                None => tightened_reasons.push("`len` rule added".to_string()),
+                Some(olen) if len_tightened(olen, nlen) => {
+                    tightened_reasons.push("`len` bounds tightened".to_string());
+                }
+                Some(_) => {}
+            }
+        }
+        if nr.finite && !or.finite {
+            tightened_reasons.push("`finite` rule added".to_string());
+        }
+        if nr.known && !or.known {
+            tightened_reasons.push("`known` rule added".to_string());
+        }
+        for reason in tightened_reasons {
+            let msg = format!(
+                "validation on `{tname}.{fname}` (@{id}): {reason}: old data may fail `validate`{suffix} (rule-tightened)"
+            );
+            self.out.push(Finding::Warning {
+                rule: "rule-tightened",
+                table: tname.to_string(),
+                field: Some(fname.to_string()),
+                span,
+                msg,
+                confirmed,
+            });
+        }
+
+        for c in &nr.checks {
+            if !or.checks.contains(c) {
+                let msg = format!(
+                    "validation `check({c})` added to `{tname}.{fname}` (@{id}): old data may fail `validate`{suffix} (check-added)"
+                );
+                self.out.push(Finding::Warning {
+                    rule: "check-added",
+                    table: tname.to_string(),
+                    field: Some(fname.to_string()),
+                    span,
+                    msg,
+                    confirmed,
+                });
+            }
+        }
+    }
+}
+
+fn len_tightened(old: &LockLen, new: &LockLen) -> bool {
+    let min_tighter = match (old.min, new.min) {
+        (None, Some(_)) => true,
+        (Some(o), Some(n)) => n > o,
+        _ => false,
+    };
+    let max_tighter = match (old.max, new.max) {
+        (None, Some(_)) => true,
+        (Some(o), Some(n)) => n < o,
+        _ => false,
+    };
+    min_tighter || max_tighter
+}
+
+fn range_tightened(ty: &str, old: &LockRange, new: &LockRange) -> bool {
+    let min_tighter = match (&old.min, &new.min) {
+        (None, Some(_)) => true,
+        (Some(o), Some(n)) => cmp_bound_str(ty, n, o) == std::cmp::Ordering::Greater,
+        _ => false,
+    };
+    let max_tighter = match (&old.max, &new.max) {
+        (None, Some(_)) => true,
+        (Some(o), Some(n)) => cmp_bound_str(ty, n, o) == std::cmp::Ordering::Less,
+        _ => false,
+    };
+    min_tighter || max_tighter
+}
+
+fn cmp_bound_str(ty: &str, a: &str, b: &str) -> std::cmp::Ordering {
+    if ty == "f32" || ty == "f64" {
+        let fa: f64 = a.parse().unwrap_or(0.0);
+        let fb: f64 = b.parse().unwrap_or(0.0);
+        fa.total_cmp(&fb)
+    } else if ty == "u128" {
+        let ua: u128 = a.parse().unwrap_or(0);
+        let ub: u128 = b.parse().unwrap_or(0);
+        ua.cmp(&ub)
+    } else {
+        let ia: i128 = a.parse().unwrap_or(0);
+        let ib: i128 = b.parse().unwrap_or(0);
+        ia.cmp(&ib)
     }
 }

@@ -239,3 +239,89 @@ fn dynamic_reader_applies_extreme_defaults() {
     assert_eq!(v["f64_tiny"].as_f64().unwrap().to_bits(), 1);
     assert_eq!(v["big"], "High");
 }
+
+#[test]
+fn dynamic_validator_checks_registry_at_construction() {
+    let d = tmp("dyn_val");
+    let schema_path = d.join("shop.graven");
+    std::fs::write(
+        &schema_path,
+        "namespace shop;\n\
+         table Product {\n\
+           #[len(min = 1, max = 64), check(slug)]\n\
+           name @0: string;\n\
+           #[range(min = 1, max = 1000)]\n\
+           price @1: u32;\n\
+         }\n",
+    )
+    .unwrap();
+    let o = gravenc(&["update", s(&schema_path), "--init"]);
+    assert_eq!(o.status.code(), Some(0), "{}", err(&o));
+
+    let loaded = graven_compiler::dynamic::Schema::load(&schema_path).unwrap();
+    let tid = loaded.table("Product").unwrap();
+    let td = loaded.model(tid);
+
+    // Missing `slug` fails at construction.
+    let empty_reg = graven_dynamic::validate::CheckRegistry::new();
+    let missing = graven_dynamic::validate::Validator::new(td, loaded.validation().clone(), empty_reg);
+    assert!(missing.is_err());
+
+    // With `slug` registered, construction succeeds and validates both built-in and named rules.
+    let mut reg = graven_dynamic::validate::CheckRegistry::new();
+    reg.register("slug", |v| match v {
+        graven_dynamic::Value::Str(s) => !s.contains(' '),
+        _ => false,
+    });
+    let validator = graven_dynamic::validate::Validator::new(td, loaded.validation().clone(), reg).unwrap();
+
+    let mut good = std::collections::BTreeMap::new();
+    good.insert("name".to_string(), graven_dynamic::Value::Str("blue-pen".into()));
+    good.insert("price".to_string(), graven_dynamic::Value::UInt(150));
+    assert!(validator.validate(&graven_dynamic::Value::Table(good)).is_ok());
+
+    let mut bad_slug = std::collections::BTreeMap::new();
+    bad_slug.insert("name".to_string(), graven_dynamic::Value::Str("blue pen".into()));
+    bad_slug.insert("price".to_string(), graven_dynamic::Value::UInt(150));
+    let inv = validator.validate(&graven_dynamic::Value::Table(bad_slug)).unwrap_err();
+    assert_eq!(inv.rule, graven::Rule::Check("slug"));
+}
+
+#[test]
+fn inspect_reports_validation_and_unchecked_functions() {
+    let d = tmp("inspect_val");
+    let schema_path = d.join("shop.graven");
+    std::fs::write(
+        &schema_path,
+        "namespace shop;\n\
+         table Product {\n\
+           #[len(min = 1, max = 64), check(slug)]\n\
+           name @0: string;\n\
+           #[range(min = 1, max = 1000)]\n\
+           price @1: u32;\n\
+         }\n",
+    )
+    .unwrap();
+    assert_eq!(gravenc(&["update", s(&schema_path), "--init"]).status.code(), Some(0));
+
+    let ok_json = d.join("ok.json");
+    std::fs::write(&ok_json, r#"{"name": "pen", "price": 10}"#).unwrap();
+    let ok_bin = d.join("ok.bin");
+    assert_eq!(gravenc(&["from-json", s(&schema_path), "--root", "Product", s(&ok_json), "-o", s(&ok_bin)]).status.code(), Some(0));
+
+    let o = gravenc(&["inspect", s(&schema_path), s(&ok_bin)]);
+    assert_eq!(o.status.code(), Some(0), "{}", err(&o));
+    let stdout = out(&o);
+    assert!(stdout.contains("check(slug) not checked"), "stdout: {stdout}");
+
+    let bad_json = d.join("bad.json");
+    std::fs::write(&bad_json, r#"{"name": "pen", "price": 0}"#).unwrap();
+    let bad_bin = d.join("bad.bin");
+    assert_eq!(gravenc(&["from-json", s(&schema_path), "--root", "Product", s(&bad_json), "-o", s(&bad_bin)]).status.code(), Some(0));
+
+    let o = gravenc(&["inspect", s(&schema_path), s(&bad_bin)]);
+    assert_ne!(o.status.code(), Some(0));
+    let stdout = out(&o);
+    assert!(stdout.contains("breaks rule `range`"), "stdout: {stdout}");
+    assert!(stdout.contains("check(slug) not checked"), "stdout: {stdout}");
+}

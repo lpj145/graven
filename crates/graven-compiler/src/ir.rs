@@ -143,6 +143,28 @@ pub enum Presence {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub enum RangeBound {
+    Int(i128),
+    UInt(u128),
+    Float(f64),
+}
+
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct FieldRules {
+    pub range: Option<(Option<RangeBound>, Option<RangeBound>)>,
+    pub len: Option<(Option<u64>, Option<u64>)>,
+    pub finite: bool,
+    pub known: bool,
+    pub checks: Vec<String>,
+}
+
+impl FieldRules {
+    pub fn is_empty(&self) -> bool {
+        self.range.is_none() && self.len.is_none() && !self.finite && !self.known && self.checks.is_empty()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct Field {
     pub id: u16,
     /// Reserved field: `"_reserved_<id>"`.
@@ -150,9 +172,10 @@ pub struct Field {
     /// For a reserved field: the original type (from the schema or the lock).
     pub ty: Ty,
     pub presence: Presence,
-    /// The `#[allow_breaking_readers]` attribute on the field (reserved, or no longer
-    /// required): confirms `required-reserved` / `required-relaxed`.
+    /// The `#[allow_breaking_readers]` attribute on the field (reserved, no longer
+    /// required, or confirming a tightened/added validation rule).
     pub allow_breaking: bool,
+    pub rules: FieldRules,
     pub span: Span,
 }
 
@@ -167,6 +190,8 @@ pub struct Table {
     /// Offset of each `i32` pointer in the fixed part, in ID order: the slot of a `Ptr`,
     /// `slot + 2` of a `Union`. Includes reserved fields (the slot stays 0 and is ignored).
     pub ptr_slots: Vec<u16>,
+    pub checks: Vec<String>,
+    pub allow_breaking: bool,
     pub span: Span,
     /// For a type imported from another schema: the namespace that declares it. Its `name`
     /// is then qualified (`common.Uuid`), and code generators refer to it instead of

@@ -1,0 +1,1 @@
+namespace t; table T { #[range(min = 10, max = 100)] a @0: u32; }

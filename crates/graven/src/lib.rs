@@ -16,6 +16,8 @@
 //!   generated code runs once before handing out a verified view;
 //! - [`envelope`]: the optional envelope for disk and network (magic, version, schema id,
 //!   CRC32C), including iteration over concatenated envelopes;
+//! - [`validate`]: the results of the validation rules a schema declares
+//!   (`range`, `len`, `finite`, `known`, `check(name)`);
 //! - [`rt`]: support items called by generated code.
 //!
 //! The crate is `no_std` (with `alloc`) when the default `std` feature is disabled.
@@ -58,3 +60,5 @@ pub mod pool;
 pub mod write;
 pub mod verify;
 pub use verify::VerifyCtx;
+pub mod validate;
+pub use validate::{Invalid, Rule, ValidateError};

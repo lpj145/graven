@@ -385,15 +385,26 @@ impl Parser {
     }
 
     fn item(&mut self, doc: PendingDoc) -> Result<Item, ParseError> {
+        let attrs = self.attrs()?;
         let kw = match self.peek() {
             Tok::Ident(s) => s.clone(),
             _ => String::new(),
         };
         let item = match kw.as_str() {
-            "enum" => self.enum_decl().map(Item::Enum),
-            "struct" => self.struct_decl().map(Item::Struct),
-            "table" => self.table_decl().map(Item::Table),
-            "union" => self.union_decl().map(Item::Union),
+            "enum" => {
+                if let Some(a) = attrs.first() {
+                    return err(a.span, "attributes are not allowed on enums");
+                }
+                self.enum_decl().map(Item::Enum)
+            }
+            "struct" => self.struct_decl(attrs).map(Item::Struct),
+            "table" => self.table_decl(attrs).map(Item::Table),
+            "union" => {
+                if let Some(a) = attrs.first() {
+                    return err(a.span, "attributes are not allowed on unions");
+                }
+                self.union_decl().map(Item::Union)
+            }
             _ => self.unexpected("`enum`, `struct`, `table` or `union`"),
         }?;
         let name = match &item {
@@ -455,28 +466,31 @@ impl Parser {
         Ok(EnumDecl { name, base, values, span })
     }
 
-    fn struct_decl(&mut self) -> Result<StructDecl, ParseError> {
+    fn struct_decl(&mut self, attrs: Vec<Attr>) -> Result<StructDecl, ParseError> {
         let span = self.keyword("struct")?;
         let (name, _) = self.ident("the struct name")?;
         self.expect_punct('{')?;
         let mut fields = Vec::new();
+        let mut field_attrs = Vec::new();
         loop {
             let doc = self.take_docs();
             if self.is_punct('}') {
                 Self::no_dangling(&doc)?;
                 break;
             }
+            let fattrs = self.attrs()?;
             let (fname, fsp) = self.ident("the field name")?;
             self.attach(format!("{name}.{fname}"), doc);
             self.expect_punct(':')?;
             let ty = self.ty()?;
             fields.push((fname, ty, fsp));
+            field_attrs.push(fattrs);
             if !self.eat_punct(',') {
                 break;
             }
         }
         self.expect_punct('}')?;
-        Ok(StructDecl { name, fields, span })
+        Ok(StructDecl { name, attrs, fields, field_attrs, span })
     }
 
     fn union_decl(&mut self) -> Result<UnionDecl, ParseError> {
@@ -505,7 +519,7 @@ impl Parser {
         Ok(UnionDecl { name, variants, span })
     }
 
-    fn table_decl(&mut self) -> Result<TableDecl, ParseError> {
+    fn table_decl(&mut self, attrs: Vec<Attr>) -> Result<TableDecl, ParseError> {
         let span = self.keyword("table")?;
         let (name, _) = self.ident("the table name")?;
         self.expect_punct('{')?;
@@ -523,17 +537,52 @@ impl Parser {
             fields.push(f);
         }
         self.expect_punct('}')?;
-        Ok(TableDecl { name, fields, span })
+        Ok(TableDecl { name, attrs, fields, span })
     }
 
-    fn table_field(&mut self) -> Result<FieldDecl, ParseError> {
+    fn attrs(&mut self) -> Result<Vec<Attr>, ParseError> {
         let mut attrs = Vec::new();
         while self.is_punct('#') {
             self.bump();
             self.expect_punct('[')?;
-            attrs.push(self.ident("the attribute name")?.0);
+            loop {
+                attrs.push(self.attr()?);
+                if !self.eat_punct(',') {
+                    break;
+                }
+                if self.is_punct(']') {
+                    break;
+                }
+            }
             self.expect_punct(']')?;
         }
+        Ok(attrs)
+    }
+
+    fn attr(&mut self) -> Result<Attr, ParseError> {
+        let (name, span) = self.ident("the attribute name")?;
+        let mut args = Vec::new();
+        if self.eat_punct('(') {
+            if !self.is_punct(')') {
+                loop {
+                    let (aname, aspan) = self.ident("the argument name")?;
+                    let value = if self.eat_punct('=') { Some(self.literal()?) } else { None };
+                    args.push(AttrArg { name: aname, value, span: aspan });
+                    if !self.eat_punct(',') {
+                        break;
+                    }
+                    if self.is_punct(')') {
+                        break;
+                    }
+                }
+            }
+            self.expect_punct(')')?;
+        }
+        Ok(Attr { name, args, span })
+    }
+
+    fn table_field(&mut self) -> Result<FieldDecl, ParseError> {
+        let attrs = self.attrs()?;
         let span = self.span();
         if self.eat_punct('@') {
             let id = self.id_u16()?;

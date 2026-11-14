@@ -26,6 +26,7 @@ impl Cx<'_> {
         let from_doc = format!(
             " The required fields were checked by `{n}::from_ref` when the root's `verify()` reached `t` as a `{n}` along this edge (this fn's contract, condition 1)."
         );
+        let validate_fns = self.validate_methods(t);
         quote! {
             #udoc
             #[doc = #doc]
@@ -50,6 +51,7 @@ impl Cx<'_> {
                     self.0
                 }
                 #(#accessors)*
+                #validate_fns
             }
         }
     }

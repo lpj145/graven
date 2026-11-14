@@ -51,6 +51,7 @@ impl Cx<'_> {
             quote!()
         };
         let elem_doc = format!(" List element descriptor of `{}`.", t.def.name);
+        let to_bytes_validated = self.to_bytes_validated(t);
         quote! {
             #udoc
             #[doc = #doc]
@@ -73,6 +74,7 @@ impl Cx<'_> {
                     f(&mut #nw::root(b));
                     b.flush_envelope(#n::SCHEMA_ID)
                 }
+                #to_bytes_validated
                 /// Like [`to_bytes`](Self::to_bytes), but seals the envelope into the builder's batch
                 /// (take it with `Builder::take_frames`).
                 ///

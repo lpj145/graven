@@ -13,6 +13,7 @@ fn main() {
         .schema(dir.join("schemas/defaults.graven"))
         .schema(dir.join("schemas/common.graven"))
         .schema(dir.join("schemas/orders.graven"))
+        .schema(dir.join("schemas/validation.graven"))
         .compile()
         .unwrap_or_else(|e| panic!("{e}"));
 }
