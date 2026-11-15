@@ -1,6 +1,6 @@
 # Proposal 0003: services
 
-Status: **Stages 1–4 implemented** (Rust RPC runtime, conformance vectors, compiler support, codegen, CLI `--side` / `Build`); Stage 5 (TypeScript runtime / `--lang ts`) pending.
+Status: **accepted and implemented** in 0.3.0. Stage 5 (JavaScript) is [proposal 0004](0004-typescript.md).
 
 ## Motivation
 
@@ -437,7 +437,7 @@ Each step can be released on its own.
    `StreamReply`, `Rejected`.
 4. **Rust client** (`--side client`): the `Sender` and `ReplyStream` traits and the generated client.
 5. **TypeScript runtime** for format v1 and frames, tested against the vectors; then
-   `--lang ts` for types and clients.
+   `--lang js` for types and clients. Detailed in [proposal 0004](0004-typescript.md).
 
 ## Test plan
 

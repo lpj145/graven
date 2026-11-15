@@ -31,8 +31,8 @@ usage:
   gravenc check  [--locked] <schema>...      validate schema(s) and compatibility with <schema>.lock
   gravenc update <schema>... [--from <lock> | --init]
                                              apply the compatibility check and write <schema>.lock
-  gravenc gen    <schema> -o <dir> [--side client|server|client,server]
-                                             generate <dir>/<file without .graven>.rs (creates <dir>)
+  gravenc gen    <schema> -o <dir> [--lang rust|js] [--side client|server|client,server]
+                                             generate <dir>/<file without .graven>.rs, or .js + .d.ts (creates <dir>)
   gravenc diff   <schema> [--against <lock>] list what changed since the lock, with each change's verdict
 
   gravenc inspect   <schema> <file> [--root <Table>] [--raw]
@@ -140,6 +140,7 @@ fn main() -> ExitCode {
         "gen" => {
             let mut schema = None;
             let mut out = None;
+            let mut lang = graven_compiler::codegen::Lang::Rust;
             let mut opts = graven_compiler::codegen::GenOptions::default();
             let mut it = rest.iter();
             while let Some(a) = it.next() {
@@ -149,6 +150,15 @@ fn main() -> ExitCode {
                         Some(d) if out.is_none() => out = Some(PathBuf::from(d)),
                         Some(_) => return usage("gen: `-o` given twice"),
                         None => return usage("gen: `-o` without the directory"),
+                    },
+                    Ok(Arg::Flag("--lang")) => match it.next().and_then(|s| s.to_str()) {
+                        Some("rust") => lang = graven_compiler::codegen::Lang::Rust,
+                        Some("js") => lang = graven_compiler::codegen::Lang::Js,
+                        Some("ts") => {
+                            return usage("gen: `--lang ts` is now `--lang js`: it writes `.js` files with `.d.ts` declarations, for JavaScript and TypeScript projects");
+                        }
+                        Some(other) => return usage(&format!("gen: unknown `--lang` `{other}` (expected `rust` or `js`)")),
+                        None => return usage("gen: `--lang` without a value (`rust` or `js`)"),
                     },
                     Ok(Arg::Flag("--side")) => match it.next().and_then(|s| s.to_str()) {
                         Some(val) => {
@@ -164,9 +174,13 @@ fn main() -> ExitCode {
                 }
             }
             let (Some(schema), Some(out)) = (schema, out) else {
-                return usage("gen: usage `gravenc gen <schema> -o <dir> [--side client|server|client,server]`");
+                return usage("gen: usage `gravenc gen <schema> -o <dir> [--lang rust|js] [--side client|server|client,server]`");
             };
-            generate(&schema, &out, opts)
+            if lang == graven_compiler::codegen::Lang::Js && opts.server {
+                eprintln!("gravenc: the JavaScript server edge is not available yet");
+                return ExitCode::from(1);
+            }
+            generate(&schema, &out, lang, opts)
         }
         "diff" => {
             let mut schema = None;
@@ -412,14 +426,19 @@ fn parse_side(val: &str, opts: &mut graven_compiler::codegen::GenOptions) -> Res
     Ok(())
 }
 
-fn generate(schema: &Path, out: &Path, opts: graven_compiler::codegen::GenOptions) -> Result<(), Failed> {
+fn generate(
+    schema: &Path,
+    out: &Path,
+    lang: graven_compiler::codegen::Lang,
+    opts: graven_compiler::codegen::GenOptions,
+) -> Result<(), Failed> {
     std::fs::create_dir_all(out).map_err(|e| {
         eprintln!("{}: could not create the directory: {e}", out.display());
         Failed
     })?;
     // The schemas it imports are generated too: the generated code refers to them.
     let set = resolve_set(&[schema.to_path_buf()])?;
-    let mut b = Build::new().quiet().out_dir(out);
+    let mut b = Build::new().quiet().out_dir(out).lang(lang);
     if opts.client {
         b = b.client();
     }
@@ -433,9 +452,19 @@ fn generate(schema: &Path, out: &Path, opts: graven_compiler::codegen::GenOption
         eprintln!("{e}");
         Failed
     })?;
+    let exts: &[&str] = match lang {
+        graven_compiler::codegen::Lang::Rust => &["rs"],
+        graven_compiler::codegen::Lang::Js => {
+            println!("{}", out.join("graven.js").display());
+            println!("{}", out.join("graven.d.ts").display());
+            &["js", "d.ts"]
+        }
+    };
     for s in &set {
         let stem = s.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
-        println!("{}", out.join(format!("{stem}.rs")).display());
+        for ext in exts {
+            println!("{}", out.join(format!("{stem}.{ext}")).display());
+        }
     }
     Ok(())
 }

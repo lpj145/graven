@@ -198,3 +198,66 @@ fn identifier_named_like_safety_sentinel() {
     let out = generate(&ir, &lock);
     assert!(!out.contains("__graven_safety!("));
 }
+
+#[test]
+fn js_escapes_member_and_keyword_collisions() {
+    use graven_compiler::codegen::{GenOptions, js::generate_js};
+    use std::collections::BTreeMap;
+
+    let src = "namespace ts.collide.v1;\n\
+               enum Kind : u8 { constructor = 1, toString = 2 }\n\
+               table Msg {\n\
+                   #[range(min = 1)]\n\
+                   validateAll @0: u32;\n\
+                   constructor @1: u32;\n\
+                   toString @2: string?;\n\
+                   valueOf @3: bool;\n\
+                   class @4: u8;\n\
+               }\n";
+    let schema = parse(src).unwrap();
+    let ir = check(&schema, &|_: &str, _: u16| None).unwrap();
+    let lock = lock_from_ir(&ir, None);
+    let ts = generate_js(&ir, &lock, "collide.graven", GenOptions::default(), &BTreeMap::new()).dts;
+    assert!(ts.contains("readonly constructor_: Kind;"), "{ts}");
+    assert!(ts.contains("readonly toString_: Kind;"), "{ts}");
+    assert!(ts.contains("validateAll(): number"), "{ts}");
+    assert!(ts.contains("validateAll_(): number"), "{ts}");
+    assert!(ts.contains("constructor_(): number"), "{ts}");
+    assert!(ts.contains("toString_(): string | undefined"), "{ts}");
+    assert!(ts.contains("valueOf_(): boolean"), "{ts}");
+    assert!(ts.contains("class(): number"), "{ts}");
+    assert!(ts.contains("validate(checks?: Checks): void;"), "{ts}");
+    assert!(ts.contains("validateAll(checks?: Checks): _graven.ValidationFailure[];"), "{ts}");
+    assert!(ts.contains("constructor_(v: number): this"), "{ts}");
+    assert!(ts.contains("toString_(v: string): this"), "{ts}");
+    assert!(ts.contains("valueOf_(v: boolean): this"), "{ts}");
+}
+
+/// An object with a callable `then` is a "thenable": `await` and `Promise.resolve` call it
+/// and never settle. No generated reader, view, writer, enum object or client may have one.
+#[test]
+fn js_never_generates_a_then_member() {
+    use graven_compiler::codegen::{GenOptions, js::generate_js};
+    use std::collections::BTreeMap;
+
+    let src = "namespace ts.thenable.v1;\n\
+               enum Step : u8 { then = 1 }\n\
+               table Msg { then @0: u8; }\n\
+               union Pick { then @1: Msg }\n\
+               service S { then @1: (Msg) -> Msg; }\n";
+    let schema = parse(src).unwrap();
+    let ir = check(&schema, &|_: &str, _: u16| None).unwrap();
+    let lock = lock_from_ir(&ir, None);
+    let opts = GenOptions { client: true, server: false };
+    let files = generate_js(&ir, &lock, "thenable.graven", opts, &BTreeMap::new());
+    let ts = format!("{}{}", files.js, files.dts);
+    for line in ts.lines() {
+        let t = line.trim_start();
+        assert!(
+            !t.starts_with("then(") && !t.starts_with("async then(") && !t.starts_with("then:") && !t.starts_with("readonly then:"),
+            "thenable member: {line}"
+        );
+    }
+    assert!(ts.contains("then_(): number"), "{ts}");
+    assert!(ts.contains("then_: 1,") && ts.contains("readonly then_: Step;"), "{ts}");
+}

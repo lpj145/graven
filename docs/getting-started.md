@@ -50,7 +50,7 @@ layout, defaults, and validation rules. Commit it alongside your `.graven` files
 
 - **Check in CI:** `gravenc check --locked schemas/*.graven`
 - **Update after changes:** `gravenc update schemas/bank.graven` (refuses breaking changes)
-- **Generate code from the CLI:** `gravenc gen schemas/bank.graven -o generated/`
+- **Generate code from the CLI:** `gravenc gen schemas/bank.graven -o generated/` (pass `--lang js` for JavaScript with TypeScript declarations)
 - **Inspect / convert binary data:** `gravenc inspect`, `gravenc to-json`, `gravenc from-json`
 
 Because `<schema>.lock` records the resolved layout and `schema_id`s, generators for other
@@ -67,5 +67,6 @@ instead of invoking `gravenc gen` manually:
 
 - [Coming from JSON](coming-from-json.md) — translate existing JSON data into a Graven schema.
 - [Schema language](graven-language.md) — grammar, evolution rules, and the generated API.
+- [JavaScript and TypeScript](javascript.md) — `.js` with `.d.ts` declarations, validation, and browser/Node RPC clients.
 - [Validation](validation.md) — built-in rules (`range`, `len`, `finite`, `known`) and custom `check(name)` hooks.
 - [Tools](tools.md) — `diff`, `inspect`, `to-json`, `from-json`, `scan`, and editor support.

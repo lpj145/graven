@@ -238,8 +238,10 @@ pub fn diff(old: &Lock, new: &Lock, findings: &[Finding]) -> Report {
         for om in &os.methods {
             match ns.methods.iter().find(|m| m.id == om.id) {
                 None => {
-                    let oname = om.name.as_deref().unwrap_or("reserved");
-                    let v = verdict(&os.name, &[oname], "");
+                    let v = match om.name.as_deref() {
+                        Some(oname) => verdict(&os.name, &[oname], ""),
+                        None => verdict(&os.name, &[], ""),
+                    };
                     changes.push(Change { scope: scope.clone(), what: format!("- {}", method_text(om)), verdict: v });
                 }
                 Some(nm) if nm == om => {}
@@ -274,7 +276,9 @@ pub fn diff(old: &Lock, new: &Lock, findings: &[Finding]) -> Report {
                     }
                     let allowed = if parts.iter().all(|p| p.starts_with("timeout")) {
                         "timeout-changed"
-                    } else if parts.len() == 1 && parts[0].starts_with("renamed") {
+                    } else if parts.iter().any(|p| p.starts_with("renamed"))
+                        && parts.iter().all(|p| p.starts_with("renamed") || p.starts_with("timeout"))
+                    {
                         "method-renamed"
                     } else {
                         ""

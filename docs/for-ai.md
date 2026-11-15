@@ -123,10 +123,10 @@ Install the compiler with `cargo install graven-compiler`, and add to
 
 ```toml
 [dependencies]
-graven = "0.2"
+graven = "0.3"
 
 [build-dependencies]
-graven-compiler = "0.2"
+graven-compiler = "0.3"
 ```
 
 `build.rs`:
@@ -190,6 +190,30 @@ The generated API for a table `X`:
   lists and nested tables return a `Result`.
 
 Details: [generated API](graven-language.md#11-generated-api-summary).
+
+## JavaScript and TypeScript (`--lang js`)
+
+`--lang js` writes `<schema>.js` (plain JavaScript, ES2022, no type syntax) and
+`<schema>.d.ts` (TypeScript declarations), plus the runtime `graven.js` / `graven.d.ts`, all
+in the output directory; nothing to install. `--side server` is not available for JavaScript.
+
+```sh
+gravenc gen schemas/shop.graven -o src/gen --lang js --side client
+```
+
+- Names stay as in the schema (`price_cents()`); a name that would break the code gets a
+  trailing `_` (`then_`, `constructor_`, `Record_`).
+- `u64`/`i64`/`u128`/`i128` map to `bigint`; `u8`–`i32`, `f32`, `f64` and enums map to
+  `number`; `bytes` maps to `Uint8Array`.
+- Table API: `T.read(buf)`, `T.verified(buf)`, `T.fromBytes(env)`, `T.SCHEMA_ID`,
+  `TW.toBytes(w => …)`, `TW.toBytesValidated(w => …, checks)`. Nested tables and lists
+  return their writer: `w.child().x(1)`, `const l = w.items(2); l.push().x(1); l.close();`.
+- Client API (`--side client`): `new <Service>Client(send)` where
+  `send(call, timeoutMs) => Promise<Uint8Array | ReadableStream<Uint8Array> | AsyncIterable<Uint8Array>>`.
+  Methods return `Promise<Out>`, `Promise<{ ok: true, value } | { ok: false, error }>` or
+  `Promise<AsyncIterable<Item>>`, and throw `RpcFault` or `RpcProtocolError`.
+
+Details: [JavaScript and TypeScript](javascript.md).
 
 ## JSON mapping
 

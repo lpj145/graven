@@ -340,8 +340,9 @@ The lock only changes through an explicit action; the build never writes it.
 gravenc check  [--locked] <schema>...      validate schema(s) and compatibility with <schema>.lock
 gravenc update <schema>... [--from <lock> | --init]
                                          apply the compatibility check and write <schema>.lock
-gravenc gen    <schema> -o <dir> [--side client|server|client,server]
-                                         generate <dir>/<file without .graven>.rs (creates <dir>)
+gravenc gen    <schema> -o <dir> [--lang rust|js] [--side client|server|client,server]
+                                         generate <dir>/<file without .graven>.rs, or .js + .d.ts
+                                         (creates <dir>)
 ```
 
 - `check`: parse, check and (if there is a lock) compatibility; writes nothing. Warns
@@ -359,6 +360,8 @@ gravenc gen    <schema> -o <dir> [--side client|server|client,server]
 - `gen`: the same as `build.rs`, into a directory (created if missing). With
   `--side client`, `--side server`, or `--side client,server`, also emits RPC code
   for declared `service` items (`Build::client()` and `Build::server()` in `build.rs`). Without `--side`, `service` items produce no code.
+  `--lang js` writes JavaScript with TypeScript declarations instead of Rust; see
+  [JavaScript and TypeScript](javascript.md).
 - `diff`, `inspect`, `to-json`, `from-json` and `scan` work with schemas and data files; see
   [Tools](tools.md).
 - Diagnostics go to stderr: `file:line:column: message` (compatibility messages name the

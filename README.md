@@ -109,6 +109,7 @@ cargo run -p graven-schemas --example quickstart
 | Language | Status |
 |---|---|
 | Rust | Reference implementation (this repository). Passes all v1 vectors. |
+| JavaScript / TypeScript | `gravenc gen --lang js`: `.js` with `.d.ts` declarations and the runtime, for browsers, Node and Deno. Passes all v1 and RPC frame vectors. |
 
 A new implementation conforms when it reads every vector in `testvectors/v1/` with exactly
 the expected result (spec §10). The lockfile written by `gravenc` records every layout, so a
@@ -122,10 +123,10 @@ code generator for another language can start from it.
 
    ```toml
    [dependencies]
-   graven = "0.2"
+   graven = "0.3"
 
    [build-dependencies]
-   graven-compiler = "0.2"
+   graven-compiler = "0.3"
    ```
 
 2. Write `schemas/bank.graven` and create its lockfile once: `gravenc update schemas/bank.graven --init`.
@@ -164,6 +165,8 @@ The [language guide](docs/graven-language.md) covers the full workflow.
 | [Good practice](docs/good-practice.md) | Advice for designing schemas and storing collections, with the reason behind each tip. |
 | [Schema language](docs/graven-language.md) | `.graven` grammar and types, evolution rules, `gravenc` commands, generated API. |
 | [Validation](docs/validation.md) | Built-in value rules (`range`, `len`, `finite`, `known`), `check(name)` hooks, and evolution warnings. |
+| [JavaScript and TypeScript](docs/javascript.md) | Generated JavaScript with `.d.ts` declarations: reading, writing, validation and service clients. |
+| [RPC frames](docs/spec/graven-rpc-v1.md) | The normative bytes of service calls and replies. |
 | [Coming from JSON](docs/coming-from-json.md) | Translating JSON data into a schema, piece by piece, with a worked example. |
 | [Tools](docs/tools.md) | `gravenc diff`, `inspect`, `to-json`, `from-json`, `scan`, and the VS Code extension. |
 | [Conformance vectors](testvectors/v1/README.md) | The 42 frozen vectors and how to check an implementation against them. |

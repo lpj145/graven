@@ -26,7 +26,8 @@ use std::fmt;
 use std::path::{Path, PathBuf};
 
 use crate::ast::Span;
-use crate::codegen::{GenOptions, generate_with_options};
+use crate::codegen::js::{generate_js, runtime_files};
+use crate::codegen::{GenOptions, Lang, generate_with_options};
 use crate::compat::{Finding, compat};
 use crate::ir::Ir;
 use crate::lock::{Lock, LockError, lock_from_ir, read_lock, reserved_types};
@@ -419,6 +420,7 @@ pub struct Build {
     /// Emits `cargo:rerun-if-changed` / `cargo:warning` (off for `gravenc gen`).
     cargo: bool,
     opts: GenOptions,
+    lang: Lang,
 }
 
 impl Default for Build {
@@ -429,7 +431,13 @@ impl Default for Build {
 
 impl Build {
     pub fn new() -> Self {
-        Build { schemas: Vec::new(), out_dir: None, cargo: true, opts: GenOptions::default() }
+        Build { schemas: Vec::new(), out_dir: None, cargo: true, opts: GenOptions::default(), lang: Lang::Rust }
+    }
+
+    /// Sets the target output language (`Lang::Rust`, or `Lang::Js` for `.js` with `.d.ts`).
+    pub fn lang(mut self, lang: Lang) -> Self {
+        self.lang = lang;
+        self
     }
 
     /// Emit RPC client stubs (`<Service>Client`, `Response`, `StreamResponse`) for any `service`
@@ -473,18 +481,34 @@ impl Build {
         if self.schemas.is_empty() {
             return Err(CompileError::NoSchema);
         }
+        if self.lang == Lang::Js && self.opts.server {
+            return Err(CompileError::Diagnostics(vec![
+                "the JavaScript server edge is not available yet".to_owned(),
+            ]));
+        }
+        let ext = match self.lang {
+            Lang::Rust => "rs",
+            Lang::Js => "js",
+        };
         let out = match &self.out_dir {
             Some(d) => d.clone(),
             None => std::env::var_os("OUT_DIR").map(PathBuf::from).ok_or(CompileError::NoOutDir)?,
         };
-        // The output is `<out>/<stem>.rs`: two schemas with the same file name (e.g.
-        // `bank.graven` and `evo/bank.graven`) would silently overwrite each other.
-        let mut seen: std::collections::HashMap<std::ffi::OsString, &Path> = std::collections::HashMap::new();
+        // The output is `<out>/<stem>.<ext>`: two schemas with the same file name (e.g.
+        // `bank.graven` and `evo/bank.graven`) would silently overwrite each other, and `graven.graven`
+        // collides with the generated runtime `graven.js`.
+        let mut seen: HashMap<std::ffi::OsString, &Path> = HashMap::new();
         for schema in &self.schemas {
             let stem = schema.file_stem().unwrap_or_default().to_os_string();
+            if self.lang == Lang::Js && stem == "graven" {
+                return Err(CompileError::Diagnostics(vec![format!(
+                    "{}: `graven.graven` collides with the JavaScript runtime file `graven.js`; rename the schema",
+                    schema.display()
+                )]));
+            }
             if let Some(prev) = seen.insert(stem, schema) {
                 return Err(CompileError::Diagnostics(vec![format!(
-                    "{}: generates the same file as {} (`<name>.rs` in OUT_DIR); rename one of the schemas",
+                    "{}: generates the same file as {} (`<name>.{ext}` in OUT_DIR); rename one of the schemas",
                     schema.display(),
                     prev.display()
                 )]));
@@ -506,9 +530,19 @@ impl Build {
         }
         // Imports are resolved among the schemas of this build.
         let results = analyze_set(&self.schemas, &|f: &Path| Ok(locks.get(f).cloned()));
+        let analyses: Vec<Analysis> = results
+            .into_iter()
+            .map(|r| r.map_err(CompileError::Diagnostics))
+            .collect::<Result<_, _>>()?;
+        let mut ns_to_stem = std::collections::BTreeMap::new();
+        for (schema, a) in self.schemas.iter().zip(&analyses) {
+            let stem = schema.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
+            if !a.ir.namespace.is_empty() {
+                ns_to_stem.insert(a.ir.namespace.clone(), stem);
+            }
+        }
         let mut ids = Vec::new();
-        for (schema, result) in self.schemas.iter().zip(results) {
-            let a = result.map_err(CompileError::Diagnostics)?;
+        for (schema, a) in self.schemas.iter().zip(&analyses) {
             let lock = &locks[schema];
             if a.blocking() {
                 return Err(CompileError::Diagnostics(a.finding_lines(schema)));
@@ -523,10 +557,29 @@ impl Build {
             }
             let name = schema.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
             let stem = schema.file_stem().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-            let target = out.join(format!("{stem}.rs"));
-            std::fs::write(&target, generate_with_options(&a.ir, lock, &name, self.opts))
-                .map_err(|source| CompileError::Io { path: target, source })?;
+            let target = out.join(format!("{stem}.{ext}"));
+            std::fs::create_dir_all(&out).map_err(|source| CompileError::Io { path: out.clone(), source })?;
+            match self.lang {
+                Lang::Rust => {
+                    let code = generate_with_options(&a.ir, lock, &name, self.opts);
+                    std::fs::write(&target, code).map_err(|source| CompileError::Io { path: target, source })?;
+                }
+                Lang::Js => {
+                    let files = generate_js(&a.ir, lock, &name, self.opts, &ns_to_stem);
+                    let dts = out.join(format!("{stem}.d.ts"));
+                    std::fs::write(&target, files.js).map_err(|source| CompileError::Io { path: target, source })?;
+                    std::fs::write(&dts, files.dts).map_err(|source| CompileError::Io { path: dts, source })?;
+                }
+            }
             ids.extend(schema_ids(schema, &a.ir, lock));
+        }
+        if self.lang == Lang::Js {
+            std::fs::create_dir_all(&out).map_err(|source| CompileError::Io { path: out.clone(), source })?;
+            let (js, dts) = runtime_files();
+            for (file, text) in [("graven.js", js), ("graven.d.ts", dts)] {
+                let path = out.join(file);
+                std::fs::write(&path, text).map_err(|source| CompileError::Io { path, source })?;
+            }
         }
         let collisions = schema_id_collisions(&ids);
         if !collisions.is_empty() {

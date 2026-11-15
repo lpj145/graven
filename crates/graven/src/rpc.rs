@@ -956,7 +956,9 @@ impl<T> fmt::Debug for Response<T> {
 pub trait ReplyStream {
     type Error;
 
-    /// The next chunk of reply bytes, or `Ok(None)` once the reply is complete.
+    /// The next chunk of reply bytes, or `Ok(None)` once the reply is complete. Empty chunks
+    /// are allowed and skipped; a source that only ever returns empty chunks never ends, like
+    /// one that never returns.
     fn next_chunk(&mut self) -> impl Future<Output = Result<Option<Vec<u8>>, Self::Error>>;
 }
 
@@ -1050,20 +1052,24 @@ impl RawFrame {
     }
 
     fn fault(&self) -> StreamError<core::convert::Infallible> {
-        if self.header.variant != 0 {
-            return StreamError::Protocol(ProtocolError::UnexpectedVariant(self.header.variant));
-        }
-        if self.schema_id != FAULT_SCHEMA_ID {
-            return StreamError::Protocol(ProtocolError::SchemaMismatch {
-                expected: FAULT_SCHEMA_ID,
-                found: self.schema_id,
-            });
-        }
-        match decode_fault(self.payload()) {
-            Ok(flt) => StreamError::Fault(flt.to_owned()),
-            Err(e) => StreamError::Protocol(ProtocolError::Payload(e)),
+        match decode_verified_fault(self.header.variant, self.schema_id, self.payload()) {
+            Ok(flt) => StreamError::Fault(flt),
+            Err(p) => StreamError::Protocol(p),
         }
     }
+}
+
+fn decode_verified_fault(variant: u16, schema_id: u64, payload: &[u8]) -> Result<OwnedFault, ProtocolError> {
+    if variant != 0 {
+        return Err(ProtocolError::UnexpectedVariant(variant));
+    }
+    if schema_id != FAULT_SCHEMA_ID {
+        return Err(ProtocolError::SchemaMismatch {
+            expected: FAULT_SCHEMA_ID,
+            found: schema_id,
+        });
+    }
+    decode_fault(payload).map(|flt| flt.to_owned()).map_err(ProtocolError::Payload)
 }
 
 fn widen<S>(e: StreamError<core::convert::Infallible>) -> StreamError<S> {
@@ -1260,18 +1266,9 @@ fn check_terminal_header<E, S>(bytes: &[u8], expected_service: u64, expected_met
 }
 
 fn decode_fault_from_frame<E, S>(frame: &Frame<'_>) -> CallError<E, S> {
-    if frame.header.variant != 0 {
-        return CallError::Protocol(ProtocolError::UnexpectedVariant(frame.header.variant));
-    }
-    if frame.schema_id != FAULT_SCHEMA_ID {
-        return CallError::Protocol(ProtocolError::SchemaMismatch {
-            expected: FAULT_SCHEMA_ID,
-            found: frame.schema_id,
-        });
-    }
-    match decode_fault(frame.payload) {
-        Ok(flt) => CallError::Fault(flt.to_owned()),
-        Err(e) => CallError::Protocol(ProtocolError::Payload(e)),
+    match decode_verified_fault(frame.header.variant, frame.schema_id, frame.payload) {
+        Ok(flt) => CallError::Fault(flt),
+        Err(p) => CallError::Protocol(p),
     }
 }
 

@@ -9,7 +9,7 @@ it decodes exactly what generated code would.
 |---|---|
 | [`gravenc check`](#check) | Validate schemas and their compatibility with the lockfile (CI). |
 | [`gravenc update`](#update) | Apply the compatibility rules and write the lockfile. |
-| [`gravenc gen`](#gen) | Generate Rust code. |
+| [`gravenc gen`](#gen) | Generate Rust, or JavaScript with TypeScript declarations. |
 | [`gravenc diff`](#diff) | List what changed since the lockfile, with a verdict per change. |
 | [`gravenc inspect`](#inspect) | Read the messages in a file. |
 | [`gravenc to-json`](#to-json-and-from-json) | Decode messages as JSON. |
@@ -57,12 +57,15 @@ lockfile only when there is no error and no unconfirmed warning.
 ## gen
 
 ```sh
-gravenc gen <schema> -o <dir>
+gravenc gen <schema> -o <dir> [--lang rust|js] [--side client|server|client,server]
 ```
 
 Writes `<dir>/<schema name>.rs`, the same code the `build.rs` API produces, plus the code of
-the schemas it imports. Most projects
-use `build.rs` instead; see [getting started](getting-started.md).
+the schemas it imports. Most Rust projects use `build.rs` instead; see
+[getting started](getting-started.md). With `--lang js` it writes `<schema name>.js` and
+`<schema name>.d.ts`, plus the runtime `graven.js` and `graven.d.ts`; see
+[JavaScript and TypeScript](javascript.md). `--side` adds the code of `service`
+declarations: a client, the server edge, or both (JavaScript has the client only).
 
 ## diff
 

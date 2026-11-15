@@ -16,9 +16,9 @@ name = "graven_compiler"
 [dependencies]
 serde = { version = "1.0.229", features = ["derive"] }
 toml = "1.2.1"
-graven = { version = "0.2.0", path = "../graven" }
-graven-layout = { version = "0.2.0", path = "../graven-layout" }
-graven-dynamic = { version = "0.2.0", path = "../graven-dynamic" }
+graven = { version = "0.3.0", path = "../graven" }
+graven-layout = { version = "0.3.0", path = "../graven-layout" }
+graven-dynamic = { version = "0.3.0", path = "../graven-dynamic" }
 serde_json = { version = "1", features = ["preserve_order"] }
 bytes = "1"
 proc-macro2 = "1"

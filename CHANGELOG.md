@@ -1,12 +1,25 @@
 # Changelog
 
-## Unreleased
+## 0.3.0 — services and JavaScript
 
-- **Services** ([proposal 0003](docs/proposals/0003-services.md), draft). `service`
-  declarations with typed errors (`Result<T, E>`), streamed replies, one-way methods and
-  timeouts; the bytes of a call and of a reply; lockfile rules for services; a generated
-  client and the typed edge of a server, chosen with `--side`. Transports stay with the
-  application. No change to format v1.
+- **Services** ([proposal 0003](docs/proposals/0003-services.md)). `service` declarations
+  with typed errors (`Result<T, E>`), streamed replies, one-way methods, retired method IDs
+  and timeouts. The bytes of a call and of a reply are specified as RPC frame format v1
+  ([spec](docs/spec/graven-rpc-v1.md)), with 34 conformance vectors in
+  `testvectors/rpc-v1/`. The lockfile checks how services change (`method-removed`,
+  `method-id-reused`, `method-changed`, `service-removed`, `method-retired`), and
+  `gravenc diff` lists it. `gravenc gen --side client|server` (and `Build::client()` /
+  `Build::server()`) generate a client over the application's `Sender`, with streams read
+  as their bytes arrive, and the typed edge of a server (`<Service>Call::decode`, typed
+  replies). Transports stay with the application. No change to format v1.
+- **JavaScript and TypeScript** ([proposal 0004](docs/proposals/0004-typescript.md)).
+  `gravenc gen --lang js` writes `.js` files with `.d.ts` declarations: readers, verified
+  views, writers, validation and service clients, plus the runtime (`graven.js`,
+  `graven.d.ts`), for browsers, Node and Deno, with no package to install and no build
+  step. Checked against the same conformance vectors as Rust, byte for byte when writing,
+  and against a server generated in Rust.
+- **Compiler**: a union's RPC writer name (`UW`) is reserved; compatibility messages for
+  services name the old and new signature.
 
 ## 0.2.0 — validation rules in schemas
 

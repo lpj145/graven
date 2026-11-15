@@ -8,3 +8,6 @@ __pycache__/
 node_modules/
 *.vsix
 .wrangler/
+/ts/dist
+/ts/tests/gen
+/ts/out-runtime

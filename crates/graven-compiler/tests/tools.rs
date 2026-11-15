@@ -359,7 +359,35 @@ fn diff_reports_service_and_timeout_changes() {
     let o = gravenc(&["diff", s(&sp)]);
     assert_eq!(o.status.code(), Some(0), "{}", err(&o));
     let stdout = out(&o);
-    assert!(stdout.contains("timeout-changed"), "stdout: {stdout}");
+    assert!(stdout.contains("method-renamed"), "stdout: {stdout}");
     assert!(stdout.contains("renamed get → fetch"), "stdout: {stdout}");
     assert!(stdout.contains("new-method"), "stdout: {stdout}");
+
+    // Removing a @reserved method must attach `error: method-removed` to its change line.
+    let p2 = d.join("res.graven");
+    std::fs::write(
+        &p2,
+        "namespace inv;\n\
+         table Req { x @0: u32; }\n\
+         service S {\n\
+           get @1: (Req);\n\
+           @2: reserved;\n\
+         }\n",
+    )
+    .unwrap();
+    assert_eq!(gravenc(&["update", s(&p2), "--init"]).status.code(), Some(0));
+    std::fs::write(
+        &p2,
+        "namespace inv;\n\
+         table Req { x @0: u32; }\n\
+         service S {\n\
+           get @1: (Req);\n\
+         }\n",
+    )
+    .unwrap();
+    let o = gravenc(&["diff", s(&p2)]);
+    assert_eq!(o.status.code(), Some(1), "{}", err(&o));
+    let stdout = out(&o);
+    let reserved_line = stdout.lines().find(|l| l.contains("@2: reserved")).expect(&stdout);
+    assert!(reserved_line.contains("error: method-removed"), "line: {reserved_line}");
 }

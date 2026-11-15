@@ -197,7 +197,10 @@ impl Cx<'_> {
                     }
                 })
                 .collect();
-            let u_doc = format!(" Top-level writer for union `{}` in RPC calls and replies.", u.name);
+            let u_doc = format!(
+                " Top-level writer for union `{}` in RPC calls and replies.\n\n The closure given to `ok`, `err`, `item` or a client method must choose exactly\n one variant (`w.<variant>()`); choosing none panics.",
+                u.name
+            );
             out.extend(quote! {
                 #[doc = #u_doc]
                 pub struct #unw<'b> {
