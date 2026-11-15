@@ -148,7 +148,7 @@ fn lex(src: &str) -> Result<Vec<(Tok, Span)>, ParseError> {
             out.push((Tok::Ident(s), sp));
         } else if c.is_ascii_digit() {
             out.push((lex_number(&mut lx)?, sp));
-        } else if "{}[](),;:@?=#.-".contains(c) {
+        } else if "{}[](),;:@?=#.-<>".contains(c) {
             lx.bump();
             out.push((Tok::Punct(c), sp));
         } else {
@@ -405,13 +405,15 @@ impl Parser {
                 }
                 self.union_decl().map(Item::Union)
             }
-            _ => self.unexpected("`enum`, `struct`, `table` or `union`"),
+            "service" => self.service_decl(attrs).map(Item::Service),
+            _ => self.unexpected("`enum`, `struct`, `table`, `union` or `service`"),
         }?;
         let name = match &item {
             Item::Enum(d) => &d.name,
             Item::Struct(d) => &d.name,
             Item::Table(d) => &d.name,
             Item::Union(d) => &d.name,
+            Item::Service(d) => &d.name,
         };
         self.attach(name.clone(), doc);
         Ok(item)
@@ -538,6 +540,101 @@ impl Parser {
         }
         self.expect_punct('}')?;
         Ok(TableDecl { name, attrs, fields, span })
+    }
+
+    fn service_decl(&mut self, attrs: Vec<Attr>) -> Result<ServiceDecl, ParseError> {
+        let span = self.keyword("service")?;
+        let (name, _) = self.ident("the service name")?;
+        self.expect_punct('{')?;
+        let mut methods = Vec::new();
+        loop {
+            let doc = self.take_docs();
+            if self.is_punct('}') {
+                Self::no_dangling(&doc)?;
+                break;
+            }
+            let m = self.service_method()?;
+            if let Some(n) = &m.name {
+                self.attach(format!("{name}.{n}"), doc);
+            }
+            methods.push(m);
+        }
+        self.expect_punct('}')?;
+        Ok(ServiceDecl { name, attrs, methods, span })
+    }
+
+    fn service_method(&mut self) -> Result<MethodDecl, ParseError> {
+        let attrs = self.attrs()?;
+        let span = self.span();
+        if self.eat_punct('@') {
+            let id = self.id_u16()?;
+            self.expect_punct(':')?;
+            self.keyword("reserved")?;
+            self.expect_punct(';')?;
+            return Ok(MethodDecl {
+                id,
+                name: None,
+                input: None,
+                reply: None,
+                attrs,
+                span,
+            });
+        }
+        let (mname, _) = self.ident("the method name or `@id`")?;
+        self.expect_punct('@')?;
+        let id = self.id_u16()?;
+        self.expect_punct(':')?;
+        self.expect_punct('(')?;
+        let input = self.ty()?;
+        self.expect_punct(')')?;
+        let reply = if self.eat_punct('-') {
+            self.expect_punct('>')?;
+            Some(self.service_reply()?)
+        } else {
+            None
+        };
+        self.expect_punct(';')?;
+        Ok(MethodDecl {
+            id,
+            name: Some(mname),
+            input: Some(input),
+            reply,
+            attrs,
+            span,
+        })
+    }
+
+    fn service_reply(&mut self) -> Result<ReplyDecl, ParseError> {
+        let next_is_lt = self.toks.get(self.pos + 1).is_some_and(|(t, _)| *t == Tok::Punct('<'));
+        if matches!(self.peek(), Tok::Ident(s) if s == "Result") && next_is_lt {
+            self.bump();
+            self.expect_punct('<')?;
+            let (stream, output) = self.service_output()?;
+            self.expect_punct(',')?;
+            let error = self.ty()?;
+            self.expect_punct('>')?;
+            return Ok(ReplyDecl { output, stream, error: Some(error) });
+        }
+        let (stream, output) = self.service_output()?;
+        if stream && matches!(output, TypeRef::Named(ref n) if n == "Result") && self.is_punct('<') {
+            return err(
+                self.span(),
+                "`stream Result<T, E>` is not allowed; use `Result<stream T, E>` or return a union in `T`",
+            );
+        }
+        Ok(ReplyDecl { output, stream, error: None })
+    }
+
+    fn service_output(&mut self) -> Result<(bool, TypeRef), ParseError> {
+        let stream = match self.peek() {
+            Tok::Ident(s) if s == "stream" => {
+                self.bump();
+                true
+            }
+            _ => false,
+        };
+        let ty = self.ty()?;
+        Ok((stream, ty))
     }
 
     fn attrs(&mut self) -> Result<Vec<Attr>, ParseError> {

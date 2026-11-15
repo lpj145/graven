@@ -1,0 +1,6 @@
+namespace p;
+table Req { x @0: u32; }
+table Res { y @0: u32; }
+service S {
+  get @1: (Req) -> Res;
+}

@@ -34,10 +34,10 @@ use std::fmt;
 
 use crate::ast::Span;
 use crate::ir::Ir;
-use crate::lock::{Lock, LockField, LockLen, LockRange, LockRules, LockTable, lock_from_ir};
+use crate::lock::{Lock, LockField, LockLen, LockMethod, LockRange, LockRules, LockService, LockTable, lock_from_ir};
 
 /// Error rules (the compiler refuses).
-pub const ERROR_RULES: [&str; 15] = [
+pub const ERROR_RULES: [&str; 19] = [
     "type-changed",
     "id-reused",
     "ids-reordered",
@@ -53,19 +53,33 @@ pub const ERROR_RULES: [&str; 15] = [
     "union-variant-changed",
     "layout-changed",
     "namespace-changed",
+    "method-removed",
+    "method-id-reused",
+    "method-changed",
+    "service-removed",
 ];
 
 /// Warning rules (an error without `#[allow_breaking_readers]`).
-pub const WARNING_RULES: [&str; 4] = ["required-reserved", "required-relaxed", "rule-tightened", "check-added"];
+pub const WARNING_RULES: [&str; 5] = [
+    "required-reserved",
+    "required-relaxed",
+    "rule-tightened",
+    "check-added",
+    "method-retired",
+];
 
 /// Allowed changes (never produce a finding); names for documentation and tests.
-pub const ALLOWED_RULES: [&str; 6] = [
+pub const ALLOWED_RULES: [&str; 10] = [
     "new-optional",
     "new-default",
     "reserved-optional",
     "new-enum-variant",
     "new-union-variant",
     "field-renamed",
+    "new-service",
+    "new-method",
+    "method-renamed",
+    "timeout-changed",
 ];
 
 /// Result of the check. `table` is the name of the type (table, enum, struct or union) and
@@ -198,6 +212,7 @@ pub fn compat(old: &Lock, new: &Ir) -> Vec<Finding> {
     for ot in &old.tables {
         cx.table(ot);
     }
+    cx.services();
     imported(cx.out)
 }
 
@@ -722,6 +737,109 @@ impl<'a> Cx<'a> {
                 });
             }
         }
+    }
+
+    fn services(&mut self) {
+        for os in &self.old.services {
+            self.service(os);
+        }
+    }
+
+    fn service(&mut self, os: &LockService) {
+        let sname = &os.name;
+        let Some(ns) = self.new.services.iter().find(|s| s.name == *sname) else {
+            self.error(
+                "service-removed",
+                sname,
+                None,
+                Span::default(),
+                format!("service `{sname}` was removed or renamed: clients calling it will fail"),
+            );
+            return;
+        };
+        let is = self.ir.services.iter().find(|s| s.name == *sname).expect("lock matches ir");
+
+        for om in &os.methods {
+            let nm = ns.methods.iter().find(|m| m.id == om.id);
+            let im = is.methods.iter().find(|m| m.id == om.id);
+            match (om.reserved, nm) {
+                (_, None) => {
+                    let fname = om.name.as_deref().map(str::to_string).unwrap_or_else(|| format!("@{}", om.id));
+                    self.error(
+                        "method-removed",
+                        sname,
+                        om.name.as_deref(),
+                        is.span,
+                        format!(
+                            "method `{sname}.{fname}` (@{}) was removed without reserving its ID (`@{}: reserved;`)",
+                            om.id, om.id
+                        ),
+                    );
+                }
+                (true, Some(nm)) if !nm.reserved => {
+                    let span = im.map_or(is.span, |m| m.span);
+                    self.error(
+                        "method-id-reused",
+                        sname,
+                        nm.name.as_deref(),
+                        span,
+                        format!(
+                            "method `{sname}.{}` reuses reserved ID @{}: old clients could decode replies against the retired contract",
+                            nm.name.as_deref().unwrap_or("?"),
+                            om.id
+                        ),
+                    );
+                }
+                (true, Some(_)) => {}
+                (false, Some(nm)) if nm.reserved => {
+                    let span = im.map_or(is.span, |m| m.span);
+                    let confirmed = im.is_some_and(|m| m.allow_breaking);
+                    let mname = om.name.as_deref().unwrap_or("?");
+                    let suffix = if confirmed { "" } else { "; add `#[allow_breaking_readers]` on the reserved ID to confirm" };
+                    self.out.push(Finding::Warning {
+                        rule: "method-retired",
+                        table: sname.to_string(),
+                        field: Some(mname.to_string()),
+                        span,
+                        msg: format!(
+                            "method `{sname}.{mname}` (@{}) was retired to `reserved`: old callers will receive `FaultCode::Unsupported`{suffix} (method-retired)",
+                            om.id
+                        ),
+                        confirmed,
+                    });
+                }
+                (false, Some(nm)) => {
+                    let span = im.map_or(is.span, |m| m.span);
+                    if om.shape != nm.shape || om.input != nm.input || om.output != nm.output || om.error != nm.error {
+                        let mname = nm.name.as_deref().unwrap_or("?");
+                        self.error(
+                            "method-changed",
+                            sname,
+                            nm.name.as_deref(),
+                            span,
+                            format!(
+                                "method `{sname}.{mname}` (@{}) changed its signature: `{}` became `{}`; old clients and servers would disagree on the bytes",
+                                om.id,
+                                signature(om),
+                                signature(nm),
+                            ),
+                        );
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// A method's signature as written in a schema (`(I) -> Result<stream T, E>`), from the lock.
+fn signature(m: &LockMethod) -> String {
+    let input = m.input.as_deref().unwrap_or("?");
+    let output = m.output.as_deref().unwrap_or("?");
+    let out = if m.shape.as_deref() == Some("stream") { format!("stream {output}") } else { output.to_string() };
+    match (m.shape.as_deref(), m.error.as_deref()) {
+        (Some("one-way"), _) => format!("({input})"),
+        (_, Some(e)) => format!("({input}) -> Result<{out}, {e}>"),
+        (_, None) => format!("({input}) -> {out}"),
     }
 }
 

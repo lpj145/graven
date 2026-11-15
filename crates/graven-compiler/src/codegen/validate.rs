@@ -9,7 +9,7 @@ pub(super) fn has_any_rules(ir: &Ir) -> bool {
     ir.tables.iter().any(|t| !t.checks.is_empty() || t.fields.iter().any(|f| !f.rules.is_empty()))
 }
 
-fn table_needs_validate(ir: &Ir, tid: TableId) -> bool {
+pub(super) fn table_needs_validate(ir: &Ir, tid: TableId) -> bool {
     fn visit(ir: &Ir, tid: TableId, seen: &mut Vec<bool>) -> bool {
         if seen[tid.0] {
             return false;
@@ -179,7 +179,7 @@ impl Cx<'_> {
                 out: &mut ::graven::rt::Vec<::graven::Invalid>,
             ) -> ::core::result::Result<(), ::graven::Error> {
                 // A table with only built-in rules does not call any check.
-                let _ = checks;
+                let _ = (checks, &*out);
                 #collect_all
                 ::core::result::Result::Ok(())
             }

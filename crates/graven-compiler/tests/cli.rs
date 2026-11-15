@@ -422,3 +422,52 @@ fn schema_id_collisions_are_reported() {
     assert_eq!(code(&o), 1);
     assert!(stderr(&o).contains("is declared in exactly one file"), "{}", stderr(&o));
 }
+
+#[test]
+fn gen_side_option_controls_service_codegen() {
+    let d = tmp("gen-side");
+    let schema = d.join("svc.graven");
+    write(
+        &schema,
+        "namespace rpc.side.v1;\n\
+         table Req { id @0: u64; }\n\
+         table Resp { ok @0: bool; }\n\
+         service Ping {\n\
+             ping @1: (Req) -> Resp;\n\
+         }\n",
+    );
+    update_ok(&schema);
+
+    let out_none = d.join("none");
+    let o = gravenc(&["gen", s(&schema), "-o", s(&out_none)]);
+    assert_eq!(code(&o), 0, "{}", stderr(&o));
+    let rs_none = std::fs::read_to_string(out_none.join("svc.rs")).unwrap();
+    assert!(!rs_none.contains("PingCall"), "default gen must not emit server items");
+    assert!(!rs_none.contains("PingClient"), "default gen must not emit client items");
+
+    let out_srv = d.join("srv");
+    let o = gravenc(&["gen", s(&schema), "-o", s(&out_srv), "--side", "server"]);
+    assert_eq!(code(&o), 0, "{}", stderr(&o));
+    let rs_srv = std::fs::read_to_string(out_srv.join("svc.rs")).unwrap();
+    assert!(rs_srv.contains("pub enum PingCall"), "server side must emit PingCall");
+    assert!(!rs_srv.contains("PingClient"), "server only must not emit PingClient");
+
+    let out_cli = d.join("cli");
+    let o = gravenc(&["gen", s(&schema), "-o", s(&out_cli), "--side", "client"]);
+    assert_eq!(code(&o), 0, "{}", stderr(&o));
+    let rs_cli = std::fs::read_to_string(out_cli.join("svc.rs")).unwrap();
+    assert!(rs_cli.contains("pub struct PingClient"), "client side must emit PingClient");
+    assert!(!rs_cli.contains("PingCall"), "client only must not emit PingCall");
+
+    let out_both = d.join("both");
+    let o = gravenc(&["gen", s(&schema), "-o", s(&out_both), "--side", "client,server"]);
+    assert_eq!(code(&o), 0, "{}", stderr(&o));
+    let rs_both = std::fs::read_to_string(out_both.join("svc.rs")).unwrap();
+    assert!(rs_both.contains("pub struct PingClient"));
+    assert!(rs_both.contains("pub enum PingCall"));
+    assert!(rs_both.contains("PING_SERVICE_ID"));
+    assert!(rs_both.contains("ping_timeouts"));
+
+    let o = gravenc(&["gen", s(&schema), "-o", s(&out_both), "--side", "bogus"]);
+    assert_eq!(code(&o), 2, "invalid --side must exit with usage error");
+}

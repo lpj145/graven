@@ -27,6 +27,38 @@ pub struct Lock {
     pub enums: Vec<LockEnum>,
     pub structs: Vec<LockStruct>,
     pub unions: Vec<LockUnion>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub services: Vec<LockService>,
+}
+
+#[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
+pub struct LockService {
+    pub name: String,
+    /// `"0x%016x"`; FNV-1a of `"ns.Service"` the first time, fixed afterwards.
+    pub service_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timeout_ms: Option<u32>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub methods: Vec<LockMethod>,
+}
+
+#[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
+pub struct LockMethod {
+    pub id: u16,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub input: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub output: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shape: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timeout_ms: Option<u32>,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub reserved: bool,
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
@@ -290,7 +322,57 @@ pub fn lock_from_ir(ir: &Ir, prev: Option<&Lock>) -> Lock {
         })
         .collect();
 
-    Lock { format: LOCK_FORMAT, namespace: ir.namespace.clone(), tables, enums, structs, unions }
+    let prev_svc_ids: HashMap<&str, &str> = prev
+        .map(|p| p.services.iter().map(|s| (s.name.as_str(), s.service_id.as_str())).collect())
+        .unwrap_or_default();
+
+    let services = ir
+        .services
+        .iter()
+        .map(|s| {
+            let service_id = match prev_svc_ids.get(s.name.as_str()) {
+                Some(id) => id.to_string(),
+                None => format!("{:#018x}", s.service_id),
+            };
+            let methods = s
+                .methods
+                .iter()
+                .map(|m| {
+                    if m.name.is_none() {
+                        LockMethod {
+                            id: m.id,
+                            name: None,
+                            input: None,
+                            output: None,
+                            error: None,
+                            shape: None,
+                            timeout_ms: None,
+                            reserved: true,
+                        }
+                    } else {
+                        LockMethod {
+                            id: m.id,
+                            name: m.name.clone(),
+                            input: m.input.as_ref().map(|t| ir.ty_name(t)),
+                            output: m.output.as_ref().map(|t| ir.ty_name(t)),
+                            error: m.error.as_ref().map(|t| ir.ty_name(t)),
+                            shape: m.shape.map(|sh| sh.as_str().to_string()),
+                            timeout_ms: m.timeout_ms,
+                            reserved: false,
+                        }
+                    }
+                })
+                .collect();
+            LockService {
+                name: s.name.clone(),
+                service_id,
+                timeout_ms: s.timeout_ms,
+                methods,
+            }
+        })
+        .collect();
+
+    Lock { format: LOCK_FORMAT, namespace: ir.namespace.clone(), tables, enums, structs, unions, services }
 }
 
 /// Reads the lock. `Ok(None)` only when the file does not exist; any other problem is an error.
@@ -332,6 +414,14 @@ fn validate(l: &Lock) -> Result<(), String> {
             if usize::from(f.id) != i {
                 return Err(format!("table `{}`: field `{}` at position {i} has id {} (expected {i})", t.name, f.name, f.id));
             }
+        }
+    }
+    for s in &l.services {
+        if !valid_schema_id(&s.service_id) {
+            return Err(format!(
+                "service_id {:?} of service `{}` is invalid (expected `0x` + 16 lowercase hex digits)",
+                s.service_id, s.name
+            ));
         }
     }
     Ok(())

@@ -325,3 +325,41 @@ fn inspect_reports_validation_and_unchecked_functions() {
     assert!(stdout.contains("breaks rule `range`"), "stdout: {stdout}");
     assert!(stdout.contains("check(slug) not checked"), "stdout: {stdout}");
 }
+
+#[test]
+fn diff_reports_service_and_timeout_changes() {
+    let d = tmp("diff_svc");
+    let sp = d.join("svc.graven");
+    std::fs::write(
+        &sp,
+        "namespace inv;\n\
+         table Req { x @0: u32; }\n\
+         table Res { y @0: u32; }\n\
+         #[timeout(ms = 5000)]\n\
+         service S {\n\
+           get @1: (Req) -> Res;\n\
+         }\n",
+    )
+    .unwrap();
+    assert_eq!(gravenc(&["update", s(&sp), "--init"]).status.code(), Some(0));
+
+    std::fs::write(
+        &sp,
+        "namespace inv;\n\
+         table Req { x @0: u32; }\n\
+         table Res { y @0: u32; }\n\
+         #[timeout(ms = 2000)]\n\
+         service S {\n\
+           #[timeout(ms = 500)]\n\
+           fetch @1: (Req) -> Res;\n\
+           list @2: (Req) -> stream Res;\n\
+         }\n",
+    )
+    .unwrap();
+    let o = gravenc(&["diff", s(&sp)]);
+    assert_eq!(o.status.code(), Some(0), "{}", err(&o));
+    let stdout = out(&o);
+    assert!(stdout.contains("timeout-changed"), "stdout: {stdout}");
+    assert!(stdout.contains("renamed get → fetch"), "stdout: {stdout}");
+    assert!(stdout.contains("new-method"), "stdout: {stdout}");
+}

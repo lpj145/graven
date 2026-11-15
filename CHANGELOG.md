@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- **Services** ([proposal 0003](docs/proposals/0003-services.md), draft). `service`
+  declarations with typed errors (`Result<T, E>`), streamed replies, one-way methods and
+  timeouts; the bytes of a call and of a reply; lockfile rules for services; a generated
+  client and the typed edge of a server, chosen with `--side`. Transports stay with the
+  application. No change to format v1.
+
 ## 0.2.0 — validation rules in schemas
 
 - **Validation rules in schemas** ([proposal 0002](docs/proposals/0002-validation.md),

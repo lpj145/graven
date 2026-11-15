@@ -1,0 +1,14 @@
+{
+  "frames": [
+    {
+      "kind": 6,
+      "method": 3,
+      "variant": 0,
+      "service_id": "0x7708675a6f01f170",
+      "schema_id": "0x39962d24665d62db",
+      "payload_len": 86,
+      "fault_code": 3,
+      "fault_message": "validation failed"
+    }
+  ]
+}

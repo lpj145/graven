@@ -2,7 +2,7 @@
 //! with the compatibility verdict of each change (spec §9).
 
 use crate::compat::Finding;
-use crate::lock::{Lock, LockField};
+use crate::lock::{Lock, LockField, LockMethod};
 
 /// One line of the report.
 pub struct Change {
@@ -221,6 +221,91 @@ pub fn diff(old: &Lock, new: &Lock, findings: &[Finding]) -> Report {
         }
     }
 
+    for os in &old.services {
+        let scope = format!("service {}", os.name);
+        let Some(ns) = new.services.iter().find(|s| s.name == os.name) else {
+            let v = verdict(&os.name, &[], "");
+            changes.push(Change { scope, what: "- service removed".into(), verdict: v });
+            continue;
+        };
+        if os.timeout_ms != ns.timeout_ms {
+            changes.push(Change {
+                scope: scope.clone(),
+                what: format!("~ timeout {} → {}", fmt_timeout(os.timeout_ms), fmt_timeout(ns.timeout_ms)),
+                verdict: "allowed: timeout-changed".into(),
+            });
+        }
+        for om in &os.methods {
+            match ns.methods.iter().find(|m| m.id == om.id) {
+                None => {
+                    let oname = om.name.as_deref().unwrap_or("reserved");
+                    let v = verdict(&os.name, &[oname], "");
+                    changes.push(Change { scope: scope.clone(), what: format!("- {}", method_text(om)), verdict: v });
+                }
+                Some(nm) if nm == om => {}
+                Some(nm) if !om.reserved && nm.reserved => {
+                    let oname = om.name.as_deref().unwrap_or("?");
+                    let v = verdict(&os.name, &[oname], "");
+                    changes.push(Change {
+                        scope: scope.clone(),
+                        what: format!("~ {oname} @{}: → reserved", om.id),
+                        verdict: v,
+                    });
+                }
+                Some(nm) if om.reserved && !nm.reserved => {
+                    let nname = nm.name.as_deref().unwrap_or("?");
+                    let v = verdict(&os.name, &[nname], "");
+                    changes.push(Change { scope: scope.clone(), what: format!("~ @{}: reserved → {nname}", om.id), verdict: v });
+                }
+                Some(nm) => {
+                    let mut parts = Vec::new();
+                    if om.input != nm.input || om.output != nm.output || om.error != nm.error || om.shape != nm.shape {
+                        parts.push("signature/shape changed".to_string());
+                    }
+                    if om.name != nm.name {
+                        parts.push(format!(
+                            "renamed {} → {}",
+                            om.name.as_deref().unwrap_or("?"),
+                            nm.name.as_deref().unwrap_or("?")
+                        ));
+                    }
+                    if om.timeout_ms != nm.timeout_ms {
+                        parts.push(format!("timeout {} → {}", fmt_timeout(om.timeout_ms), fmt_timeout(nm.timeout_ms)));
+                    }
+                    let allowed = if parts.iter().all(|p| p.starts_with("timeout")) {
+                        "timeout-changed"
+                    } else if parts.len() == 1 && parts[0].starts_with("renamed") {
+                        "method-renamed"
+                    } else {
+                        ""
+                    };
+                    let nname = nm.name.as_deref().unwrap_or("?");
+                    let oname = om.name.as_deref().unwrap_or("?");
+                    let v = verdict(&os.name, &[oname, nname], allowed);
+                    changes.push(Change {
+                        scope: scope.clone(),
+                        what: format!("~ {nname} @{}: {}", nm.id, parts.join(", ")),
+                        verdict: v,
+                    });
+                }
+            }
+        }
+        for nm in ns.methods.iter().filter(|m| !os.methods.iter().any(|o| o.id == m.id)) {
+            changes.push(Change {
+                scope: scope.clone(),
+                what: format!("+ {}", method_text(nm)),
+                verdict: "allowed: new-method".into(),
+            });
+        }
+    }
+    for ns in new.services.iter().filter(|s| !old.services.iter().any(|o| o.name == s.name)) {
+        changes.push(Change {
+            scope: format!("service {}", ns.name),
+            what: format!("+ service added ({} methods)", ns.methods.len()),
+            verdict: "allowed: new-service".into(),
+        });
+    }
+
     let other = findings
         .iter()
         .zip(&used)
@@ -228,4 +313,28 @@ pub fn diff(old: &Lock, new: &Lock, findings: &[Finding]) -> Report {
         .map(|(f, _)| format!("{}: {}", verdict_of(f), f.msg()))
         .collect();
     Report { changes, other }
+}
+
+fn fmt_timeout(ms: Option<u32>) -> String {
+    match ms {
+        Some(v) => format!("{v}ms"),
+        None => "none".into(),
+    }
+}
+
+fn method_text(m: &LockMethod) -> String {
+    if m.reserved {
+        return format!("@{}: reserved", m.id);
+    }
+    let name = m.name.as_deref().unwrap_or("?");
+    let input = m.input.as_deref().unwrap_or("?");
+    let ret = match (m.shape.as_deref(), m.output.as_deref(), m.error.as_deref()) {
+        (Some("one-way"), _, _) => String::new(),
+        (Some("stream"), Some(out), Some(err)) => format!(" -> Result<stream {out}, {err}>"),
+        (Some("stream"), Some(out), None) => format!(" -> stream {out}"),
+        (_, Some(out), Some(err)) => format!(" -> Result<{out}, {err}>"),
+        (_, Some(out), None) => format!(" -> {out}"),
+        _ => String::new(),
+    };
+    format!("{name} @{}: ({input}){ret}", m.id)
 }

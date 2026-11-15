@@ -255,3 +255,47 @@ fn validation_attrs_syntax() {
     assert_eq!(delta.attrs[0].args[0].value, Some(Literal::Int(-10)));
     assert_eq!(delta.attrs[0].args[1].value, Some(Literal::Int(10_000)));
 }
+
+#[test]
+fn service_syntax_and_contextual_keywords() {
+    let s = parse(
+        "namespace inv;\n\
+         table Req { service @0: string; stream @1: bool; Result @2: u32; }\n\
+         table Res { x @0: u32; }\n\
+         union Err { A @1: Res }\n\
+         /// Service doc.\n\
+         #[timeout(ms = 5000)]\n\
+         service Inventory {\n\
+           /// Method doc.\n\
+           #[timeout(ms = 500)]\n\
+           get @1: (Req) -> Result<Res, Err>;\n\
+           list @2: (Req) -> stream Res;\n\
+           fallible_stream @3: (Req) -> Result<stream Res, Err>;\n\
+           ping @4: (Req);\n\
+           #[allow_breaking_readers]\n\
+           @5: reserved;\n\
+         }",
+    )
+    .unwrap();
+    let svc = s.items.iter().find_map(|i| match i {
+        Item::Service(d) => Some(d),
+        _ => None,
+    }).unwrap();
+    assert_eq!(svc.name, "Inventory");
+    assert_eq!(svc.methods.len(), 5);
+    assert_eq!(svc.methods[0].name.as_deref(), Some("get"));
+    assert!(svc.methods[1].reply.as_ref().unwrap().stream);
+    assert!(svc.methods[2].reply.as_ref().unwrap().stream);
+    assert!(svc.methods[2].reply.as_ref().unwrap().error.is_some());
+    assert!(svc.methods[3].reply.is_none());
+    assert!(svc.methods[4].name.is_none());
+    assert_eq!(s.docs.get("Inventory").map(String::as_str), Some("Service doc."));
+    assert_eq!(s.docs.get("Inventory.get").map(String::as_str), Some("Method doc."));
+
+    let err = parse(
+        "namespace inv;\n\
+         service S { m @1: (Req) -> stream Result<Res, Err>; }",
+    )
+    .unwrap_err();
+    assert!(err.msg.contains("stream Result"), "got: {}", err.msg);
+}

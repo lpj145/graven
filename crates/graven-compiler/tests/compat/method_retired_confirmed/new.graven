@@ -1,0 +1,7 @@
+namespace p;
+table Req { x @0: u32; }
+table Res { y @0: u32; }
+service S {
+  #[allow_breaking_readers]
+  @1: reserved;
+}

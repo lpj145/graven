@@ -1,0 +1,12 @@
+{
+  "frames": [
+    {
+      "kind": 1,
+      "method": 1,
+      "variant": 0,
+      "service_id": "0x7708675a6f01f170",
+      "schema_id": "0x97740a5fb534040b",
+      "payload_len": 9
+    }
+  ]
+}

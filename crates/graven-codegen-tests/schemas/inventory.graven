@@ -1,0 +1,113 @@
+namespace test.inventory.v1;
+
+table GetReq {
+    #[len(min = 1, max = 32)]
+    sku @0: string;
+}
+
+table Item {
+    #[len(min = 1, max = 32)]
+    sku @0: string;
+    #[range(min = 1, max = 10000)]
+    stock @1: u32;
+}
+
+table ReserveReq {
+    #[len(min = 1, max = 32)]
+    sku @0: string;
+    #[range(min = 1, max = 1000)]
+    qty @1: u32;
+}
+
+table Receipt {
+    id @0: u64;
+}
+
+table OutOfStock {
+    available @0: u32;
+}
+
+table InvalidSku {
+    reason @0: string;
+}
+
+union ReserveErr {
+    OutOfStock @1: OutOfStock,
+    InvalidSku @2: InvalidSku,
+}
+
+table WatchReq {
+    #[len(min = 1, max = 32)]
+    sku @0: string;
+}
+
+table Event {
+    seq @0: u64;
+    stock @1: u32;
+}
+
+table BatchReq {
+    #[range(min = 1, max = 100)]
+    count @0: u32;
+}
+
+table BatchItem {
+    index @0: u32;
+}
+
+table BatchErr {
+    code @0: u16;
+}
+
+table AuditLog {
+    #[len(min = 1, max = 32)]
+    actor @0: string;
+    note @1: string;
+}
+
+table AddCommand {
+    #[len(min = 1, max = 32)]
+    sku @0: string;
+    delta @1: i32;
+}
+
+table ClearCommand {
+    #[len(min = 1, max = 32)]
+    sku @0: string;
+}
+
+union Command {
+    Add @1: AddCommand,
+    Clear @2: ClearCommand,
+}
+
+table AddedOut {
+    new_stock @0: u32;
+}
+
+table ClearedOut {
+    removed @0: u32;
+}
+
+union ActionOut {
+    Added @1: AddedOut,
+    Cleared @2: ClearedOut,
+}
+
+service Inventory {
+    #[timeout(ms = 2500)]
+    get_item @1: (GetReq) -> Item;
+    reserve @2: (ReserveReq) -> Result<Receipt, ReserveErr>;
+    #[timeout(ms = 10000)]
+    watch @3: (WatchReq) -> stream Event;
+    batch @4: (BatchReq) -> Result<stream BatchItem, BatchErr>;
+    audit @5: (AuditLog);
+    @6: reserved;
+    dispatch @7: (Command) -> Result<ActionOut, OutOfStock>;
+}
+
+#[timeout(ms = 5000)]
+service Metrics {
+    record @1: (AuditLog);
+    ping @2: (BatchReq) -> BatchItem;
+}

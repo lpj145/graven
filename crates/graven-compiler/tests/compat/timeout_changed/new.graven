@@ -1,0 +1,7 @@
+namespace p;
+table Req { x @0: u32; }
+table Res { y @0: u32; }
+service S {
+  #[timeout(ms = 1000)]
+  get @1: (Req) -> Res;
+}

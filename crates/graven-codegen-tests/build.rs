@@ -16,4 +16,11 @@ fn main() {
         .schema(dir.join("schemas/validation.graven"))
         .compile()
         .unwrap_or_else(|e| panic!("{e}"));
+
+    graven_compiler::build::Build::new()
+        .schema(dir.join("schemas/inventory.graven"))
+        .client()
+        .server()
+        .compile()
+        .unwrap_or_else(|e| panic!("{e}"));
 }

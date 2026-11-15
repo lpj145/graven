@@ -35,6 +35,35 @@ pub enum Item {
     Struct(StructDecl),
     Table(TableDecl),
     Union(UnionDecl),
+    Service(ServiceDecl),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ServiceDecl {
+    pub name: String,
+    pub attrs: Vec<Attr>,
+    pub methods: Vec<MethodDecl>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct MethodDecl {
+    pub id: u16,
+    /// `None` when the method is `@n: reserved;`.
+    pub name: Option<String>,
+    /// `None` when reserved.
+    pub input: Option<TypeRef>,
+    /// `None` when one-way or reserved.
+    pub reply: Option<ReplyDecl>,
+    pub attrs: Vec<Attr>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ReplyDecl {
+    pub output: TypeRef,
+    pub stream: bool,
+    pub error: Option<TypeRef>,
 }
 
 #[derive(Debug, Clone, PartialEq)]

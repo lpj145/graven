@@ -19,6 +19,7 @@ pub mod model;
 pub mod generated {
     include!(concat!(env!("OUT_DIR"), "/conformance.rs"));
 }
+pub mod rpc_vectors;
 pub mod vectors;
 
 pub use interp::{Value, field_kind, layout, read, write};

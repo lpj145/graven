@@ -26,7 +26,7 @@ use std::fmt;
 use std::path::{Path, PathBuf};
 
 use crate::ast::Span;
-use crate::codegen::generate_with_source;
+use crate::codegen::{GenOptions, generate_with_options};
 use crate::compat::{Finding, compat};
 use crate::ir::Ir;
 use crate::lock::{Lock, LockError, lock_from_ir, read_lock, reserved_types};
@@ -307,10 +307,11 @@ pub struct SchemaIdEntry {
     pub file: PathBuf,
 }
 
-/// The schema id of every table of a schema, as the lock records it.
+/// The schema id of every table and service of a schema, as the lock records it.
 pub fn schema_ids(file: &Path, ir: &Ir, lock: &Lock) -> Vec<SchemaIdEntry> {
     let lock = lock_from_ir(ir, Some(lock));
-    lock.tables
+    let mut entries: Vec<SchemaIdEntry> = lock
+        .tables
         .iter()
         // Imported tables are counted once, by the schema that declares them.
         .filter(|t| !t.name.contains('.'))
@@ -319,7 +320,15 @@ pub fn schema_ids(file: &Path, ir: &Ir, lock: &Lock) -> Vec<SchemaIdEntry> {
             qualified: format!("{}.{}", ir.namespace, t.name),
             file: file.to_path_buf(),
         })
-        .collect()
+        .collect();
+    for s in &lock.services {
+        entries.push(SchemaIdEntry {
+            id: u64::from_str_radix(s.service_id.trim_start_matches("0x"), 16).unwrap_or(0),
+            qualified: format!("{}.{}", ir.namespace, s.name),
+            file: file.to_path_buf(),
+        });
+    }
+    entries
 }
 
 /// Two differently named tables with the same schema id: their envelopes could not be told
@@ -409,6 +418,7 @@ pub struct Build {
     out_dir: Option<PathBuf>,
     /// Emits `cargo:rerun-if-changed` / `cargo:warning` (off for `gravenc gen`).
     cargo: bool,
+    opts: GenOptions,
 }
 
 impl Default for Build {
@@ -419,7 +429,21 @@ impl Default for Build {
 
 impl Build {
     pub fn new() -> Self {
-        Build { schemas: Vec::new(), out_dir: None, cargo: true }
+        Build { schemas: Vec::new(), out_dir: None, cargo: true, opts: GenOptions::default() }
+    }
+
+    /// Emit RPC client stubs (`<Service>Client`, `Response`, `StreamResponse`) for any `service`
+    /// declarations in the compiled schemas.
+    pub fn client(mut self) -> Self {
+        self.opts.client = true;
+        self
+    }
+
+    /// Emit RPC server edge helpers (`<Service>Call`, `<SERVICE>_SERVICE_ID`, `<service>_timeouts`)
+    /// for any `service` declarations in the compiled schemas.
+    pub fn server(mut self) -> Self {
+        self.opts.server = true;
+        self
     }
 
     /// Adds a schema; the lock is `"<path>.lock"`. May be called several times.
@@ -500,7 +524,7 @@ impl Build {
             let name = schema.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
             let stem = schema.file_stem().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
             let target = out.join(format!("{stem}.rs"));
-            std::fs::write(&target, generate_with_source(&a.ir, lock, &name))
+            std::fs::write(&target, generate_with_options(&a.ir, lock, &name, self.opts))
                 .map_err(|source| CompileError::Io { path: target, source })?;
             ids.extend(schema_ids(schema, &a.ir, lock));
         }

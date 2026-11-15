@@ -62,3 +62,4 @@ pub mod verify;
 pub use verify::VerifyCtx;
 pub mod validate;
 pub use validate::{Invalid, Rule, ValidateError};
+pub mod rpc;

@@ -262,3 +262,40 @@ fn regeneration_with_prev_keeps_reserved_and_sticky_id() {
     assert_eq!((root.fields[21].ty.as_str(), root.fields[21].presence.as_str()), ("u32", "reserved"));
     assert!(root.fields[21].slot.is_some() && root.fields[21].bit.is_some());
 }
+
+#[test]
+fn service_lock_roundtrip_and_no_service_backward_compat() {
+    // Existing schema without services does not emit `[[services]]`.
+    let no_svc_ir = compile("namespace a; table T { x @0: u32; }");
+    let no_svc_toml = toml::to_string(&lock_from_ir(&no_svc_ir, None)).unwrap();
+    assert!(!no_svc_toml.contains("services"), "unexpected services section in {no_svc_toml}");
+
+    // Service schema records [[services]] and sticky service_id.
+    let ir = compile(
+        "namespace inv;\n\
+         table Req { sku @0: string; }\n\
+         table Res { ok @0: bool; }\n\
+         union Err { Fail @1: Res }\n\
+         #[timeout(ms = 5000)]\n\
+         service Inventory {\n\
+           #[timeout(ms = 500)]\n\
+           get @1: (Req) -> Result<Res, Err>;\n\
+           list @2: (Req) -> stream Res;\n\
+           ping @3: (Req);\n\
+           @4: reserved;\n\
+         }",
+    );
+    let mut l0 = lock_from_ir(&ir, None);
+    l0.services[0].service_id = "0x1122334455667788".into();
+    let p = tmp("svc");
+    write_lock(&p, &l0).unwrap();
+    let l1 = read_lock(&p).unwrap().unwrap();
+    assert_eq!(l1, l0);
+    let l2 = lock_from_ir(&ir, Some(&l1));
+    assert_eq!(l2.services[0].service_id, "0x1122334455667788");
+    assert_eq!(l2.services[0].methods.len(), 4);
+    assert_eq!(l2.services[0].methods[0].shape.as_deref(), Some("unary"));
+    assert_eq!(l2.services[0].methods[1].shape.as_deref(), Some("stream"));
+    assert_eq!(l2.services[0].methods[2].shape.as_deref(), Some("one-way"));
+    assert!(l2.services[0].methods[3].reserved);
+}

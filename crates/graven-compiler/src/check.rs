@@ -45,17 +45,27 @@ pub fn check_with_imports(
     imports: &HashMap<String, Ir>,
 ) -> Result<Ir, Vec<Diag>> {
     let mut cx = Cx { diags: Vec::new(), names: HashMap::new() };
+    let mut service_names: HashSet<String> = HashSet::new();
     let mut ir = Ir {
         namespace: s.namespace.0.clone(),
         enums: Vec::new(),
         structs: Vec::new(),
         tables: Vec::new(),
         unions: Vec::new(),
+        services: Vec::new(),
         docs: s.docs.clone(),
     };
 
     // 1. Declarations (ids in declaration order within each item kind).
     for item in &s.items {
+        if let Item::Service(svc) = item {
+            if builtin(&svc.name).is_some() {
+                cx.err(svc.span, format!("`{}` is a built-in type and cannot be redeclared", svc.name));
+            } else if cx.names.contains_key(&svc.name) || !service_names.insert(svc.name.clone()) {
+                cx.err(svc.span, format!("`{}` declared more than once", svc.name));
+            }
+            continue;
+        }
         let (name, span, ty) = match item {
             Item::Enum(e) => {
                 ir.enums.push(Enum { name: e.name.clone(), base: Prim::U32, values: Vec::new(), span: e.span, origin: None });
@@ -83,10 +93,11 @@ pub fn check_with_imports(
                 ir.unions.push(Union { name: u.name.clone(), variants: Vec::new(), span: u.span, origin: None });
                 (&u.name, u.span, Ty::Union(UnionId(ir.unions.len() - 1)))
             }
+            Item::Service(_) => unreachable!(),
         };
         if builtin(name).is_some() {
             cx.err(span, format!("`{name}` is a built-in type and cannot be redeclared"));
-        } else if cx.names.contains_key(name) {
+        } else if cx.names.contains_key(name) || service_names.contains(name) {
             cx.err(span, format!("`{name}` declared more than once"));
         } else {
             cx.names.insert(name.clone(), ty);
@@ -114,7 +125,7 @@ pub fn check_with_imports(
                 ir.unions[ui].variants = variants;
                 ui += 1;
             }
-            Item::Table(_) => {}
+            Item::Table(_) | Item::Service(_) => {}
         }
     }
 
@@ -131,6 +142,15 @@ pub fn check_with_imports(
         }
     }
     cx.check_named_sigs(&ir);
+
+    // 4b. Services & schema/service id collisions.
+    for item in &s.items {
+        if let Item::Service(svc) = item {
+            let checked = cx.service(&ir, svc);
+            ir.services.push(checked);
+        }
+    }
+    cx.check_id_collisions(&ir);
 
     // 5. Names that would break or collide in the generated Rust.
     let names = &cx.names;
@@ -166,6 +186,19 @@ fn qualified_refs(s: &ast::Schema) -> Vec<(String, Span)> {
             Item::Struct(d) => d.fields.iter().for_each(|(_, ty, sp)| walk(ty, *sp, &mut out)),
             Item::Union(u) => u.variants.iter().for_each(|(_, _, ty, sp)| walk(ty, *sp, &mut out)),
             Item::Enum(_) => {}
+            Item::Service(svc) => {
+                for m in &svc.methods {
+                    if let Some(ty) = &m.input {
+                        walk(ty, m.span, &mut out);
+                    }
+                    if let Some(r) = &m.reply {
+                        walk(&r.output, m.span, &mut out);
+                        if let Some(err) = &r.error {
+                            walk(err, m.span, &mut out);
+                        }
+                    }
+                }
+            }
         }
     }
     out
@@ -1172,5 +1205,185 @@ fn cmp_range_bound(a: &RangeBound, b: &RangeBound) -> std::cmp::Ordering {
         }
         (RangeBound::Float(x), RangeBound::Float(y)) => x.total_cmp(y),
         _ => std::cmp::Ordering::Equal,
+    }
+}
+
+impl Cx {
+    fn timeout_attr(&mut self, attrs: &[ast::Attr], owner: &str, allow_breaking_ok: bool) -> (Option<u32>, bool) {
+        let mut timeout_ms = None;
+        let mut allow_breaking = false;
+        for a in attrs {
+            match a.name.as_str() {
+                "timeout" => {
+                    if timeout_ms.is_some() {
+                        self.err(a.span, format!("duplicate `#[timeout(...)]` on {owner}"));
+                        continue;
+                    }
+                    if a.args.len() != 1 || a.args[0].name != "ms" || a.args[0].value.is_none() {
+                        self.err(a.span, "`#[timeout(ms = n)]` expects a single `ms = <1..=4294967295>` argument");
+                        continue;
+                    }
+                    match &a.args[0].value {
+                        Some(Literal::Int(v)) if (1..=u32::MAX as i128).contains(v) => {
+                            timeout_ms = Some(*v as u32);
+                        }
+                        Some(Literal::UInt(v)) if (1..=u32::MAX as u128).contains(v) => {
+                            timeout_ms = Some(*v as u32);
+                        }
+                        _ => self.err(a.span, "`#[timeout(ms = n)]`: `ms` must be an integer in `1..=4294967295`"),
+                    }
+                }
+                ALLOW_BREAKING if allow_breaking_ok => {
+                    if !a.args.is_empty() {
+                        self.err(a.span, format!("`#[{ALLOW_BREAKING}]` does not take arguments"));
+                    }
+                    allow_breaking = true;
+                }
+                other => {
+                    self.err(a.span, format!("attribute `#[{other}]` is not valid on {owner}"));
+                }
+            }
+        }
+        (timeout_ms, allow_breaking)
+    }
+
+    fn payload_ty(&mut self, ir: &Ir, tr: &TypeRef, sp: Span, role: &str, mdesc: &str) -> Option<Ty> {
+        let ty = self.resolve(tr, sp)?;
+        match ty {
+            Ty::Table(_) | Ty::Union(_) => Some(ty),
+            _ => {
+                self.err(
+                    sp,
+                    format!("{role} of {mdesc} must be a table or union (found `{}`)", ir.ty_name(&ty)),
+                );
+                None
+            }
+        }
+    }
+
+    fn service(&mut self, ir: &Ir, svc: &ast::ServiceDecl) -> Service {
+        let (svc_timeout, _) = self.timeout_attr(&svc.attrs, &format!("service `{}`", svc.name), false);
+        let service_id = graven::envelope::schema_id(&format!("{}.{}", ir.namespace, svc.name));
+
+        let mut by_id: BTreeMap<u16, &ast::MethodDecl> = BTreeMap::new();
+        for m in &svc.methods {
+            if m.id == 0 {
+                self.err(m.span, format!("service `{}`: method id must be in `1..=65535` (found `@0`)", svc.name));
+            }
+            match by_id.entry(m.id) {
+                Entry::Vacant(v) => {
+                    v.insert(m);
+                }
+                Entry::Occupied(_) => {
+                    self.err(m.span, format!("duplicate method id @{} in service `{}`", m.id, svc.name));
+                }
+            }
+        }
+
+        let mut names = HashSet::new();
+        let mut methods = Vec::with_capacity(by_id.len());
+        for m in by_id.values() {
+            if m.name.is_none() {
+                // Reserved method ID.
+                let (t, allow_breaking) = self.timeout_attr(&m.attrs, &format!("reserved method @{} of `{}`", m.id, svc.name), true);
+                if t.is_some() {
+                    self.err(m.span, format!("`#[timeout(...)]` is not allowed on reserved method @{} of `{}`", m.id, svc.name));
+                }
+                methods.push(Method {
+                    id: m.id,
+                    name: None,
+                    input: None,
+                    output: None,
+                    error: None,
+                    shape: None,
+                    timeout_ms: None,
+                    allow_breaking,
+                    span: m.span,
+                });
+                continue;
+            }
+            let mname = m.name.as_ref().unwrap();
+            if !names.insert(mname.as_str()) {
+                self.err(m.span, format!("duplicate method `{mname}` in service `{}`", svc.name));
+            }
+            let mdesc = format!("method `{}.{mname}`", svc.name);
+            let (m_timeout, _) = self.timeout_attr(&m.attrs, &mdesc, false);
+
+            let input = m
+                .input
+                .as_ref()
+                .and_then(|tr| self.payload_ty(ir, tr, m.span, "input", &mdesc));
+            let (output, error, shape) = match &m.reply {
+                None => {
+                    if m_timeout.is_some() {
+                        self.err(m.span, format!("`#[timeout(...)]` is not allowed on one-way {mdesc}"));
+                    }
+                    (None, None, MethodShape::OneWay)
+                }
+                Some(r) => {
+                    let out = self.payload_ty(ir, &r.output, m.span, "output", &mdesc);
+                    let err = r.error.as_ref().and_then(|e| self.payload_ty(ir, e, m.span, "error", &mdesc));
+                    let shape = if r.stream { MethodShape::Stream } else { MethodShape::Unary };
+                    (out, err, shape)
+                }
+            };
+            let timeout_ms = if shape == MethodShape::OneWay {
+                None
+            } else {
+                m_timeout.or(svc_timeout)
+            };
+
+            methods.push(Method {
+                id: m.id,
+                name: Some(mname.clone()),
+                input,
+                output,
+                error,
+                shape: Some(shape),
+                timeout_ms,
+                allow_breaking: false,
+                span: m.span,
+            });
+        }
+
+        Service {
+            name: svc.name.clone(),
+            service_id,
+            timeout_ms: svc_timeout,
+            methods,
+            span: svc.span,
+        }
+    }
+
+    fn check_id_collisions(&mut self, ir: &Ir) {
+        let mut seen: HashMap<u64, (&str, &str, Span)> = HashMap::new();
+        for t in &ir.tables {
+            if t.origin.is_some() {
+                continue;
+            }
+            let id = graven::envelope::schema_id(&format!("{}.{}", ir.namespace, t.name));
+            if let Some((kind, name, _)) = seen.insert(id, ("table", t.name.as_str(), t.span)) {
+                self.err(
+                    t.span,
+                    format!(
+                        "schema id collision ({id:#018x}) between table `{}` and {kind} `{name}`",
+                        t.name
+                    ),
+                );
+            }
+        }
+        for s in &ir.services {
+            if let Some((kind, name, _)) = seen.insert(s.service_id, ("service", s.name.as_str(), s.span))
+                && name != s.name
+            {
+                self.err(
+                    s.span,
+                    format!(
+                        "schema/service id collision ({:#018x}) between service `{}` and {kind} `{name}`",
+                        s.service_id, s.name
+                    ),
+                );
+            }
+        }
     }
 }

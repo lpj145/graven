@@ -1,0 +1,14 @@
+{
+  "frames": [
+    {
+      "kind": 6,
+      "method": 1,
+      "variant": 0,
+      "service_id": "0x7708675a6f01f170",
+      "schema_id": "0x39962d24665d62db",
+      "payload_len": 29,
+      "fault_code": 99,
+      "fault_message": "future fault"
+    }
+  ]
+}

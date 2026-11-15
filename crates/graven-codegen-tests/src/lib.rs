@@ -40,3 +40,28 @@ pub mod orders {
 pub mod validation {
     include!(concat!(env!("OUT_DIR"), "/validation.rs"));
 }
+
+/// RPC services (`schemas/inventory.graven`) with client and server codegen enabled.
+///
+/// Compile-fail checks for RPC reply invariants:
+///
+/// Calling `Reply::ok` with the wrong table writer does not compile:
+/// ```compile_fail
+/// use graven::rpc::Reply;
+/// use graven_codegen_tests::inventory::{ItemW, OutOfStockW, BatchItemW};
+/// fn bad(reply: Reply<ItemW<'static>, OutOfStockW<'static>>) {
+///     let _ = reply.ok(|w: &mut BatchItemW<'_>| { w.index(1); });
+/// }
+/// ```
+///
+/// Calling `Reply::err` on an infallible method (`E = ()`) does not compile:
+/// ```compile_fail
+/// use graven::rpc::Reply;
+/// use graven_codegen_tests::inventory::{ItemW, OutOfStockW};
+/// fn bad(reply: Reply<ItemW<'static>, ()>) {
+///     let _ = reply.err(|w: &mut OutOfStockW<'_>| { w.available(0); });
+/// }
+/// ```
+pub mod inventory {
+    include!(concat!(env!("OUT_DIR"), "/inventory.rs"));
+}

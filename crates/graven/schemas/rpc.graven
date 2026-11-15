@@ -1,0 +1,26 @@
+// The fixed schema of RPC protocol faults (docs/spec/graven-rpc-v1.md §5).
+// `graven::rpc` encodes and decodes these tables by hand; the test
+// `crates/graven-compiler/tests/rpc_fault_layout.rs` checks it against this schema.
+namespace graven.rpc;
+
+enum FaultCode : u16 {
+  Unsupported      = 1,   // unknown service_id, method, or variant
+  Malformed        = 2,   // the frame or its body failed to decode or verify
+  Invalid          = 3,   // the input broke a validation rule
+  DeadlineExceeded = 4,   // the server stopped because the method's timeout passed
+  Internal         = 5,   // the server failed; details stay on the server
+  Unavailable      = 6,   // the server cannot take calls now; the caller may retry
+}
+
+table BrokenRule {
+  table_name @0: string;
+  field      @1: string?;
+  index      @2: u32?;
+  rule       @3: string;   // "range", "len", "finite", "known", or "check(name)"
+}
+
+table Fault {
+  code    @0: FaultCode;
+  message @1: string?;
+  broken  @2: BrokenRule?;  // present when code = Invalid
+}

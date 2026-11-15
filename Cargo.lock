@@ -450,6 +450,7 @@ dependencies = [
 name = "graven-conformance"
 version = "0.2.0"
 dependencies = [
+ "bytes",
  "graven",
  "graven-compiler",
  "graven-dynamic",

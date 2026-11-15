@@ -505,3 +505,58 @@ fn validation_rules_checked() {
         "`check(slug)` used on `u32`",
     );
 }
+
+#[test]
+fn service_rules_enforced() {
+    // Valid service with all 5 shapes, timeout inheritance and overrides, and reserved ID.
+    let ir = ok(
+        "namespace inv;\n\
+         table Req { x @0: u32; }\n\
+         table Res { y @0: u32; }\n\
+         union Err { E @1: Res }\n\
+         #[timeout(ms = 5000)]\n\
+         service Inventory {\n\
+           #[timeout(ms = 500)]\n\
+           get @1: (Req) -> Res;\n\
+           fallible @2: (Req) -> Result<Res, Err>;\n\
+           list @3: (Req) -> stream Res;\n\
+           fallible_stream @4: (Req) -> Result<stream Res, Err>;\n\
+           ping @5: (Req);\n\
+           @6: reserved;\n\
+         }",
+    );
+    assert_eq!(ir.services.len(), 1);
+    let svc = &ir.services[0];
+    assert_eq!(svc.timeout_ms, Some(5000));
+    assert_eq!(svc.methods[0].timeout_ms, Some(500));
+    assert_eq!(svc.methods[1].timeout_ms, Some(5000)); // inherited
+    assert_eq!(svc.methods[4].timeout_ms, None); // one-way has no timeout
+
+    // Scalar/struct/enum/list inputs, outputs, errors rejected.
+    one_diag("namespace a; table Res { y @0: u32; } service S { m @1: (u32) -> Res; }", "must be a table or union");
+    one_diag("namespace a; struct St { x: u32 } table Req { x @0: u32; } service S { m @1: (Req) -> St; }", "must be a table or union");
+    one_diag("namespace a; enum E : u8 { A = 1 } table Req { x @0: u32; } service S { m @1: (Req) -> Result<Req, E>; }", "must be a table or union");
+    one_diag("namespace a; table Req { x @0: u32; } service S { m @1: (Req) -> [Req]; }", "must be a table or union");
+
+    // Method IDs 0, duplicates, duplicate names.
+    one_diag("namespace a; table T { x @0: u32; } service S { m @0: (T); }", "1..=65535");
+    one_diag("namespace a; table T { x @0: u32; } service S { a @1: (T); b @1: (T); }", "duplicate method id @1");
+    one_diag("namespace a; table T { x @0: u32; } service S { a @1: (T); a @2: (T); }", "duplicate method `a`");
+
+    // Timeout on one-way, invalid timeout bounds, invalid attrs.
+    one_diag("namespace a; table T { x @0: u32; } service S { #[timeout(ms = 100)] m @1: (T); }", "one-way");
+    one_diag("namespace a; table T { x @0: u32; } #[timeout(ms = 0)] service S { }", "1..=4294967295");
+    one_diag("namespace a; table T { x @0: u32; } #[check(foo)] service S { }", "not valid");
+    one_diag("namespace a; table T { x @0: u32; } service S { #[allow_breaking_readers] m @1: (T); }", "not valid");
+    one_diag("namespace a; table T { x @0: u32; } service S { #[timeout(ms = 10)] @1: reserved; }", "reserved method");
+
+    // Collision with table name.
+    one_diag("namespace a; table S { x @0: u32; } service S { }", "declared more than once");
+
+    // A union's RPC writer `UW` is reserved even without a service, so a later `--side`
+    // never breaks a schema that compiled before.
+    one_diag(
+        "namespace a; table Q { x @0: u32; } union Pick { Q @1: Q } table PickW { y @0: u32; }",
+        "PickW",
+    );
+}

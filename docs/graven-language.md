@@ -33,7 +33,7 @@ table Transaction {
 schema    = "namespace" path ";" { import } { item } ;
 import    = "import" path [ "as" ident ] ";" ;
 path      = ident { "." ident } ;
-item      = enum | struct | table | union ;
+item      = enum | struct | table | union | service ;
 enum      = "enum" ident ":" type "{" [ evalue { "," evalue } [","] ] "}" ;
 evalue    = ident "=" int ;                    (* decimal or 0x…, unsigned *)
 struct    = "struct" ident "{" [ sfield { "," sfield } [","] ] "}" ;
@@ -46,6 +46,10 @@ attr      = ident [ "(" [ arg { "," arg } [","] ] ")" ] ;
 arg       = ident [ "=" literal ] ;
 union     = "union" ident "{" uvar { "," uvar } [","] "}" ;   (* at least one variant *)
 uvar      = ident "@" int ":" type ;
+service   = { attrs } "service" ident "{" { mdecl } "}" ;
+mdecl     = { attrs } ( "@" int ":" "reserved" ";"
+                      | ident "@" int ":" "(" type ")" [ "->" reply ] ";" ) ;
+reply     = type | "stream" type | "Result" "<" ( type | "stream" type ) "," type ">" ;
 type      = ident [ "." ident ] | "[" type "]" ;   (* `name.Type`: an imported type *)
 literal   = [ "-" ] int | [ "-" ] float | "true" | "false" | ident ;
 ident     = ( letter | "_" ) { letter | digit | "_" } ;   (* ASCII *)
@@ -336,7 +340,8 @@ The lock only changes through an explicit action; the build never writes it.
 gravenc check  [--locked] <schema>...      validate schema(s) and compatibility with <schema>.lock
 gravenc update <schema>... [--from <lock> | --init]
                                          apply the compatibility check and write <schema>.lock
-gravenc gen    <schema> -o <dir>           generate <dir>/<file without .graven>.rs (creates <dir>)
+gravenc gen    <schema> -o <dir> [--side client|server|client,server]
+                                         generate <dir>/<file without .graven>.rs (creates <dir>)
 ```
 
 - `check`: parse, check and (if there is a lock) compatibility; writes nothing. Warns
@@ -351,7 +356,9 @@ gravenc gen    <schema> -o <dir>           generate <dir>/<file without .graven>
   `v1.graven.lock`), keeping its `schema_id`s; the lock written is always
   `<schema>.lock` (if the current `<schema>.lock` is unreadable, it is treated as
   missing and overwritten).
-- `gen`: the same as `build.rs`, into a directory (created if missing).
+- `gen`: the same as `build.rs`, into a directory (created if missing). With
+  `--side client`, `--side server`, or `--side client,server`, also emits RPC code
+  for declared `service` items (`Build::client()` and `Build::server()` in `build.rs`). Without `--side`, `service` items produce no code.
 - `diff`, `inspect`, `to-json`, `from-json` and `scan` work with schemas and data files; see
   [Tools](tools.md).
 - Diagnostics go to stderr: `file:line:column: message` (compatibility messages name the
@@ -436,3 +443,27 @@ value 0) and `graven::Le`. **Struct** `S`: `struct S { pub fields }` (`Copy`, `D
 `PartialEq`, and `Eq` when there are no floats) with `graven::Le`. **Union** `U`:
 `enum U<'a> { Variant(T<'a>), …, Unknown(u16) }` for the reader and
 `enum UVerified<'a>` for the view.
+
+## 12. Services (RPC)
+
+A `service` groups typed RPC methods over the binary framing protocol ([spec](spec/graven-rpc-v1.md)):
+
+```graven
+#[timeout(ms = 5000)]
+service Inventory {
+    #[timeout(ms = 500)]
+    get_item @1: (GetReq) -> Result<Item, ReserveErr>;
+    watch @2: (WatchReq) -> stream Event;
+    batch @3: (BatchReq) -> Result<stream BatchItem, BatchErr>;
+    audit @4: (AuditLog);
+    #[allow_breaking_readers]
+    @5: reserved;
+}
+```
+
+- Method IDs (`@1..=@65535`) must be unique and never reused even after retiring via `@n: reserved;`.
+- Five shapes: unary (`(Req) -> Resp`), fallible unary (`Result<Resp, Err>`), streaming (`stream Item`), fallible streaming (`Result<stream Item, Err>`), and one-way (`(Req);`). Payload types (`Req`, `Resp`, `Item`, `Err`) must be local or imported **tables** or **unions**.
+- `#[timeout(ms = n)]` (`n >= 1`) sets a default timeout for a `service` or overrides it on a method; one-way methods do not accept `#[timeout]`.
+- Retiring a method with `@n: reserved;` is a warning (`method-retired`) confirmed with `#[allow_breaking_readers]` on the reserved line. Removing a method without reserving its ID (`method-removed`), reusing a reserved ID (`method-id-reused`), changing a method's input, output, error or shape (`method-changed`) and removing or renaming a service (`service-removed`) are errors. New methods and services, renamed methods and changed timeouts are allowed.
+- **Generated server API** (`--side server` / `Build::server()`): `<SERVICE>_SERVICE_ID`, `<service>_timeouts::<METHOD>_MS`, `<Service>Call<'a>` with `decode(frame)` (and `decode_validated(frame, checks)` when the schema declares validation rules, since `Checks` exists only then) returning `Reply<O, E>` / `StreamReply<O, E>` (or unit on one-way), plus `Rejected::to_frame()` (`None` on one-way calls).
+- **Generated client API** (`--side client` / `Build::client()`): `<Service>Client<T>` for any `T: graven::rpc::Sender` (the application's function that sends a call frame and returns the reply; `Sender::send_stream` may return a `ReplyStream` so stream items are read as they arrive), offering `<method>(f)` (using the declared default timeout) and `<method>_with_timeout(f, timeout_ms)`, returning `Response<T>` / `StreamResponse<T, _>` (read with `.next().await`) or `CallError<Response<E>, T::Error>`.

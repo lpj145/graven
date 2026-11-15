@@ -31,7 +31,8 @@ usage:
   gravenc check  [--locked] <schema>...      validate schema(s) and compatibility with <schema>.lock
   gravenc update <schema>... [--from <lock> | --init]
                                              apply the compatibility check and write <schema>.lock
-  gravenc gen    <schema> -o <dir>           generate <dir>/<file without .graven>.rs (creates <dir>)
+  gravenc gen    <schema> -o <dir> [--side client|server|client,server]
+                                             generate <dir>/<file without .graven>.rs (creates <dir>)
   gravenc diff   <schema> [--against <lock>] list what changed since the lock, with each change's verdict
 
   gravenc inspect   <schema> <file> [--root <Table>] [--raw]
@@ -139,6 +140,7 @@ fn main() -> ExitCode {
         "gen" => {
             let mut schema = None;
             let mut out = None;
+            let mut opts = graven_compiler::codegen::GenOptions::default();
             let mut it = rest.iter();
             while let Some(a) = it.next() {
                 match classify(a) {
@@ -148,13 +150,23 @@ fn main() -> ExitCode {
                         Some(_) => return usage("gen: `-o` given twice"),
                         None => return usage("gen: `-o` without the directory"),
                     },
+                    Ok(Arg::Flag("--side")) => match it.next().and_then(|s| s.to_str()) {
+                        Some(val) => {
+                            if let Err(msg) = parse_side(val, &mut opts) {
+                                return usage(&msg);
+                            }
+                        }
+                        None => return usage("gen: `--side` without a value (`client`, `server`, or `client,server`)"),
+                    },
                     Ok(Arg::Flag(o)) => return usage(&format!("unknown option `{o}`")),
                     Ok(Arg::Path(p)) if schema.is_none() => schema = Some(PathBuf::from(p)),
                     Ok(Arg::Path(_)) => return usage("gen: a single schema only"),
                 }
             }
-            let (Some(schema), Some(out)) = (schema, out) else { return usage("gen: usage `gravenc gen <schema> -o <dir>`") };
-            generate(&schema, &out)
+            let (Some(schema), Some(out)) = (schema, out) else {
+                return usage("gen: usage `gravenc gen <schema> -o <dir> [--side client|server|client,server]`");
+            };
+            generate(&schema, &out, opts)
         }
         "diff" => {
             let mut schema = None;
@@ -386,7 +398,21 @@ fn update(schema: &Path, from: Option<&Path>, init: bool) -> Result<(), Failed> 
     Ok(())
 }
 
-fn generate(schema: &Path, out: &Path) -> Result<(), Failed> {
+fn parse_side(val: &str, opts: &mut graven_compiler::codegen::GenOptions) -> Result<(), String> {
+    if val.is_empty() {
+        return Err("gen: empty `--side` value (expected `client`, `server`, or `client,server`)".into());
+    }
+    for part in val.split(',') {
+        match part {
+            "client" => opts.client = true,
+            "server" => opts.server = true,
+            other => return Err(format!("gen: invalid `--side` `{other}` (expected `client`, `server`, or `client,server`)")),
+        }
+    }
+    Ok(())
+}
+
+fn generate(schema: &Path, out: &Path, opts: graven_compiler::codegen::GenOptions) -> Result<(), Failed> {
     std::fs::create_dir_all(out).map_err(|e| {
         eprintln!("{}: could not create the directory: {e}", out.display());
         Failed
@@ -394,6 +420,12 @@ fn generate(schema: &Path, out: &Path) -> Result<(), Failed> {
     // The schemas it imports are generated too: the generated code refers to them.
     let set = resolve_set(&[schema.to_path_buf()])?;
     let mut b = Build::new().quiet().out_dir(out);
+    if opts.client {
+        b = b.client();
+    }
+    if opts.server {
+        b = b.server();
+    }
     for s in &set {
         b = b.schema(s);
     }

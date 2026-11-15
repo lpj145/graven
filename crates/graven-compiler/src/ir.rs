@@ -238,6 +238,53 @@ pub struct Union {
     pub origin: Option<String>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MethodShape {
+    Unary,
+    Stream,
+    OneWay,
+}
+
+impl MethodShape {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            MethodShape::Unary => "unary",
+            MethodShape::Stream => "stream",
+            MethodShape::OneWay => "one-way",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Method {
+    pub id: u16,
+    /// `None` when reserved.
+    pub name: Option<String>,
+    /// `None` when reserved.
+    pub input: Option<Ty>,
+    /// `None` when one-way or reserved.
+    pub output: Option<Ty>,
+    /// `None` unless the method returns `Result<..., E>`.
+    pub error: Option<Ty>,
+    /// `None` when reserved.
+    pub shape: Option<MethodShape>,
+    /// Effective timeout in ms (`None` for one-way, reserved, or methods with no timeout).
+    pub timeout_ms: Option<u32>,
+    /// `#[allow_breaking_readers]` on a reserved method.
+    pub allow_breaking: bool,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Service {
+    pub name: String,
+    pub service_id: u64,
+    /// Service-level default `#[timeout(ms = n)]`, if declared.
+    pub timeout_ms: Option<u32>,
+    pub methods: Vec<Method>,
+    pub span: Span,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Ir {
     pub namespace: String,
@@ -245,6 +292,7 @@ pub struct Ir {
     pub structs: Vec<Struct>,
     pub tables: Vec<Table>,
     pub unions: Vec<Union>,
+    pub services: Vec<Service>,
     /// Documentation comments from the schema, keyed by `Type` or `Type.member`
     /// (see [`crate::ast::Schema::docs`]). Code generators attach them to what they emit.
     pub docs: std::collections::BTreeMap<String, String>,

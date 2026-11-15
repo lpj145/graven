@@ -38,6 +38,21 @@ fn upper(s: &str) -> String {
     snake(s).to_ascii_uppercase()
 }
 
+pub(crate) fn pascal(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for part in s.split('_').filter(|p| !p.is_empty()) {
+        let mut chars = part.chars();
+        if let Some(first) = chars.next() {
+            out.push(first.to_ascii_uppercase());
+            out.extend(chars);
+        }
+    }
+    if out.is_empty() {
+        out.push_str(s);
+    }
+    out
+}
+
 /// A scope of generated names: name → (owner, description).
 #[derive(Default)]
 struct Scope {
@@ -131,6 +146,7 @@ pub(crate) fn check_names(s: &ast::Schema, resolve: &dyn Fn(&str) -> Option<Ty>,
             Item::Struct(d) => (&d.name, d.span),
             Item::Table(t) => (&t.name, t.span),
             Item::Union(u) => (&u.name, u.span),
+            Item::Service(svc) => (&svc.name, svc.span),
         };
         // Duplicate already reported by `check`.
         if !seen.insert(name.as_str()) {
@@ -174,6 +190,7 @@ pub(crate) fn check_names(s: &ast::Schema, resolve: &dyn Fn(&str) -> Option<Ty>,
                 }
             }
             Item::Table(t) => table_fields(&mut nx, t, resolve, &unions, has_rules),
+            Item::Service(svc) => service_methods(&mut nx, svc),
         }
 
         if !type_ok {
@@ -187,6 +204,9 @@ pub(crate) fn check_names(s: &ast::Schema, resolve: &dyn Fn(&str) -> Option<Ty>,
             Item::Union(_) => {
                 nx.add(&mut types, name.clone(), k, "union", sp);
                 nx.add(&mut types, format!("{name}Verified"), k, "verified-view union", sp);
+                // Emitted only with `--side`, reserved always: adding a side must never make a
+                // schema that compiled before stop compiling.
+                nx.add(&mut types, format!("{name}W"), k, "RPC union writer", sp);
             }
             Item::Table(_) => {
                 for (suffix, desc) in
@@ -202,6 +222,12 @@ pub(crate) fn check_names(s: &ast::Schema, resolve: &dyn Fn(&str) -> Option<Ty>,
                 nx.add(&mut values, format!("{up}_REQ"), k, "required-fields const", sp);
                 nx.add(&mut values, format!("{up}_MASK"), k, "mask const", sp);
                 nx.add(&mut values, format!("{up}_SCHEMA_ID"), k, "schema id const", sp);
+            }
+            Item::Service(_) => {
+                nx.add(&mut types, format!("{name}Call"), k, "service call enum", sp);
+                nx.add(&mut types, format!("{name}Client"), k, "service client", sp);
+                nx.add(&mut types, format!("{}_timeouts", snake(name)), k, "service timeouts module", sp);
+                nx.add(&mut values, format!("{}_SERVICE_ID", upper(name)), k, "service id const", sp);
             }
         }
     }
@@ -304,5 +330,24 @@ fn table_fields(
             }
             _ => nx.add(&mut writer, name.clone(), &owner, "writer setter", sp),
         }
+    }
+}
+
+fn service_methods(nx: &mut Names<'_>, svc: &ast::ServiceDecl) {
+    let mut client = Scope::default();
+    let mut call_enum = Scope::default();
+    let mut timeouts = Scope::default();
+    client.map.insert("new".into(), (FIXED.into(), "client constructor".into()));
+    let mut seen = HashSet::new();
+    for m in &svc.methods {
+        let Some(name) = &m.name else { continue };
+        if !seen.insert(name.as_str()) || nx.unrawable(name, "method", m.span) {
+            continue;
+        }
+        let owner = format!("method `{name}` of service `{}`", svc.name);
+        nx.add(&mut client, name.clone(), &owner, "client method", m.span);
+        nx.add(&mut client, format!("{name}_with_timeout"), &owner, "client override method", m.span);
+        nx.add(&mut call_enum, pascal(name), &owner, "call enum variant", m.span);
+        nx.add(&mut timeouts, format!("{}_MS", upper(name)), &owner, "timeout const", m.span);
     }
 }
