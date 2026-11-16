@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+- **Validation failures carry codes for translation.** A `range` or `len` failure carries the
+  bounds declared in the schema (`Rule::Range { min, max }`, `Rule::Len { min, max }`; `min`
+  and `max` in JavaScript), and a check returns a reason code instead of a boolean (Rust
+  `Result<(), &'static str>`, JavaScript `true | string`), reported as `reason`. Messages are
+  never written by the schema or the server: the program that shows a failure translates the
+  codes. `graven.rpc.BrokenRule` gains the optional fields `min`, `max` and `reason`, and an
+  `Invalid` fault no longer carries an English `message`. A new RPC frame vector,
+  `frame_fault_invalid_codes`, pins the new fields (the 17 earlier vectors are unchanged).
+  Breaking for code that implements `Checks` or matches on `Rule`.
+
 ## 0.3.0 — services and JavaScript
 
 - **Services** ([proposal 0003](docs/proposals/0003-services.md)). `service` declarations

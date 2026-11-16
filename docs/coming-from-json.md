@@ -161,10 +161,13 @@ $ gravenc to-json catalog.graven products.bin
 {"sku":"MG-02","name":"Ceramic mug","price":{"cents":3500,"currency":986},"status":"Draft"}
 ```
 
-## The same data from Rust
+## The same data in code
 
 With the code `gravenc` generates for `catalog.graven` (see
-[getting started](getting-started.md)):
+[Getting started](getting-started.md)):
+
+<!-- tabs -->
+#### Rust
 
 ```rust
 use graven::{Builder, SimplePool};
@@ -205,8 +208,35 @@ CF-01 Coffee beans 1kg Active stock=Some(120)
 MG-02 Ceramic mug Draft stock=None
 ```
 
-These bytes are identical to the `catalog.bin` that `gravenc from-json` produced from the
-JSON: the tools and the generated code follow the same canonical layout.
+#### JavaScript / TypeScript
+
+```js
+import { Catalog, CatalogW, Status } from "./gen/catalog.js";
+
+const bytes = CatalogW.toBytes((c) => {
+  c.updated_at(1_700_000_000n);
+  const products = c.products(2);
+  products.push().sku("CF-01").name("Coffee beans 1kg")
+    .price({ cents: 8990n, currency: 986 }).tags(["coffee", "beans"]).stock(120);
+  products.push().sku("MG-02").name("Ceramic mug")
+    .price({ cents: 3500n, currency: 986 }).status(Status.Draft);
+  products.close();
+});
+
+const catalog = Catalog.fromBytes(bytes);
+for (const p of catalog.products()) {
+  console.log(p.sku(), p.name(), Status.name(p.status()), `stock=${p.stock()}`);
+}
+```
+
+```text
+CF-01 Coffee beans 1kg Active stock=120
+MG-02 Ceramic mug Draft stock=undefined
+```
+<!-- /tabs -->
+
+In both languages the bytes are identical to the `catalog.bin` that `gravenc from-json`
+produced from the JSON: the tools and the generated code follow the same canonical layout.
 
 ## What works differently from JSON
 

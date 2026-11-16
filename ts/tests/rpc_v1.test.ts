@@ -39,6 +39,15 @@ interface ExpectedRpcFrame {
   payload_len: number;
   fault_code?: number;
   fault_message?: string;
+  fault_broken?: {
+    table_name: string;
+    field?: string;
+    index?: number;
+    rule: string;
+    min?: string;
+    max?: string;
+    reason?: string;
+  };
 }
 
 interface RpcVectorSpec {
@@ -71,8 +80,8 @@ describe("testvectors/rpc-v1 conformance", () => {
     .filter((f) => f.endsWith(".json"))
     .sort();
 
-  it("finds all 17 rpc-v1 vector pairs (34 files)", () => {
-    assert.equal(jsonFiles.length, 17);
+  it("finds all 18 rpc-v1 vector pairs (36 files)", () => {
+    assert.equal(jsonFiles.length, 18);
   });
 
   for (const file of jsonFiles) {
@@ -105,6 +114,10 @@ describe("testvectors/rpc-v1 conformance", () => {
             const fault = decodeFault(f.payload);
             assert.equal(fault.code, exp.fault_code);
             assert.equal(fault.message, exp.fault_message);
+            if (exp.fault_broken !== undefined) {
+              const { table_name, ...rest } = exp.fault_broken;
+              assert.deepEqual(fault.broken, { tableName: table_name, ...rest });
+            }
           }
         }
       }
@@ -139,6 +152,19 @@ describe("rpc fault encode/decode & unknown codes", () => {
       index: 2,
       rule: "range",
     });
+  });
+
+  it("round-trips the codes of a BrokenRule (bounds and check reason)", () => {
+    const base = { tableName: "Signup", field: "email", rule: "check(email)" };
+    const short = encodeFaultPayload({ code: FaultCode.Invalid, broken: base });
+    const withCodes = { ...base, reason: "missing_at" };
+    const long = encodeFaultPayload({ code: FaultCode.Invalid, broken: withCodes });
+    // Without codes the first-release layout is kept, so those bytes do not change.
+    assert.equal(long.length > short.length, true);
+    assert.deepEqual(decodeFault(short).broken, base);
+    assert.deepEqual(decodeFault(long).broken, withCodes);
+    const bounds = { tableName: "Signup", field: "age", rule: "range", min: "18", max: "120" };
+    assert.deepEqual(decodeFault(encodeFaultPayload({ code: FaultCode.Invalid, broken: bounds })).broken, bounds);
   });
 
   it("preserves unknown future FaultCode and normalizes it to Internal", () => {

@@ -1,7 +1,8 @@
 # Getting started
 
 Graven schemas (`.graven`) are language-neutral. The `gravenc` compiler validates schemas,
-tracks compatibility in `<schema>.lock`, inspects binary files, and generates code.
+tracks compatibility in `<schema>.lock`, inspects binary files, and generates code for every
+supported SDK.
 
 ## 1. Install `gravenc`
 
@@ -43,30 +44,92 @@ Initialize its lockfile once:
 gravenc update schemas/bank.graven --init
 ```
 
-The lockfile (`schemas/bank.graven.lock`) records every table's `schema_id`, fixed-part
-layout, defaults, and validation rules. Commit it alongside your `.graven` files.
+> [!NOTE]
+> The lockfile (`schemas/bank.graven.lock`) records every table's `schema_id`, fixed-part
+> layout, defaults, and validation rules. Commit it alongside your `.graven` files so
+> compatibility checks protect old readers.
 
-## 3. Evolve, check, and generate
+## 3. Generate and use in your language
 
-- **Check in CI:** `gravenc check --locked schemas/*.graven`
-- **Update after changes:** `gravenc update schemas/bank.graven` (refuses breaking changes)
-- **Generate code from the CLI:** `gravenc gen schemas/bank.graven -o generated/` (pass `--lang js` for JavaScript with TypeScript declarations)
-- **Inspect / convert binary data:** `gravenc inspect`, `gravenc to-json`, `gravenc from-json`
+<!-- tabs -->
+#### Rust
 
-Because `<schema>.lock` records the resolved layout and `schema_id`s, generators for other
-languages can target the lockfile directly without reimplementing the layout rules.
+Add `graven` and `graven-compiler` to `Cargo.toml`, generate in `build.rs` (or run
+`gravenc gen schemas/bank.graven -o src/gen`), and read/write zero-copy:
 
-## Option: Rust project (`Cargo.toml` + `build.rs`)
+```rust
+// build.rs
+fn main() {
+    graven_compiler::build::Build::new()
+        .schema("schemas/bank.graven")
+        .compile()
+        .unwrap_or_else(|e| panic!("{e}"));
+}
+```
 
-If you are using Rust, you can run code generation automatically during `cargo build`
-instead of invoking `gravenc gen` manually:
+```rust
+pub mod bank {
+    include!(concat!(env!("OUT_DIR"), "/bank.rs"));
+}
 
-{{#include ../README.md:usage}}
+use graven::{Builder, SimplePool};
+use bank::{Currency, Transaction, TransactionW};
+
+let pool = SimplePool::new(4096);
+let mut b = Builder::new_enveloped(&pool);
+let bytes = TransactionW::to_bytes(&mut b, |t| {
+    t.id(42).ts(1_700_000_000).currency(Currency::USD).from_shard(3).to_shard(7);
+    let mut entries = t.entries(1);
+    entries.push().account(1001).amount(-2500).memo("transfer");
+})?;
+
+let tx = Transaction::from_bytes(&bytes)?;
+println!("tx {} ({:?})", tx.id(), tx.currency());
+```
+
+See the full [Rust SDK](sdk/rust.md).
+
+#### JavaScript / TypeScript
+
+Generate ES2022 `.js` + `.d.ts` files (zero dependencies, runs in browsers, Node, and Deno):
+
+```sh
+gravenc gen schemas/bank.graven -o src/gen --lang js
+```
+
+```js
+import { Currency, Transaction, TransactionW } from "./gen/bank.js";
+
+const bytes = TransactionW.toBytes((t) => {
+  t.id(42n).ts(1_700_000_000n).currency(Currency.USD).from_shard(3).to_shard(7);
+  const entries = t.entries(1);
+  entries.push().account(1001n).amount(-2500n).memo("transfer");
+  entries.close();
+});
+
+const tx = Transaction.fromBytes(bytes);
+console.log(`tx ${tx.id()} (${Currency.name(tx.currency())})`);
+```
+
+See the full [JavaScript / TypeScript SDK](sdk/js.md).
+<!-- /tabs -->
+
+Every implementation reads and writes identical wire bytes — a message written in Rust is
+read directly in JavaScript/TypeScript, and vice versa.
+
+## 4. Evolve and check
+
+- **After a schema change:** `gravenc update schemas/bank.graven`. Refuses breaking changes
+  against the lockfile ([compatibility rules](graven-language.md#8-compatibility-lockfile)).
+- **In CI:** `gravenc check --locked schemas/*.graven`.
+- **Review a change:** `gravenc diff schemas/bank.graven` lists every change with its verdict.
+- **Inspect or convert data:** `gravenc inspect`, `gravenc to-json`, and `gravenc from-json`
+  work from the schema alone ([gravenc](tools.md)).
 
 ## Next steps
 
-- [Coming from JSON](coming-from-json.md) — translate existing JSON data into a Graven schema.
-- [Schema language](graven-language.md) — grammar, evolution rules, and the generated API.
-- [JavaScript and TypeScript](javascript.md) — `.js` with `.d.ts` declarations, validation, and browser/Node RPC clients.
-- [Validation](validation.md) — built-in rules (`range`, `len`, `finite`, `known`) and custom `check(name)` hooks.
-- [Tools](tools.md) — `diff`, `inspect`, `to-json`, `from-json`, `scan`, and editor support.
+- [Coming from JSON](coming-from-json.md) — translate JSON data into a Graven schema.
+- [Schema language](graven-language.md) — types, IDs, presence, imports, and evolution rules.
+- [Validation](validation.md) — value rules and custom `check(name)` hooks.
+- [Services](services.md) — RPC services, streaming, and typed errors.
+- [Implementations](implementations.md) — supported SDKs and adding new languages.

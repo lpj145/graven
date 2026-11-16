@@ -16,7 +16,14 @@ for f in crates/graven-schemas/schemas/evo/*.graven; do target/debug/gravenc che
 - the mutation gates (every single-byte mutation of every vector is read identically by
   the interpreter and the generated code);
 - the `bank` v1/v2/v3 evolution matrix (`crates/graven-schemas/tests/evolution_matrix.rs`);
+- the frozen RPC frame vectors (`testvectors/rpc-v1/`, 18 vectors), the fault schema's
+  layout, and the generated service client and server edge talking to each other;
 - the compiler's compatibility corpus, including version chains.
+
+The JavaScript implementation is tested by `./scripts/ts.sh` (Node >= 20; the first run
+installs the TypeScript compiler in `ts/`): the same vectors, byte-for-byte writing against Rust, validation, RPC frames,
+`.d.ts` declarations against the `.js` exports, and a client calling the generated Rust server
+([details](sdk/js.md#verification-suite-scriptstssh)).
 
 ## Fuzzing (nightly + `cargo-fuzz`)
 

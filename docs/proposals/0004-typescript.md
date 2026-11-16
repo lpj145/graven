@@ -1,6 +1,6 @@
 # Proposal 0004: JavaScript runtime and generator, with TypeScript declarations
 
-Status: **accepted and implemented** in 0.3.0 (see [JavaScript and TypeScript](../javascript.md)). Stage 5 of [proposal 0003](0003-services.md). Stages 1–6 were first built with `.ts` output; stage 7 switched it to `.js` with `.d.ts`.
+Status: **accepted and implemented** in 0.3.0 (see [JavaScript / TypeScript SDK](../sdk/js.md)). Stage 5 of [proposal 0003](0003-services.md). Stages 1–6 were first built with `.ts` output; stage 7 switched it to `.js` with `.d.ts`.
 
 ## Motivation
 
@@ -183,7 +183,7 @@ Product.SCHEMA_ID;                          // bigint, from the lockfile
 ### Unions and enums
 
 ```ts
-const c = order.choice();   // { tag: "Leaf", value: LeafVerified } | { tag: "Unknown", raw: number }
+const c = order.choice();   // { tag: 1, variant: "Leaf", value: LeafVerified } | { tag: number, variant: "Unknown" }
 w.choice_Leaf().x(1);
 
 Color.Red;                  // 1
@@ -223,7 +223,7 @@ await inv.adjust(w => w.sku("x").delta(-1), { timeoutMs: 1000 });   // override 
 - Unary methods with `Result<T, E>` return `{ ok: true, value } | { ok: false, error }`.
   Methods without `Result` return the value. Streaming methods return an async iterable;
   with `Result<stream T, E>`, a result whose `value` is that iterable.
-- A `Fault` throws `RpcFault` (with `code`, `message`, `broken`). A reply that breaks the
+- A `Fault` throws `RpcFault` (with `code`, `faultMessage`, `broken`, plus `Error.message`). A reply that breaks the
   protocol throws `RpcProtocolError`, with the same kinds as Rust's `ProtocolError`. An
   error from the send function propagates unchanged.
 - The declared timeout is passed to the send function by default.

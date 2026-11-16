@@ -98,7 +98,7 @@ impl Cx<'_> {
                     Target::Field(ty) => self.check_arg_ty(ty),
                 };
                 quote! {
-                    fn #fn_id(&self, v: #arg_ty) -> bool;
+                    fn #fn_id(&self, v: #arg_ty) -> ::core::result::Result<(), &'static str>;
                 }
             })
             .collect();
@@ -114,6 +114,10 @@ impl Cx<'_> {
 
         quote! {
             /// Application-provided validation functions declared with `#[check(name)]`.
+            ///
+            /// Each returns `Ok(())` to accept the value, or `Err(code)` to reject it with a
+            /// reason code (such as `"missing_at"`) that the application later turns into a
+            /// message in the reader's language.
             pub trait Checks #colon {
                 #(#method_sigs)*
             }
@@ -253,18 +257,18 @@ impl Cx<'_> {
                     table: #tname,
                     field: ::core::option::Option::None,
                     index: ::core::option::Option::None,
-                    rule: ::graven::Rule::Check(#cname),
+                    rule: ::graven::Rule::Check { name: #cname, reason },
                 }
             };
             if collect_all {
                 stmts.push(quote! {
-                    if !checks.#fn_id(self) {
+                    if let ::core::result::Result::Err(reason) = checks.#fn_id(self) {
                         out.push(#err_expr);
                     }
                 });
             } else {
                 stmts.push(quote! {
-                    if !checks.#fn_id(self) {
+                    if let ::core::result::Result::Err(reason) = checks.#fn_id(self) {
                         return ::core::result::Result::Err(::graven::ValidateError::Invalid(#err_expr));
                     }
                 });
@@ -320,7 +324,10 @@ impl Cx<'_> {
                 (Some(a), None) | (None, Some(a)) => a,
                 (None, None) => unreachable!(),
             };
-            let fail = emit_err(quote!(::graven::Rule::Range), quote!(::core::option::Option::None));
+            let tmin = bound_text(min.as_ref().map(RangeBound::text));
+            let tmax = bound_text(max.as_ref().map(RangeBound::text));
+            let fail =
+                emit_err(quote!(::graven::Rule::Range { min: #tmin, max: #tmax }), quote!(::core::option::Option::None));
             stmts.push(quote!(if #cond { #fail }));
         }
 
@@ -338,7 +345,10 @@ impl Cx<'_> {
                 (Some(a), None) | (None, Some(a)) => a,
                 (None, None) => unreachable!(),
             };
-            let fail = emit_err(quote!(::graven::Rule::Len), quote!(::core::option::Option::None));
+            let tmin = bound_text(min.map(|n| n.to_string()));
+            let tmax = bound_text(max.map(|n| n.to_string()));
+            let fail =
+                emit_err(quote!(::graven::Rule::Len { min: #tmin, max: #tmax }), quote!(::core::option::Option::None));
             stmts.push(quote!(if #cond { #fail }));
         }
 
@@ -375,8 +385,11 @@ impl Cx<'_> {
             let cname = Literal::string(c);
             let pass_ref = matches!(f.ty, Ty::Table(_) | Ty::Union(_));
             let arg = if pass_ref { quote!(&v) } else { quote!(v) };
-            let fail = emit_err(quote!(::graven::Rule::Check(#cname)), quote!(::core::option::Option::None));
-            stmts.push(quote!(if !checks.#fn_id(#arg) { #fail }));
+            let fail = emit_err(
+                quote!(::graven::Rule::Check { name: #cname, reason }),
+                quote!(::core::option::Option::None),
+            );
+            stmts.push(quote!(if let ::core::result::Result::Err(reason) = checks.#fn_id(#arg) { #fail }));
         }
 
         match f.ty {
@@ -442,6 +455,17 @@ impl Cx<'_> {
         }
 
         quote!(#(#stmts)*)
+    }
+}
+
+/// `Some("text")` or `None`, as tokens.
+fn bound_text(t: Option<String>) -> TokenStream {
+    match t {
+        Some(t) => {
+            let l = Literal::string(&t);
+            quote!(::core::option::Option::Some(#l))
+        }
+        None => quote!(::core::option::Option::None),
     }
 }
 

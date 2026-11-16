@@ -32,7 +32,6 @@ COMMON = [  # shared by every translation: paths one level down
 PT = [
     ("Inspired by FlatBuffers and Cap'n Proto. We started from their ideas, measured their trade-offs in benchmarks, and kept exploring until we reached this format.", "Inspirado no FlatBuffers e no Cap'n Proto. Partimos das ideias deles, medimos seus trade-offs em benchmarks e seguimos explorando até chegar a este formato."),
     (">How we got here</a>", ">Como chegamos aqui</a>"),
-    ('>Tools</a>', '>Ferramentas</a>'),
     ('<html lang="en">', '<html lang="pt-BR">'),
     ('<title>Graven — an open specification for a zero-copy binary format</title>',
      '<title>Graven — uma especificação aberta para um formato binário zero-copy</title>'),
@@ -170,11 +169,19 @@ PT = [
         lê os 42 vetores com exatamente o resultado esperado (spec §10).'''),
     ('<th scope="col">Language</th><th scope="col">Status</th><th scope="col">What it includes</th>',
      '<th scope="col">Linguagem</th><th scope="col">Status</th><th scope="col">O que inclui</th>'),
-    ('<td>Reference implementation. Passes all v1 vectors.</td>', '<td>Implementação de referência. Passa em todos os vetores v1.</td>'),
+    ('<td>Reference implementation. Passes all v1 and RPC frame vectors.</td>', '<td>Implementação de referência. Passa em todos os vetores v1 e de frames RPC.</td>'),
     ('''Runtime (<code>no_std</code>), the <code>gravenc</code> compiler with lockfile and compatibility
-            checks, Rust code generation, and the conformance interpreter.''',
+            checks, Rust code generation (client and server edge), and the conformance interpreter.''',
      '''Runtime (<code>no_std</code>), o compilador <code>gravenc</code> com lockfile e checagem de
-            compatibilidade, geração de código Rust e o interpretador de conformidade.'''),
+            compatibilidade, geração de código Rust (cliente e borda de servidor) e o interpretador de conformidade.'''),
+    ('>Rust SDK</a>', '>SDK Rust</a>'),
+    ('<td><code>gravenc gen --lang js</code>. Passes all v1 and RPC frame vectors.</td>',
+     '<td><code>gravenc gen --lang js</code>. Passa em todos os vetores v1 e de frames RPC.</td>'),
+    ('''Zero-dependency ES2022 <code>.js</code> modules with TypeScript <code>.d.ts</code> declarations,
+            canonical writers, validation, and RPC clients for browsers, Node, and Deno.''',
+     '''Módulos ES2022 <code>.js</code> sem dependências com declarações TypeScript <code>.d.ts</code>,
+            writers canônicos, validação e clientes RPC para navegadores, Node e Deno.'''),
+    ('>JS / TS SDK</a>', '>SDK JS / TS</a>'),
     ('>API reference</a>', '>Referência da API</a>'),
     ('<h3>Writing an implementation</h3>', '<h3>Escrevendo uma implementação</h3>'),
     ('''Start with the layout algorithm (spec §3.3), the read rules (§4–§6) and <code>verify</code> (§7), then run
@@ -214,7 +221,6 @@ PT = [
 ES = [
     ("Inspired by FlatBuffers and Cap'n Proto. We started from their ideas, measured their trade-offs in benchmarks, and kept exploring until we reached this format.", "Inspirado en FlatBuffers y Cap'n Proto. Partimos de sus ideas, medimos sus compromisos con benchmarks y seguimos explorando hasta llegar a este formato."),
     (">How we got here</a>", ">Cómo llegamos aquí</a>"),
-    ('>Tools</a>', '>Herramientas</a>'),
     ('<html lang="en">', '<html lang="es">'),
     ('<title>Graven — an open specification for a zero-copy binary format</title>',
      '<title>Graven — una especificación abierta para un formato binario zero-copy</title>'),
@@ -352,11 +358,19 @@ ES = [
         lee los 42 vectores con exactamente el resultado esperado (spec §10).'''),
     ('<th scope="col">Language</th><th scope="col">Status</th><th scope="col">What it includes</th>',
      '<th scope="col">Lenguaje</th><th scope="col">Estado</th><th scope="col">Qué incluye</th>'),
-    ('<td>Reference implementation. Passes all v1 vectors.</td>', '<td>Implementación de referencia. Pasa todos los vectores v1.</td>'),
+    ('<td>Reference implementation. Passes all v1 and RPC frame vectors.</td>', '<td>Implementación de referencia. Pasa todos los vectores v1 y de tramas RPC.</td>'),
     ('''Runtime (<code>no_std</code>), the <code>gravenc</code> compiler with lockfile and compatibility
-            checks, Rust code generation, and the conformance interpreter.''',
+            checks, Rust code generation (client and server edge), and the conformance interpreter.''',
      '''Runtime (<code>no_std</code>), el compilador <code>gravenc</code> con lockfile y comprobación de
-            compatibilidad, generación de código Rust y el intérprete de conformidad.'''),
+            compatibilidad, generación de código Rust (cliente y servidor) y el intérprete de conformidad.'''),
+    ('>Rust SDK</a>', '>SDK Rust</a>'),
+    ('<td><code>gravenc gen --lang js</code>. Passes all v1 and RPC frame vectors.</td>',
+     '<td><code>gravenc gen --lang js</code>. Pasa todos los vectores v1 y de tramas RPC.</td>'),
+    ('''Zero-dependency ES2022 <code>.js</code> modules with TypeScript <code>.d.ts</code> declarations,
+            canonical writers, validation, and RPC clients for browsers, Node, and Deno.''',
+     '''Módulos ES2022 <code>.js</code> sin dependencias con declaraciones TypeScript <code>.d.ts</code>,
+            writers canónicos, validación y clientes RPC para navegadores, Node y Deno.'''),
+    ('>JS / TS SDK</a>', '>SDK JS / TS</a>'),
     ('>API reference</a>', '>Referencia de la API</a>'),
     ('<h3>Writing an implementation</h3>', '<h3>Escribir una implementación</h3>'),
     ('''Start with the layout algorithm (spec §3.3), the read rules (§4–§6) and <code>verify</code> (§7), then run
@@ -396,7 +410,6 @@ ES = [
 ZH = [
     ("Inspired by FlatBuffers and Cap'n Proto. We started from their ideas, measured their trade-offs in benchmarks, and kept exploring until we reached this format.", "受 FlatBuffers 和 Cap'n Proto 启发。我们从它们的思路出发，用基准测试衡量各自的取舍，并持续探索，最终得到了这个格式。"),
     (">How we got here</a>", ">我们是如何走到这里的</a>"),
-    ('>Tools</a>', '>工具</a>'),
     ('<html lang="en">', '<html lang="zh-CN">'),
     ('<title>Graven — an open specification for a zero-copy binary format</title>',
      '<title>Graven — 零拷贝二进制格式的开放规范</title>'),
@@ -527,11 +540,19 @@ ZH = [
      '''规范本身就是产品，各个实现都以它为衡量标准。一个符合规范的实现必须以完全符合预期的结果读取全部 42 个向量（规范 §10）。'''),
     ('<th scope="col">Language</th><th scope="col">Status</th><th scope="col">What it includes</th>',
      '<th scope="col">语言</th><th scope="col">状态</th><th scope="col">包含内容</th>'),
-    ('<td>Reference implementation. Passes all v1 vectors.</td>', '<td>参考实现。通过全部 v1 向量。</td>'),
+    ('<td>Reference implementation. Passes all v1 and RPC frame vectors.</td>', '<td>参考实现。通过全部 v1 与 RPC 帧向量。</td>'),
     ('''Runtime (<code>no_std</code>), the <code>gravenc</code> compiler with lockfile and compatibility
-            checks, Rust code generation, and the conformance interpreter.''',
+            checks, Rust code generation (client and server edge), and the conformance interpreter.''',
      '''运行时（<code>no_std</code>）、带 lockfile 和兼容性检查的 <code>gravenc</code> 编译器、
-            Rust 代码生成，以及一致性解释器。'''),
+            Rust 代码生成（客户端与服务端边缘），以及一致性解释器。'''),
+    ('>Rust SDK</a>', '>Rust SDK</a>'),
+    ('<td><code>gravenc gen --lang js</code>. Passes all v1 and RPC frame vectors.</td>',
+     '<td><code>gravenc gen --lang js</code>。通过全部 v1 与 RPC 帧向量。</td>'),
+    ('''Zero-dependency ES2022 <code>.js</code> modules with TypeScript <code>.d.ts</code> declarations,
+            canonical writers, validation, and RPC clients for browsers, Node, and Deno.''',
+     '''零依赖 ES2022 <code>.js</code> 模块与 TypeScript <code>.d.ts</code> 声明、规范写入器、
+            校验及适用于浏览器、Node 和 Deno 的 RPC 客户端。'''),
+    ('>JS / TS SDK</a>', '>JS / TS SDK</a>'),
     ('>API reference</a>', '>API 参考</a>'),
     ('<h3>Writing an implementation</h3>', '<h3>编写一个实现</h3>'),
     ('''Start with the layout algorithm (spec §3.3), the read rules (§4–§6) and <code>verify</code> (§7), then run

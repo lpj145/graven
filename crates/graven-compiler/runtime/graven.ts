@@ -1405,11 +1405,27 @@ export class StreamW<W> {
   }
 }
 
+/**
+ * A value that breaks a rule of the schema. It carries codes, never text: the application
+ * turns them into a message in the reader's language.
+ */
 export interface ValidationFailure {
   readonly table: string;
   readonly field?: string;
   readonly index?: number;
+  /** `"range"`, `"len"`, `"finite"`, `"known"` or `"check(name)"`. */
   readonly rule: string;
+  /** `range`/`len`: the declared lower bound, as a decimal number. */
+  readonly min?: string;
+  /** `range`/`len`: the declared upper bound, as a decimal number. */
+  readonly max?: string;
+  /** `check(name)`: the code the check returned. */
+  readonly reason?: string;
+}
+
+/** Adds the code a check returned (`r`) to a failure; used by generated code. */
+export function checkFailure(f: ValidationFailure, r: unknown): ValidationFailure {
+  return typeof r === "string" ? { ...f, reason: r } : f;
 }
 
 /** Thrown by `validate()` when a schema validation rule fails. */
@@ -1423,7 +1439,12 @@ export class ValidationError extends Error {
           ? `${failure.table}.${failure.field}[${failure.index}]`
           : `${failure.table}.${failure.field}`
         : failure.table;
-    super(`validation failed on ${loc}: ${failure.rule}`);
+    const extra = [
+      failure.min !== undefined ? `min ${failure.min}` : "",
+      failure.max !== undefined ? `max ${failure.max}` : "",
+      failure.reason !== undefined ? failure.reason : "",
+    ].filter((s) => s !== "");
+    super(`validation failed on ${loc}: ${failure.rule}${extra.length > 0 ? ` (${extra.join(", ")})` : ""}`);
     this.name = "ValidationError";
     this.failure = failure;
   }
@@ -1463,7 +1484,10 @@ export const BROKEN_RULE_SCHEMA_ID = schemaId("graven.rpc.BrokenRule");
 export const FAULT_SCHEMA_ID = schemaId("graven.rpc.Fault");
 
 const FAULT_FIXED_LEN = 11;
-const BROKEN_RULE_FIXED_LEN = 17;
+/** `BrokenRule` up to `rule` (@3): written when `min`, `max` and `reason` are absent. */
+const BROKEN_RULE_FIXED_LEN_V0 = 17;
+/** `BrokenRule` with `min`, `max` and `reason` (@4–@6). */
+const BROKEN_RULE_FIXED_LEN = 29;
 
 export interface FrameHeader {
   readonly kind: FrameKind;
@@ -1486,7 +1510,14 @@ export interface BrokenRule {
   readonly tableName: string;
   readonly field?: string;
   readonly index?: number;
+  /** `"range"`, `"len"`, `"finite"`, `"known"` or `"check(name)"`. */
   readonly rule: string;
+  /** `range`/`len`: the declared lower bound, as a decimal number. */
+  readonly min?: string;
+  /** `range`/`len`: the declared upper bound, as a decimal number. */
+  readonly max?: string;
+  /** `check(name)`: the code the check returned. */
+  readonly reason?: string;
 }
 
 export interface FaultData {
@@ -1631,12 +1662,23 @@ export function decodeFault(payload: Uint8Array): FaultData {
       throw new GravenError("Missing", { field: "rule" });
     }
     ctx.charge(4 + utf8Len(rule));
+    const opt = (off: number): string | undefined => {
+      const s = b.str(off);
+      if (s !== undefined) ctx.charge(4 + utf8Len(s));
+      return s;
+    };
+    const min = opt(17);
+    const max = opt(21);
+    const reason = opt(25);
     ctx.leave();
     broken = {
       tableName,
       ...(field !== undefined ? { field } : {}),
       ...(index !== undefined ? { index } : {}),
       rule,
+      ...(min !== undefined ? { min } : {}),
+      ...(max !== undefined ? { max } : {}),
+      ...(reason !== undefined ? { reason } : {}),
     };
   }
   ctx.leave();
@@ -1656,7 +1698,9 @@ export function encodeFaultPayload(fault: FaultData): Uint8Array {
     w.setStr(3, fault.message);
   }
   if (fault.broken !== undefined) {
-    const bw = w.table(7, BROKEN_RULE_FIXED_LEN);
+    const br = fault.broken;
+    const extended = br.min !== undefined || br.max !== undefined || br.reason !== undefined;
+    const bw = w.table(7, extended ? BROKEN_RULE_FIXED_LEN : BROKEN_RULE_FIXED_LEN_V0);
     bw.setStr(0, fault.broken.tableName);
     if (fault.broken.field !== undefined) {
       bw.setStr(4, fault.broken.field);
@@ -1665,6 +1709,9 @@ export function encodeFaultPayload(fault: FaultData): Uint8Array {
       bw.set(9, { byte: 8, shift: 0 }, leU32, fault.broken.index);
     }
     bw.setStr(13, fault.broken.rule);
+    if (br.min !== undefined) bw.setStr(17, br.min);
+    if (br.max !== undefined) bw.setStr(21, br.max);
+    if (br.reason !== undefined) bw.setStr(25, br.reason);
   }
   return b.finish();
 }

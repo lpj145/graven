@@ -149,6 +149,9 @@ table BrokenRule {
   field      @1: string?;
   index      @2: u32?;
   rule       @3: string;   // "range", "len", "finite", "known", or "check(name)"
+  min        @4: string?;  // range/len: the declared lower bound, as a decimal number
+  max        @5: string?;  // range/len: the declared upper bound, as a decimal number
+  reason     @6: string?;  // check(name): the code the check returned
 }
 
 table Fault {
@@ -161,6 +164,13 @@ table Fault {
 - `Fault`'s envelope `schema_id` is `schema_id("graven.rpc.Fault")` (64-bit FNV-1a).
 - New `FaultCode` values may be added in the future; a reader that does not recognize a
   code treats it as `Internal`.
+- `message` is a diagnostic for developers, never text for end users. On `Invalid`, the
+  server sends codes only, in `broken`, and leaves `message` absent: the caller turns
+  `rule`, `min`, `max` and `reason` into a message in its own user's language.
+- `BrokenRule.min`, `max` and `reason` (@4–@6) were added after the first release of this
+  schema, as optional fields under the rules of format v1 §9. A writer that sets none of them
+  may write `BrokenRule` with the 17-byte fixed part of the first release; readers treat the
+  missing fields as absent either way.
 - On a `Fault` frame, header `variant` MUST be `0`. When rejecting a `Call` whose method
   could not be determined (or was malformed), `service_id` and `method` from the call's
   header (when available; otherwise `0`) are echoed in the `Fault` header.

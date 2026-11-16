@@ -7,7 +7,7 @@ unions = []
 [[tables]]
 name = "BrokenRule"
 schema_id = "0x8bf4a51d23f34152"
-fixed_len = 17
+fixed_len = 29
 
 [[tables.fields]]
 id = 0
@@ -41,6 +41,30 @@ ty = "string"
 size = 4
 slot = 13
 presence = "required"
+
+[[tables.fields]]
+id = 4
+name = "min"
+ty = "string"
+size = 4
+slot = 17
+presence = "optional"
+
+[[tables.fields]]
+id = 5
+name = "max"
+ty = "string"
+size = 4
+slot = 21
+presence = "optional"
+
+[[tables.fields]]
+id = 6
+name = "reason"
+ty = "string"
+size = 4
+slot = 25
+presence = "optional"
 
 [[tables]]
 name = "Fault"

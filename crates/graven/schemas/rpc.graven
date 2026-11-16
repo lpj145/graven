@@ -17,6 +17,9 @@ table BrokenRule {
   field      @1: string?;
   index      @2: u32?;
   rule       @3: string;   // "range", "len", "finite", "known", or "check(name)"
+  min        @4: string?;  // range/len: the declared lower bound, as a decimal number
+  max        @5: string?;  // range/len: the declared upper bound, as a decimal number
+  reason     @6: string?;  // check(name): the code the check returned
 }
 
 table Fault {

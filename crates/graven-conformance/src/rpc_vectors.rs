@@ -33,6 +33,41 @@ pub struct ExpectedFrame {
     pub fault_code: Option<u16>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub fault_message: Option<String>,
+    /// The decoded `BrokenRule` of a `Fault` frame. Checked only when present: vectors frozen
+    /// before this field existed leave it out.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fault_broken: Option<ExpectedBroken>,
+}
+
+/// Expected `graven.rpc.BrokenRule` of a decoded `Fault`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExpectedBroken {
+    pub table_name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub field: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub index: Option<u32>,
+    pub rule: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub min: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+}
+
+impl From<&BrokenRule<'_>> for ExpectedBroken {
+    fn from(b: &BrokenRule<'_>) -> Self {
+        ExpectedBroken {
+            table_name: b.table_name.to_string(),
+            field: b.field.map(str::to_string),
+            index: b.index,
+            rule: b.rule.to_string(),
+            min: b.min.map(str::to_string),
+            max: b.max.map(str::to_string),
+            reason: b.reason.map(str::to_string),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -94,6 +129,7 @@ pub fn rpc_cases() -> Vec<RpcCase> {
             payload_len: 9,
             fault_code: None,
             fault_message: None,
+            fault_broken: None,
         }]),
     });
 
@@ -116,6 +152,7 @@ pub fn rpc_cases() -> Vec<RpcCase> {
             payload_len: 7,
             fault_code: None,
             fault_message: None,
+            fault_broken: None,
         }]),
     });
 
@@ -138,6 +175,7 @@ pub fn rpc_cases() -> Vec<RpcCase> {
             payload_len: 8,
             fault_code: None,
             fault_message: None,
+            fault_broken: None,
         }]),
     });
 
@@ -161,6 +199,7 @@ pub fn rpc_cases() -> Vec<RpcCase> {
             payload_len: 9,
             fault_code: None,
             fault_message: None,
+            fault_broken: None,
         }]),
     });
 
@@ -180,6 +219,7 @@ pub fn rpc_cases() -> Vec<RpcCase> {
             payload_len: 0,
             fault_code: None,
             fault_message: None,
+            fault_broken: None,
         }]),
     });
 
@@ -192,6 +232,9 @@ pub fn rpc_cases() -> Vec<RpcCase> {
             field: Some("delta"),
             index: Some(0),
             rule: "range",
+            min: None,
+            max: None,
+            reason: None,
         }),
     };
     let mut fault_buf = BytesMut::new();
@@ -211,6 +254,8 @@ pub fn rpc_cases() -> Vec<RpcCase> {
             payload_len: fault_frame.payload.len(),
             fault_code: Some(3),
             fault_message: Some("validation failed".to_string()),
+            // Frozen before `fault_broken` existed; `frame_fault_invalid_codes` checks it.
+            fault_broken: None,
         }]),
     });
 
@@ -235,6 +280,42 @@ pub fn rpc_cases() -> Vec<RpcCase> {
             payload_len: future_frame.payload.len(),
             fault_code: Some(99),
             fault_message: Some("future fault".to_string()),
+            fault_broken: None,
+        }]),
+    });
+
+    // 7b. Fault Invalid whose BrokenRule carries codes: declared bounds and a check reason
+    //     (`min`, `max`, `reason`, @4–@6), without a message.
+    let coded = Fault {
+        code: FaultCode::Invalid,
+        message: None,
+        broken: Some(BrokenRule {
+            table_name: "Signup",
+            field: Some("email"),
+            index: Some(2),
+            rule: "check(email)",
+            min: Some("3"),
+            max: Some("254"),
+            reason: Some("missing_at"),
+        }),
+    };
+    let mut coded_buf = BytesMut::new();
+    encode_fault_frame(TEST_SERVICE_ID, 3, &coded, &mut coded_buf).expect("encode_fault_frame");
+    let coded_frame = graven::rpc::decode_frame(&coded_buf).expect("decode coded fault frame");
+    assert_eq!(decode_fault(coded_frame.payload).expect("decode coded fault"), coded);
+    cases.push(RpcCase {
+        name: "frame_fault_invalid_codes",
+        bytes: coded_buf.to_vec(),
+        expect: RpcExpect::Frames(vec![ExpectedFrame {
+            kind: 6,
+            method: 3,
+            variant: 0,
+            service_id: hex_u64(TEST_SERVICE_ID),
+            schema_id: hex_u64(FAULT_SCHEMA_ID),
+            payload_len: coded_frame.payload.len(),
+            fault_code: Some(3),
+            fault_message: None,
+            fault_broken: coded.broken.as_ref().map(ExpectedBroken::from),
         }]),
     });
 
@@ -254,6 +335,7 @@ pub fn rpc_cases() -> Vec<RpcCase> {
                 payload_len: 9,
                 fault_code: None,
                 fault_message: None,
+                fault_broken: None,
             },
             ExpectedFrame {
                 kind: 5,
@@ -264,6 +346,7 @@ pub fn rpc_cases() -> Vec<RpcCase> {
                 payload_len: 0,
                 fault_code: None,
                 fault_message: None,
+                fault_broken: None,
             },
         ]),
     });

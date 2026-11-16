@@ -20,7 +20,11 @@ pub enum RangeBound {
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct FieldRules {
     pub range: Option<(Option<RangeBound>, Option<RangeBound>)>,
+    /// The `range` bounds as decimal text, reported in a failure.
+    pub range_text: (Option<&'static str>, Option<&'static str>),
     pub len: Option<(Option<u64>, Option<u64>)>,
+    /// The `len` bounds as decimal text, reported in a failure.
+    pub len_text: (Option<&'static str>, Option<&'static str>),
     pub finite: bool,
     pub known: Option<&'static [u32]>,
     pub checks: Vec<&'static str>,
@@ -38,7 +42,8 @@ pub struct ValidationSchema {
     pub tables: HashMap<&'static str, TableRules>,
 }
 
-pub type CheckFn = Arc<dyn Fn(&Value) -> bool + Send + Sync>;
+/// A named check: `Ok(())` accepts the value, `Err(code)` rejects it with a reason code.
+pub type CheckFn = Arc<dyn Fn(&Value) -> Result<(), &'static str> + Send + Sync>;
 
 #[derive(Default, Clone)]
 pub struct CheckRegistry {
@@ -50,7 +55,7 @@ impl CheckRegistry {
         Self::default()
     }
 
-    pub fn register(&mut self, name: impl Into<String>, f: impl Fn(&Value) -> bool + Send + Sync + 'static) {
+    pub fn register(&mut self, name: impl Into<String>, f: impl Fn(&Value) -> Result<(), &'static str> + Send + Sync + 'static) {
         self.fns.insert(name.into(), Arc::new(f));
     }
 
@@ -191,13 +196,13 @@ impl Validator {
             for &cname in &tr.checks {
                 if let Some(reg) = registry {
                     if let Some(func) = reg.get(cname)
-                        && !func(value)
+                        && let Err(reason) = func(value)
                     {
                         report.invalid.push(Invalid {
                             table: tname_static,
                             field: None,
                             index: None,
-                            rule: Rule::Check(cname),
+                            rule: Rule::Check { name: cname, reason },
                         });
                         if stop_first {
                             return;
@@ -270,7 +275,7 @@ fn check_field_rules(
     if let Some((min, max)) = &fr.range
         && !in_range(val, min.as_ref(), max.as_ref())
     {
-        report.invalid.push(Invalid { table, field: Some(field), index: None, rule: Rule::Range });
+        report.invalid.push(Invalid { table, field: Some(field), index: None, rule: Rule::Range { min: fr.range_text.0, max: fr.range_text.1 } });
         if stop_first {
             return;
         }
@@ -286,7 +291,7 @@ fn check_field_rules(
         if let Some(n) = len
             && (min.is_some_and(|m| n < m) || max.is_some_and(|m| n > m))
         {
-            report.invalid.push(Invalid { table, field: Some(field), index: None, rule: Rule::Len });
+            report.invalid.push(Invalid { table, field: Some(field), index: None, rule: Rule::Len { min: fr.len_text.0, max: fr.len_text.1 } });
             if stop_first {
                 return;
             }
@@ -341,13 +346,13 @@ fn check_field_rules(
     for &cname in &fr.checks {
         if let Some(reg) = registry {
             if let Some(func) = reg.get(cname)
-                && !func(val)
+                && let Err(reason) = func(val)
             {
                 report.invalid.push(Invalid {
                     table,
                     field: Some(field),
                     index: None,
-                    rule: Rule::Check(cname),
+                    rule: Rule::Check { name: cname, reason },
                 });
                 if stop_first {
                     return;

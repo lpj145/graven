@@ -90,14 +90,19 @@ impl<'a> JsCx<'a> {
         } else {
             format!(" extends {}", supers.into_iter().collect::<Vec<_>>().join(", "))
         };
-        out.dts("/** Application-provided validation functions declared with `#[check(name)]`. */");
+        out.dts("/**");
+        out.dts(" * Application-provided validation functions declared with `#[check(name)]`.");
+        out.dts(" *");
+        out.dts(" * Each returns `true` to accept the value, or a reason code (such as `\"missing_at\"`)");
+        out.dts(" * to reject it; the application turns codes into messages in the reader's language.");
+        out.dts(" */");
         out.dts(&format!("export interface Checks{ext} {{"));
         for (name, target) in &methods {
             let arg_ty = match target {
                 Target::Table(tid) => self.table_path(*tid, "Verified"),
                 Target::Field(ty) => self.check_arg_ty(ty),
             };
-            out.dts(&format!("  {name}(v: {arg_ty}): boolean;"));
+            out.dts(&format!("  {name}(v: {arg_ty}): true | string;"));
         }
         out.dts("}");
         out.dts("");
@@ -187,12 +192,9 @@ impl<'a> JsCx<'a> {
         }
         for c in &t.checks {
             let cname_lit = js_str(&format!("check({c})"));
-            let fail = if collect_all {
-                format!("out.push({{ table: {tname_lit}, rule: {cname_lit} }});")
-            } else {
-                format!("throw new _graven.ValidationError({{ table: {tname_lit}, rule: {cname_lit} }});")
-            };
-            out.push(format!("if (!checks.{c}(this)) {fail}"));
+            let obj = format!("_graven.checkFailure({{ table: {tname_lit}, rule: {cname_lit} }}, r)");
+            let fail = if collect_all { format!("out.push({obj});") } else { format!("throw new _graven.ValidationError({obj});") };
+            out.push(format!("{{ const r = checks.{c}(this); if (r !== true) {fail} }}"));
         }
         out
     }
@@ -215,13 +217,26 @@ impl<'a> JsCx<'a> {
         collect_all: bool,
         ind: &str,
     ) {
+        let fail_with = |obj: String| -> String {
+            if collect_all { format!("out.push({obj});") } else { format!("throw new _graven.ValidationError({obj});") }
+        };
         let emit_err = |rule_lit: &str, idx_expr: Option<&str>| -> String {
             let idx_part = match idx_expr {
                 Some(i) => format!(", index: {i}"),
                 None => String::new(),
             };
-            let obj = format!("{{ table: {tname_lit}, field: {fname_lit}{idx_part}, rule: {rule_lit} }}");
-            if collect_all { format!("out.push({obj});") } else { format!("throw new _graven.ValidationError({obj});") }
+            fail_with(format!("{{ table: {tname_lit}, field: {fname_lit}{idx_part}, rule: {rule_lit} }}"))
+        };
+        // `range`/`len` failures carry the declared bounds, as decimal text.
+        let emit_bounded = |rule: &str, min: Option<String>, max: Option<String>| -> String {
+            let mut extra = String::new();
+            if let Some(m) = min {
+                extra.push_str(&format!(", min: {}", js_str(&m)));
+            }
+            if let Some(m) = max {
+                extra.push_str(&format!(", max: {}", js_str(&m)));
+            }
+            fail_with(format!("{{ table: {tname_lit}, field: {fname_lit}, rule: \"{rule}\"{extra} }}"))
         };
 
         if let Some((min, max)) = &f.rules.range {
@@ -240,7 +255,8 @@ impl<'a> JsCx<'a> {
                 (Some(a), None) | (None, Some(a)) => a,
                 (None, None) => unreachable!(),
             };
-            out.push(format!("{ind}if ({cond}) {}", emit_err("\"range\"", None)));
+            let fail = emit_bounded("range", min.as_ref().map(RangeBound::text), max.as_ref().map(RangeBound::text));
+            out.push(format!("{ind}if ({cond}) {fail}"));
         }
 
         if let Some((min, max)) = f.rules.len {
@@ -255,7 +271,8 @@ impl<'a> JsCx<'a> {
                 (Some(a), None) | (None, Some(a)) => a,
                 (None, None) => unreachable!(),
             };
-            out.push(format!("{ind}if ({cond}) {}", emit_err("\"len\"", None)));
+            let fail = emit_bounded("len", min.map(|n| n.to_string()), max.map(|n| n.to_string()));
+            out.push(format!("{ind}if ({cond}) {fail}"));
         }
 
         if f.rules.finite {
@@ -284,7 +301,10 @@ impl<'a> JsCx<'a> {
 
         for c in &f.rules.checks {
             let rule_lit = js_str(&format!("check({c})"));
-            out.push(format!("{ind}if (!checks.{c}(v)) {}", emit_err(&rule_lit, None)));
+            let fail = fail_with(format!(
+                "_graven.checkFailure({{ table: {tname_lit}, field: {fname_lit}, rule: {rule_lit} }}, r)"
+            ));
+            out.push(format!("{ind}{{ const r = checks.{c}(v); if (r !== true) {fail} }}"));
         }
 
         match &f.ty {

@@ -124,7 +124,8 @@ for example while reading from an iterator.
 ### Verify untrusted bytes once, then read freely
 
 Bytes from the network, from disk or from another process are untrusted. Open them with
-`from_bytes` (enveloped) or `verified` (bare). This walks the message once under fixed
+`from_bytes` (`fromBytes` in JavaScript) for an enveloped message, or `verified` for a bare
+one. This walks the message once under fixed
 depth and work limits, and gives you a verified view whose reads do not check again.
 Plain `read` is also safe on any input, but it checks on every access, so prefer it only
 when you read a field or two.
@@ -158,6 +159,6 @@ uses a schema the lock has not accepted.
 
 ### Change the lock deliberately
 
-Only `gravenc update` writes the lock, and `build.rs` never does. When `update` refuses a
+Only `gravenc update` writes the lock; generating code never does. When `update` refuses a
 change, read the rule it names before reaching for `#[allow_breaking_readers]`. The
 attribute exists for breaks you have planned, not to silence the compiler.

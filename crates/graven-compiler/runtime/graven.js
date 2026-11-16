@@ -1185,6 +1185,10 @@ export class StreamW {
         this.inner.close();
     }
 }
+/** Adds the code a check returned (`r`) to a failure; used by generated code. */
+export function checkFailure(f, r) {
+    return typeof r === "string" ? { ...f, reason: r } : f;
+}
 /** Thrown by `validate()` when a schema validation rule fails. */
 export class ValidationError extends Error {
     failure;
@@ -1194,7 +1198,12 @@ export class ValidationError extends Error {
                 ? `${failure.table}.${failure.field}[${failure.index}]`
                 : `${failure.table}.${failure.field}`
             : failure.table;
-        super(`validation failed on ${loc}: ${failure.rule}`);
+        const extra = [
+            failure.min !== undefined ? `min ${failure.min}` : "",
+            failure.max !== undefined ? `max ${failure.max}` : "",
+            failure.reason !== undefined ? failure.reason : "",
+        ].filter((s) => s !== "");
+        super(`validation failed on ${loc}: ${failure.rule}${extra.length > 0 ? ` (${extra.join(", ")})` : ""}`);
         this.name = "ValidationError";
         this.failure = failure;
     }
@@ -1227,7 +1236,10 @@ export const FaultCode = {
 export const BROKEN_RULE_SCHEMA_ID = schemaId("graven.rpc.BrokenRule");
 export const FAULT_SCHEMA_ID = schemaId("graven.rpc.Fault");
 const FAULT_FIXED_LEN = 11;
-const BROKEN_RULE_FIXED_LEN = 17;
+/** `BrokenRule` up to `rule` (@3): written when `min`, `max` and `reason` are absent. */
+const BROKEN_RULE_FIXED_LEN_V0 = 17;
+/** `BrokenRule` with `min`, `max` and `reason` (@4–@6). */
+const BROKEN_RULE_FIXED_LEN = 29;
 function writeFrameHeader(out, header) {
     const dv = new DataView(out.buffer, out.byteOffset, FRAME_HEADER_LEN);
     out[0] = FRAME_VERSION;
@@ -1351,12 +1363,24 @@ export function decodeFault(payload) {
             throw new GravenError("Missing", { field: "rule" });
         }
         ctx.charge(4 + utf8Len(rule));
+        const opt = (off) => {
+            const s = b.str(off);
+            if (s !== undefined)
+                ctx.charge(4 + utf8Len(s));
+            return s;
+        };
+        const min = opt(17);
+        const max = opt(21);
+        const reason = opt(25);
         ctx.leave();
         broken = {
             tableName,
             ...(field !== undefined ? { field } : {}),
             ...(index !== undefined ? { index } : {}),
             rule,
+            ...(min !== undefined ? { min } : {}),
+            ...(max !== undefined ? { max } : {}),
+            ...(reason !== undefined ? { reason } : {}),
         };
     }
     ctx.leave();
@@ -1375,7 +1399,9 @@ export function encodeFaultPayload(fault) {
         w.setStr(3, fault.message);
     }
     if (fault.broken !== undefined) {
-        const bw = w.table(7, BROKEN_RULE_FIXED_LEN);
+        const br = fault.broken;
+        const extended = br.min !== undefined || br.max !== undefined || br.reason !== undefined;
+        const bw = w.table(7, extended ? BROKEN_RULE_FIXED_LEN : BROKEN_RULE_FIXED_LEN_V0);
         bw.setStr(0, fault.broken.tableName);
         if (fault.broken.field !== undefined) {
             bw.setStr(4, fault.broken.field);
@@ -1384,6 +1410,12 @@ export function encodeFaultPayload(fault) {
             bw.set(9, { byte: 8, shift: 0 }, leU32, fault.broken.index);
         }
         bw.setStr(13, fault.broken.rule);
+        if (br.min !== undefined)
+            bw.setStr(17, br.min);
+        if (br.max !== undefined)
+            bw.setStr(21, br.max);
+        if (br.reason !== undefined)
+            bw.setStr(25, br.reason);
     }
     return b.finish();
 }

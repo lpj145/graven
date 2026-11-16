@@ -346,12 +346,25 @@ export declare class StreamW<W> {
     push(): W;
     close(): void;
 }
+/**
+ * A value that breaks a rule of the schema. It carries codes, never text: the application
+ * turns them into a message in the reader's language.
+ */
 export interface ValidationFailure {
     readonly table: string;
     readonly field?: string;
     readonly index?: number;
+    /** `"range"`, `"len"`, `"finite"`, `"known"` or `"check(name)"`. */
     readonly rule: string;
+    /** `range`/`len`: the declared lower bound, as a decimal number. */
+    readonly min?: string;
+    /** `range`/`len`: the declared upper bound, as a decimal number. */
+    readonly max?: string;
+    /** `check(name)`: the code the check returned. */
+    readonly reason?: string;
 }
+/** Adds the code a check returned (`r`) to a failure; used by generated code. */
+export declare function checkFailure(f: ValidationFailure, r: unknown): ValidationFailure;
 /** Thrown by `validate()` when a schema validation rule fails. */
 export declare class ValidationError extends Error {
     readonly failure: ValidationFailure;
@@ -399,7 +412,14 @@ export interface BrokenRule {
     readonly tableName: string;
     readonly field?: string;
     readonly index?: number;
+    /** `"range"`, `"len"`, `"finite"`, `"known"` or `"check(name)"`. */
     readonly rule: string;
+    /** `range`/`len`: the declared lower bound, as a decimal number. */
+    readonly min?: string;
+    /** `range`/`len`: the declared upper bound, as a decimal number. */
+    readonly max?: string;
+    /** `check(name)`: the code the check returned. */
+    readonly reason?: string;
 }
 export interface FaultData {
     readonly code: number;

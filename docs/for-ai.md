@@ -21,10 +21,12 @@ Graven is a zero-copy binary serialization format with a schema language. A `.gr
 schema describes messages. The compiler `gravenc` checks it, records its layout in a
 lockfile (`<schema>.graven.lock`) and generates code. Messages are read in place from the
 buffer, with no parse step. The format (v1) is frozen and specified, with 42 conformance
-vectors. The reference implementation is in Rust. Source: <https://github.com/lpj145/graven>.
+vectors. Implementations: Rust (the reference) and JavaScript with TypeScript declarations.
+Source: <https://github.com/lpj145/graven>.
 
 Use it for data that is stored or exchanged for a long time and must stay readable as the
-schema evolves: records, logs, messages between services. Prefer JSON for small,
+schema evolves: records, logs, messages between services, and calls between programs
+(services). Prefer JSON for small,
 human-edited configuration.
 
 ## Schema cheat sheet
@@ -93,12 +95,48 @@ Write schemas that `gravenc` accepts the first time:
     them implicitly; call `view.validate(&checks)` or `XW::to_bytes_validated(&mut b, &checks, ...)`.
     Tightening or adding rules triggers `rule-tightened` / `check-added` warnings
     (confirmed with `#[allow_breaking_readers]`).
+12. Never put user-facing text in a schema or a check. A check returns a reason code
+    (Rust `Err("missing_at")`, JS `"missing_at"`); a failure carries codes only (rule,
+    declared `min`/`max`, `reason`), and the program showing it translates them.
 
 Renaming a field, adding an enum variant, adding a union variant and adding a table are
 all allowed.
 
 Full grammar and rules: [schema language](graven-language.md). Normative compatibility
 rules: [specification §9](spec/graven-format-v1.md#9-schema-compatibility).
+
+## Services
+
+A schema can declare operations. Graven specifies the bytes of calls and replies, never the
+transport: the application sends the bytes over HTTP, a socket or a queue, and handles
+connections and authentication itself.
+
+```graven
+union LookupError { NotFound @1: NotFound }
+
+#[timeout(ms = 5000)]                   // default for every method
+service Inventory {
+  #[timeout(ms = 500)]
+  get    @1: (GetProduct)   -> Result<Product, LookupError>;   // typed error
+  list   @2: (ListProducts) -> stream Product;                 // many replies
+  adjust @3: (AdjustStock)  -> Product;                        // no declared error
+  ping   @4: (Ping);                                           // one-way: no reply at all
+  @5: reserved;                                                // a retired method
+}
+```
+
+- Method IDs start at `@1`; never reuse or renumber one. Retire a method with
+  `@n: reserved;` (warning `method-retired`, confirmed with `#[allow_breaking_readers]`).
+- Inputs, outputs and errors are tables or unions. Changing any of them, or the shape
+  (adding `Result` or `stream`), is refused (`method-changed`): declare `Result<T, E>` from
+  the start when errors may come later. Adding a method or a union variant is allowed.
+- A declared error `E` is a normal reply; a protocol fault (`Malformed`, `Unsupported`,
+  `Invalid`, `DeadlineExceeded`, `Internal`, `Unavailable`) is the same for every method.
+- `gravenc gen --side client` generates a complete typed client that calls a send function
+  the application writes; `--side server` (Rust only) generates the server edge, an enum
+  with one variant per method and typed reply builders.
+
+Details: [services](services.md).
 
 ## Commands
 
@@ -189,7 +227,7 @@ The generated API for a table `X`:
 - Required scalars return the value, optional fields return an `Option`, and strings,
   lists and nested tables return a `Result`.
 
-Details: [generated API](graven-language.md#11-generated-api-summary).
+Details: [Rust SDK](sdk/rust.md#api-reference).
 
 ## JavaScript and TypeScript (`--lang js`)
 
@@ -213,7 +251,7 @@ gravenc gen schemas/shop.graven -o src/gen --lang js --side client
   Methods return `Promise<Out>`, `Promise<{ ok: true, value } | { ok: false, error }>` or
   `Promise<AsyncIterable<Item>>`, and throw `RpcFault` or `RpcProtocolError`.
 
-Details: [JavaScript and TypeScript](javascript.md).
+Details: [JavaScript / TypeScript SDK](sdk/js.md).
 
 ## JSON mapping
 

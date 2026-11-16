@@ -11,29 +11,63 @@ use core::fmt;
 use crate::Error;
 
 /// The rule a value broke.
+///
+/// A failure carries codes, never text: the rule, the bounds declared in the schema and the
+/// reason a check returned. The application turns them into a message in the reader's
+/// language.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Rule {
-    /// `range(min = …, max = …)`: a number outside its bounds (NaN is always outside).
-    Range,
+    /// `range(min = …, max = …)`: a number outside its bounds (NaN is always outside). The
+    /// bounds are the declared ones, as decimal numbers (`"18"`, `"0.5"`).
+    Range { min: Option<&'static str>, max: Option<&'static str> },
     /// `len(min = …, max = …)`: a string or `bytes` length (in bytes), or a list's element
     /// count, outside its bounds.
-    Len,
+    Len { min: Option<&'static str>, max: Option<&'static str> },
     /// `finite`: a float that is NaN or infinite.
     Finite,
     /// `known`: an enum value the reader's schema does not declare.
     Known,
-    /// `check(name)`: the application's function `name` returned `false`.
-    Check(&'static str),
+    /// `check(name)`: the application's function `name` rejected the value, with the code it
+    /// returned as `reason`.
+    Check { name: &'static str, reason: &'static str },
 }
 
+impl Rule {
+    /// The rule's kind: `"range"`, `"len"`, `"finite"`, `"known"` or `"check"`.
+    pub fn kind(&self) -> &'static str {
+        match self {
+            Rule::Range { .. } => "range",
+            Rule::Len { .. } => "len",
+            Rule::Finite => "finite",
+            Rule::Known => "known",
+            Rule::Check { .. } => "check",
+        }
+    }
+
+    /// The declared bounds of a `range` or `len` rule.
+    pub fn bounds(&self) -> (Option<&'static str>, Option<&'static str>) {
+        match *self {
+            Rule::Range { min, max } | Rule::Len { min, max } => (min, max),
+            _ => (None, None),
+        }
+    }
+
+    /// The code a `check(name)` returned.
+    pub fn reason(&self) -> Option<&'static str> {
+        match *self {
+            Rule::Check { reason, .. } => Some(reason),
+            _ => None,
+        }
+    }
+}
+
+/// Writes the rule's name as the wire carries it: `range`, `len`, `finite`, `known` or
+/// `check(name)`.
 impl fmt::Display for Rule {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Rule::Range => f.write_str("range"),
-            Rule::Len => f.write_str("len"),
-            Rule::Finite => f.write_str("finite"),
-            Rule::Known => f.write_str("known"),
-            Rule::Check(name) => write!(f, "check({name})"),
+            Rule::Check { name, .. } => write!(f, "check({name})"),
+            other => f.write_str(other.kind()),
         }
     }
 }
@@ -61,7 +95,17 @@ impl fmt::Display for Invalid {
         if let Some(i) = self.index {
             write!(f, "[{i}]")?;
         }
-        write!(f, ": breaks rule `{}`", self.rule)
+        write!(f, ": breaks rule `{}`", self.rule)?;
+        match self.rule {
+            Rule::Range { min, max } | Rule::Len { min, max } => match (min, max) {
+                (Some(a), Some(b)) => write!(f, " (min {a}, max {b})"),
+                (Some(a), None) => write!(f, " (min {a})"),
+                (None, Some(b)) => write!(f, " (max {b})"),
+                (None, None) => Ok(()),
+            },
+            Rule::Check { reason, .. } => write!(f, ": {reason}"),
+            _ => Ok(()),
+        }
     }
 }
 

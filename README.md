@@ -108,11 +108,11 @@ cargo run -p graven-schemas --example quickstart
 
 | Language | Status |
 |---|---|
-| Rust | Reference implementation (this repository). Passes all v1 vectors. |
+| Rust | Reference implementation (this repository): runtime, `build.rs` code generation, service client and server edge. Passes all v1 and RPC frame vectors. |
 | JavaScript / TypeScript | `gravenc gen --lang js`: `.js` with `.d.ts` declarations and the runtime, for browsers, Node and Deno. Passes all v1 and RPC frame vectors. |
 
 A new implementation conforms when it reads every vector in `testvectors/v1/` with exactly
-the expected result (spec §10). The lockfile written by `gravenc` records every layout, so a
+the expected result (spec §10), and, for services, every frame in `testvectors/rpc-v1/`. The lockfile written by `gravenc` records every layout, so a
 code generator for another language can start from it.
 
 ## Using it in a Rust project
@@ -160,21 +160,23 @@ The [language guide](docs/graven-language.md) covers the full workflow.
 
 | Document | Content |
 |---|---|
-| [Format specification v1](docs/spec/graven-format-v1.md) | The normative wire format: layout, presence, variable-size data, verification, envelope, compatibility rules, conformance. |
-| [Binary layout](docs/binary-layout.md) | Every kind of value on the wire, byte by byte. |
-| [Good practice](docs/good-practice.md) | Advice for designing schemas and storing collections, with the reason behind each tip. |
-| [Schema language](docs/graven-language.md) | `.graven` grammar and types, evolution rules, `gravenc` commands, generated API. |
+| [Getting started](docs/getting-started.md) | Install `gravenc`, write a schema, create its lockfile, then pick a language. |
+| [Schema language](docs/graven-language.md) | `.graven` grammar and types, names, imports, evolution rules and the `gravenc` workflow. |
 | [Validation](docs/validation.md) | Built-in value rules (`range`, `len`, `finite`, `known`), `check(name)` hooks, and evolution warnings. |
-| [JavaScript and TypeScript](docs/javascript.md) | Generated JavaScript with `.d.ts` declarations: reading, writing, validation and service clients. |
-| [RPC frames](docs/spec/graven-rpc-v1.md) | The normative bytes of service calls and replies. |
+| [Services](docs/services.md) | Operations declared in the schema: method shapes, typed errors, timeouts and evolution. |
+| [Format specification v1](docs/spec/graven-format-v1.md) | The normative wire format: layout, presence, variable-size data, verification, envelope, compatibility rules, conformance. |
+| [RPC frames v1](docs/spec/graven-rpc-v1.md) | The normative bytes of service calls and replies. |
+| [Binary layout](docs/binary-layout.md) | Every kind of value on the wire, byte by byte. |
+| [Conformance vectors](docs/conformance-vectors.md) | The frozen format and RPC frame vectors, and how to check an implementation against them. |
+| [Implementations](docs/implementations.md) | The languages Graven runs in: [Rust](docs/sdk/rust.md) and [JavaScript / TypeScript](docs/sdk/js.md). |
 | [Coming from JSON](docs/coming-from-json.md) | Translating JSON data into a schema, piece by piece, with a worked example. |
-| [Tools](docs/tools.md) | `gravenc diff`, `inspect`, `to-json`, `from-json`, `scan`, and the VS Code extension. |
-| [Conformance vectors](testvectors/v1/README.md) | The 42 frozen vectors and how to check an implementation against them. |
+| [Good practice](docs/good-practice.md) | Advice for designing schemas and storing collections, with the reason behind each tip. |
+| [gravenc](docs/tools.md) | `check`, `update`, `gen`, `diff`, `inspect`, `to-json`, `from-json`, `scan`, and the VS Code extension. |
 | [The future](docs/future.md) | Where Graven can be applied, and what each area would still need. |
 | [Benchmarks](docs/benchmarks.md) | Against FlatBuffers and Cap'n Proto: size, allocations and time. |
 | [For AI assistants](docs/for-ai.md) | A compact guide for language models (also published as `llms.txt`). |
 | [History](docs/history/index.md) | How the format was designed and benchmarked (not normative). |
-| [Testing](docs/testing.md) | Running the test suite, fuzzing and Miri. |
+| [Testing](docs/testing.md) | Running the test suites, fuzzing and Miri. |
 | [Changelog](CHANGELOG.md) | Release history. |
 
 The documentation is also published as a static website, with the landing page in

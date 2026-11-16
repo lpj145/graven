@@ -5,7 +5,7 @@ use std::fs;
 use std::path::PathBuf;
 
 use graven::rpc::{decode_fault, decode_frame, frames, FrameKind};
-use graven_conformance::rpc_vectors::{ExpectedFrame, RpcExpect, format_frame_error, rpc_cases};
+use graven_conformance::rpc_vectors::{ExpectedBroken, ExpectedFrame, RpcExpect, format_frame_error, rpc_cases};
 
 fn dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../testvectors/rpc-v1")
@@ -43,12 +43,18 @@ fn rpc_vectors_match_spec_and_disk() {
                     .unwrap_or_else(|e| panic!("{}: unexpected error {e}", case.name));
                 let actual: Vec<ExpectedFrame> = decoded
                     .iter()
-                    .map(|f| {
-                        let (fault_code, fault_message) = if f.header.kind == FrameKind::Fault {
+                    .zip(&expected)
+                    .map(|(f, exp)| {
+                        let (fault_code, fault_message, fault_broken) = if f.header.kind == FrameKind::Fault {
                             let fault = decode_fault(f.payload).expect("valid fault payload");
-                            (Some(fault.code.as_u16()), fault.message.map(str::to_string))
+                            (
+                                Some(fault.code.as_u16()),
+                                fault.message.map(str::to_string),
+                                // Checked only when the vector declares it.
+                                fault.broken.as_ref().map(ExpectedBroken::from).filter(|_| exp.fault_broken.is_some()),
+                            )
                         } else {
-                            (None, None)
+                            (None, None, None)
                         };
                         ExpectedFrame {
                             kind: f.header.kind.as_u8(),
@@ -59,9 +65,11 @@ fn rpc_vectors_match_spec_and_disk() {
                             payload_len: f.payload.len(),
                             fault_code,
                             fault_message,
+                            fault_broken,
                         }
                     })
                     .collect();
+                assert_eq!(decoded.len(), expected.len(), "frame count for {}", case.name);
                 assert_eq!(actual, expected, "mismatch for {}", case.name);
             }
             RpcExpect::Error(expected_err) => {

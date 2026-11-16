@@ -117,11 +117,20 @@ fn build_validation(ir: &Ir, tables: &[&'static dynm::TableDef]) -> dynm::valida
                 None
             };
             let checks = f.rules.checks.iter().map(|c| leak(c)).collect();
+            let text = |b: Option<String>| b.map(|s| leak(&s));
+            let range_text = f.rules.range.as_ref().map_or((None, None), |(min, max)| {
+                (text(min.as_ref().map(ir::RangeBound::text)), text(max.as_ref().map(ir::RangeBound::text)))
+            });
+            let len_text = f.rules.len.map_or((None, None), |(min, max)| {
+                (text(min.map(|n| n.to_string())), text(max.map(|n| n.to_string())))
+            });
             fields.insert(
                 f.id,
                 dv::FieldRules {
                     range,
+                    range_text,
                     len: f.rules.len,
+                    len_text,
                     finite: f.rules.finite,
                     known,
                     checks,

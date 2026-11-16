@@ -270,8 +270,8 @@ fn dynamic_validator_checks_registry_at_construction() {
     // With `slug` registered, construction succeeds and validates both built-in and named rules.
     let mut reg = graven_dynamic::validate::CheckRegistry::new();
     reg.register("slug", |v| match v {
-        graven_dynamic::Value::Str(s) => !s.contains(' '),
-        _ => false,
+        graven_dynamic::Value::Str(s) if !s.contains(' ') => Ok(()),
+        _ => Err("space"),
     });
     let validator = graven_dynamic::validate::Validator::new(td, loaded.validation().clone(), reg).unwrap();
 
@@ -284,7 +284,7 @@ fn dynamic_validator_checks_registry_at_construction() {
     bad_slug.insert("name".to_string(), graven_dynamic::Value::Str("blue pen".into()));
     bad_slug.insert("price".to_string(), graven_dynamic::Value::UInt(150));
     let inv = validator.validate(&graven_dynamic::Value::Table(bad_slug)).unwrap_err();
-    assert_eq!(inv.rule, graven::Rule::Check("slug"));
+    assert_eq!(inv.rule, graven::Rule::Check { name: "slug", reason: "space" });
 }
 
 #[test]

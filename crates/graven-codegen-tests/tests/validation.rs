@@ -4,12 +4,12 @@ use graven_codegen_tests::validation::{Checks, Promo, PromoVerified, PromoW, Sta
 struct AppChecks;
 
 impl Checks for AppChecks {
-    fn slug(&self, v: &str) -> bool {
-        !v.is_empty() && v.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
+    fn slug(&self, v: &str) -> Result<(), &'static str> {
+        if v.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-') { Ok(()) } else { Err("bad_char") }
     }
 
-    fn valid_period(&self, p: &PromoVerified<'_>) -> bool {
-        p.starts() < p.ends()
+    fn valid_period(&self, p: &PromoVerified<'_>) -> Result<(), &'static str> {
+        if p.starts() < p.ends() { Ok(()) } else { Err("ends_before_start") }
     }
 }
 
@@ -45,7 +45,7 @@ fn validate_reports_field_index_and_table_checks() {
             table: "Promo",
             field: Some("price"),
             index: None,
-            rule: Rule::Range,
+            rule: Rule::Range { min: Some("1"), max: Some("10000000") },
         })
     );
 
@@ -64,7 +64,7 @@ fn validate_reports_field_index_and_table_checks() {
             table: "Item",
             field: Some("sku"),
             index: Some(1),
-            rule: Rule::Check("slug"),
+            rule: Rule::Check { name: "slug", reason: "bad_char" },
         })
     );
 
@@ -95,10 +95,25 @@ fn validate_reports_field_index_and_table_checks() {
     assert_eq!(
         all,
         vec![
-            Invalid { table: "Promo", field: Some("price"), index: None, rule: Rule::Range },
-            Invalid { table: "Promo", field: Some("discount"), index: None, rule: Rule::Range },
+            Invalid {
+                table: "Promo",
+                field: Some("price"),
+                index: None,
+                rule: Rule::Range { min: Some("1"), max: Some("10000000") },
+            },
+            Invalid {
+                table: "Promo",
+                field: Some("discount"),
+                index: None,
+                rule: Rule::Range { min: Some("0.0"), max: Some("100.0") },
+            },
             Invalid { table: "Promo", field: Some("discount"), index: None, rule: Rule::Finite },
-            Invalid { table: "Promo", field: None, index: None, rule: Rule::Check("valid_period") },
+            Invalid {
+                table: "Promo",
+                field: None,
+                index: None,
+                rule: Rule::Check { name: "valid_period", reason: "ends_before_start" },
+            },
         ]
     );
 }

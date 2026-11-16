@@ -1,6 +1,7 @@
 # Graven RPC frame format v1: conformance vectors
 
 These files pin the behavior specified in [`docs/spec/graven-rpc-v1.md`](../../docs/spec/graven-rpc-v1.md).
+<!-- ANCHOR: body -->
 Every RPC frame decoder must read each `.bin` and obtain the result described in the matching `.json`.
 
 ## Valid frames
@@ -11,6 +12,10 @@ Every RPC frame decoder must read each `.bin` and obtain the result described in
 - `frame_item_union_unknown_tag`: `Item` (`kind = 4`) with an unknown union tag `99`.
 - `frame_end`: `End` (`kind = 5`) — 16 bytes, `variant = 0`, no body.
 - `frame_fault_invalid`: `Fault` (`kind = 6`) carrying `graven.rpc.Fault` (`code = Invalid` with `BrokenRule`).
+- `frame_fault_invalid_codes`: `Fault` (`kind = 6`) with `code = Invalid`, no `message`, and a
+  `BrokenRule` that sets every field, including `min`, `max` and `reason` (@4–@6). The
+  `.json` lists the decoded `BrokenRule` in `fault_broken`. Vectors frozen before
+  `fault_broken` existed leave it out, and their `BrokenRule` is not compared.
 - `frame_fault_future_code`: `Fault` (`kind = 6`) carrying an unknown future `FaultCode = 99`.
 - `frame_multi`: concatenated `Item` + `End` frames in one buffer.
 

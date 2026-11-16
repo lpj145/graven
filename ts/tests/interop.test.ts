@@ -200,7 +200,10 @@ describe("Rust <-> TypeScript RPC interop (Inventory)", () => {
           err.code === FaultCode.Invalid &&
           err.broken?.tableName === "ReserveReq" &&
           err.broken?.field === "qty" &&
-          err.broken?.rule === "range",
+          err.broken?.rule === "range" &&
+          err.broken?.min === "1" &&
+          err.broken?.max === "1000" &&
+          err.faultMessage === undefined,
       );
     } finally {
       await tx.close();

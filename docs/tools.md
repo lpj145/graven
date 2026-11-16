@@ -1,4 +1,4 @@
-# Tools
+# gravenc
 
 `gravenc` is the schema compiler and also the tool for working with Graven data by hand:
 looking inside files, converting to and from JSON, checking logs after a crash and
@@ -62,9 +62,9 @@ gravenc gen <schema> -o <dir> [--lang rust|js] [--side client|server|client,serv
 
 Writes `<dir>/<schema name>.rs`, the same code the `build.rs` API produces, plus the code of
 the schemas it imports. Most Rust projects use `build.rs` instead; see
-[getting started](getting-started.md). With `--lang js` it writes `<schema name>.js` and
+[Rust SDK](sdk/rust.md). With `--lang js` it writes `<schema name>.js` and
 `<schema name>.d.ts`, plus the runtime `graven.js` and `graven.d.ts`; see
-[JavaScript and TypeScript](javascript.md). `--side` adds the code of `service`
+[JS / TS SDK](sdk/js.md). `--side` adds the code of `service`
 declarations: a client, the server edge, or both (JavaScript has the client only).
 
 ## diff

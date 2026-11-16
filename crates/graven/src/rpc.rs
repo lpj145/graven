@@ -336,7 +336,14 @@ pub struct BrokenRule<'a> {
     pub table_name: &'a str,
     pub field: Option<&'a str>,
     pub index: Option<u32>,
+    /// `"range"`, `"len"`, `"finite"`, `"known"` or `"check(name)"`.
     pub rule: &'a str,
+    /// `range`/`len`: the declared lower bound, as a decimal number.
+    pub min: Option<&'a str>,
+    /// `range`/`len`: the declared upper bound, as a decimal number.
+    pub max: Option<&'a str>,
+    /// `check(name)`: the code the check returned.
+    pub reason: Option<&'a str>,
 }
 
 /// Protocol fault payload corresponding to `graven.rpc.Fault`.
@@ -348,7 +355,11 @@ pub struct Fault<'a> {
 }
 
 const FAULT_FIXED_LEN: u16 = 11;
-const BROKEN_RULE_FIXED_LEN: u16 = 17;
+/// Fixed part of `BrokenRule` up to `rule` (@3): the layout of the first RPC frames v1
+/// release, written when `min`, `max` and `reason` are absent so those bytes stay unchanged.
+const BROKEN_RULE_FIXED_LEN_V0: u16 = 17;
+/// Fixed part of `BrokenRule` with `min`, `max` and `reason` (@4–@6).
+const BROKEN_RULE_FIXED_LEN: u16 = 29;
 
 /// Zero-state buffer pool for one-shot message encoding under `no_std`.
 #[doc(hidden)]
@@ -392,8 +403,11 @@ pub fn decode_fault(payload: &[u8]) -> Result<Fault<'_>, Error> {
             let index = b.scalar::<u32>(9, Bit { byte: 8, shift: 0 })?;
             let rule = verify_and_read_str(&b, 13, &mut ctx)?
                 .ok_or(Error::Missing { field: "rule" })?;
+            let min = verify_and_read_str(&b, 17, &mut ctx)?;
+            let max = verify_and_read_str(&b, 21, &mut ctx)?;
+            let reason = verify_and_read_str(&b, 25, &mut ctx)?;
             ctx.leave();
-            Some(BrokenRule { table_name, field, index, rule })
+            Some(BrokenRule { table_name, field, index, rule, min, max, reason })
         }
         None => None,
     };
@@ -417,7 +431,9 @@ pub fn encode_fault_payload(fault: &Fault<'_>) -> Result<Vec<u8>, Error> {
             w.set_str(3, msg);
         }
         if let Some(br) = fault.broken {
-            let mut bw = w.table(7, BROKEN_RULE_FIXED_LEN);
+            let extended = br.min.is_some() || br.max.is_some() || br.reason.is_some();
+            let len = if extended { BROKEN_RULE_FIXED_LEN } else { BROKEN_RULE_FIXED_LEN_V0 };
+            let mut bw = w.table(7, len);
             bw.set_str(0, br.table_name);
             if let Some(f) = br.field {
                 bw.set_str(4, f);
@@ -426,6 +442,11 @@ pub fn encode_fault_payload(fault: &Fault<'_>) -> Result<Vec<u8>, Error> {
                 bw.set::<u32>(9, Bit { byte: 8, shift: 0 }, idx);
             }
             bw.set_str(13, br.rule);
+            for (off, v) in [(17, br.min), (21, br.max), (25, br.reason)] {
+                if let Some(v) = v {
+                    bw.set_str(off, v);
+                }
+            }
         }
     }
     Ok(b.finished()?.to_vec())
@@ -473,6 +494,9 @@ pub struct OwnedBrokenRule {
     pub field: Option<String>,
     pub index: Option<u32>,
     pub rule: String,
+    pub min: Option<String>,
+    pub max: Option<String>,
+    pub reason: Option<String>,
 }
 
 /// Owned copy of [`Fault`] for `'static` error values (such as [`CallError::Fault`]).
@@ -480,7 +504,7 @@ pub struct OwnedBrokenRule {
 pub struct OwnedFault {
     pub code: FaultCode,
     pub message: Option<String>,
-    pub broken: Option<OwnedBrokenRule>,
+    pub broken: Option<Box<OwnedBrokenRule>>,
 }
 
 impl Fault<'_> {
@@ -489,12 +513,15 @@ impl Fault<'_> {
         OwnedFault {
             code: self.code,
             message: self.message.map(ToString::to_string),
-            broken: self.broken.map(|b| OwnedBrokenRule {
+            broken: self.broken.map(|b| Box::new(OwnedBrokenRule {
                 table_name: b.table_name.to_string(),
                 field: b.field.map(ToString::to_string),
                 index: b.index,
                 rule: b.rule.to_string(),
-            }),
+                min: b.min.map(ToString::to_string),
+                max: b.max.map(ToString::to_string),
+                reason: b.reason.map(ToString::to_string),
+            })),
         }
     }
 }
@@ -510,6 +537,9 @@ impl OwnedFault {
                 field: b.field.as_deref(),
                 index: b.index,
                 rule: &b.rule,
+                min: b.min.as_deref(),
+                max: b.max.as_deref(),
+                reason: b.reason.as_deref(),
             }),
         }
     }
@@ -520,6 +550,21 @@ impl fmt::Display for OwnedFault {
         write!(f, "rpc fault {:?}", self.code)?;
         if let Some(msg) = &self.message {
             write!(f, ": {msg}")?;
+        }
+        if let Some(b) = &self.broken {
+            write!(f, ": {}", b.table_name)?;
+            if let Some(field) = &b.field {
+                write!(f, ".{field}")?;
+            }
+            if let Some(i) = b.index {
+                write!(f, "[{i}]")?;
+            }
+            write!(f, " breaks `{}`", b.rule)?;
+            for (k, v) in [("min", &b.min), ("max", &b.max), ("reason", &b.reason)] {
+                if let Some(v) = v {
+                    write!(f, " {k}={v}")?;
+                }
+            }
         }
         Ok(())
     }
@@ -684,13 +729,17 @@ impl Rejected {
                 one_way,
                 fault: Box::new(OwnedFault {
                     code: FaultCode::Invalid,
-                    message: Some(format!("{inv}")),
-                    broken: Some(OwnedBrokenRule {
+                    // Codes only: the caller turns them into text in its own language.
+                    message: None,
+                    broken: Some(Box::new(OwnedBrokenRule {
                         table_name: inv.table.to_string(),
                         field: inv.field.map(ToString::to_string),
                         index: inv.index,
                         rule: format_rule(inv.rule),
-                    }),
+                        min: inv.rule.bounds().0.map(ToString::to_string),
+                        max: inv.rule.bounds().1.map(ToString::to_string),
+                        reason: inv.rule.reason().map(ToString::to_string),
+                    })),
                 }),
             },
             ValidateError::Read(e) => Self::from_read_error(service_id, method, one_way, e),
@@ -1498,6 +1547,9 @@ mod tests {
                 field: Some("delta"),
                 index: Some(4),
                 rule: "range",
+                min: Some("-100"),
+                max: Some("100"),
+                reason: None,
             }),
         };
         let bytes = fault_frame_bytes(0x55, 3, &fault);

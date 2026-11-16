@@ -471,20 +471,12 @@ fn lock_rules(rules: &FieldRules, _ty: &Ty) -> Option<LockRules> {
     }
     Some(LockRules {
         range: rules.range.as_ref().map(|(min, max)| LockRange {
-            min: min.as_ref().map(range_bound_text),
-            max: max.as_ref().map(range_bound_text),
+            min: min.as_ref().map(RangeBound::text),
+            max: max.as_ref().map(RangeBound::text),
         }),
         len: rules.len.map(|(min, max)| LockLen { min, max }),
         finite: rules.finite,
         known: rules.known,
         checks: rules.checks.clone(),
     })
-}
-
-fn range_bound_text(b: &RangeBound) -> String {
-    match b {
-        RangeBound::Int(i) => i.to_string(),
-        RangeBound::UInt(u) => u.to_string(),
-        RangeBound::Float(x) => format!("{x:?}"),
-    }
 }

@@ -314,13 +314,16 @@ fn server_edge_rejections_and_validation_faults() {
         err,
         CallError::Fault(OwnedFault {
             code: FaultCode::Invalid,
-            message: Some("GetReq.sku: breaks rule `len`".to_owned()),
-            broken: Some(OwnedBrokenRule {
+            message: None,
+            broken: Some(Box::new(OwnedBrokenRule {
                 table_name: "GetReq".to_owned(),
                 field: Some("sku".to_owned()),
                 index: None,
                 rule: "len".to_owned(),
-            }),
+                min: Some("1".to_owned()),
+                max: Some("32".to_owned()),
+                reason: None,
+            })),
         })
     );
 

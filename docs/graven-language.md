@@ -1,9 +1,10 @@
 # The schema language (`.graven`)
 
-Reference for the language accepted by `gravenc` (crate `graven-compiler`) and for the Rust
-code it generates. The binary format is specified normatively in the
+Reference for the language accepted by `gravenc` (crate `graven-compiler`). It is the same
+for every language: what each [implementation](implementations.md) generates from a schema
+is on its own pages. The binary format is specified normatively in the
 [format specification](spec/graven-format-v1.md); this document explains how to write a
-schema, how to evolve it, and what the generator produces.
+schema and how to evolve it.
 
 ```graven
 namespace bank;
@@ -200,20 +201,19 @@ table Promo {
 | `len(min = a, max = b)` | `string`, `bytes`, `[T]` | byte length (`string`/`bytes`) or element count (`[T]`); either bound may be omitted |
 | `finite` | `f32`, `f64` | not NaN and not infinite |
 | `known` | enum fields and `[Enum]` | value is a variant declared in the reader's schema |
-| `check(name)` | any field or `table` | calls application-provided `Checks::name(&self, v) -> bool` |
+| `check(name)` | any field or `table` | calls the application's check `name` with the value (or the table view); fails when it returns a reason code |
 
-Validation never runs implicitly on `from_bytes` or `to_bytes` (so old data stays readable).
-When a schema declares rules, generated code provides `pub trait Checks`, `XVerified::validate(&checks)`
-(stops at the first failure, no allocation), `XVerified::validate_all(&checks)` (collects `Vec<Invalid>`),
-and `XW::to_bytes_validated(&mut b, &checks, |w| ...)`. Schemas without rules generate the exact same
-code as before.
+Validation never runs implicitly when a message is read or written, so old data stays
+readable. Each implementation runs it on request; see [Validation](validation.md).
 
 Any other attribute is an error.
 
 ## 6. Names
 
-Besides being unique in their scope, names must produce valid, collision-free Rust.
-`check` rejects (with `file:line:column`):
+Besides being unique in their scope, names must produce valid, collision-free code in the
+reference implementation (Rust), whatever language a project uses: a schema that one
+implementation cannot generate would split the ecosystem. `check` rejects (with
+`file:line:column`):
 
 - a **type name** (enum, struct, table, union) that does not start with an uppercase
   letter `A–Z` — this rules out keywords, Rust primitives (`str`, `usize`) and
@@ -227,7 +227,8 @@ Besides being unique in their scope, names must produce valid, collision-free Ru
 - any generated identifier repeated in the same scope:
   - **module** — for table `X`: `X`, `XVerified`, `XW`, `XE`, `XListW` (types and
     constructors), `mod x` (snake_case), `X_REQ`, `X_MASK`, `X_SCHEMA_ID` (UPPER_CASE of
-    the snake form); for union `U`: `U`, `UVerified`; and the reserved name `SCHEMA_ID`.
+    the snake form); for union `U`: `U`, `UVerified`, `UW`; for service `S`: `SCall`,
+    `SClient`, `S_SERVICE_ID`, `mod s_timeouts`; and the reserved name `SCHEMA_ID`.
     E.g. `HTTPServer` and `HttpServer` (both become `http_server`), `Foo` and `FooW`,
     `FOO` and `FOO_REQ`;
   - a table's **layout module** — `FIXED_LEN`, `PTR_SLOTS`, `FIELD` (offset of every
@@ -328,11 +329,15 @@ added to an existing field), and `check-added` (a new `check(name)` added to an 
 field or table). Since `required-relaxed` also requires confirmation, reserving in two
 steps (required → optional → reserved) does not escape the warning.
 
+**Services** have their own rules (`method-removed`, `method-id-reused`, `method-changed`,
+`service-removed` are errors; `method-retired` is a warning); see
+[Services](services.md#how-services-evolve).
+
 **Allowed**: a new optional or defaulted field (`new-optional`, `new-default`);
 reserving an optional or defaulted field; default → optional; renaming a field; a new
 enum or union variant; a new table.
 
-## 9. Workflow: `gravenc update` vs `build.rs`
+## 9. Workflow: `gravenc check`, `update` and `gen`
 
 The lock only changes through an explicit action; the build never writes it.
 
@@ -357,116 +362,47 @@ gravenc gen    <schema> -o <dir> [--lang rust|js] [--side client|server|client,s
   `v1.graven.lock`), keeping its `schema_id`s; the lock written is always
   `<schema>.lock` (if the current `<schema>.lock` is unreadable, it is treated as
   missing and overwritten).
-- `gen`: the same as `build.rs`, into a directory (created if missing). With
-  `--side client`, `--side server`, or `--side client,server`, also emits RPC code
-  for declared `service` items (`Build::client()` and `Build::server()` in `build.rs`). Without `--side`, `service` items produce no code.
-  `--lang js` writes JavaScript with TypeScript declarations instead of Rust; see
-  [JavaScript and TypeScript](javascript.md).
+- `gen`: generates the code of one [implementation](implementations.md) into a directory
+  (created if missing): `--lang rust` (the default, the same code as Rust's `build.rs`) or
+  `--lang js` (JavaScript with TypeScript declarations). `--side client`, `--side server` or
+  `--side client,server` adds the code of `service` declarations; without `--side`, services
+  produce no code.
 - `diff`, `inspect`, `to-json`, `from-json` and `scan` work with schemas and data files; see
-  [Tools](tools.md).
+  [gravenc](tools.md).
 - Diagnostics go to stderr: `file:line:column: message` (compatibility messages name the
   rule); a confirmed warning is printed as `file:line:column: warning: message` and does
   not fail. Exit codes: 0 ok, 1 error, 2 usage error.
 
-In the crate that uses the schema:
-
-```rust
-// build.rs
-fn main() {
-    graven_compiler::build::Build::new()
-        .schema("schemas/bank.graven")     // reads schemas/bank.graven.lock
-        .compile()                       // writes $OUT_DIR/bank.rs
-        .unwrap_or_else(|e| panic!("{e}"));
-}
-```
-
-`compile()` emits `cargo:rerun-if-changed` for the schema and the lock, and fails if:
-the lock does not exist (the message points to `gravenc update --init` or `--from`);
-regenerating the lock would change something (the schema was edited without
-`gravenc update`); compatibility has an error or an unconfirmed warning; the schema does
-not pass parse/check. Confirmed warnings become `cargo:warning`.
+In Rust, `build.rs` generates the code during the build and fails on the same conditions as
+`gravenc check --locked`; see [Rust SDK](sdk/rust.md).
 
 Typical cycle: create the `.graven` → `gravenc update --init` once; afterwards, edit the
-`.graven` → `gravenc update` (review the findings) → commit schema and lock →
-`cargo build`.
+`.graven` → `gravenc update` (review the findings) → commit schema and lock → build.
 
-## 10. Safety: generated code lives alone in its module
+## 10. Services
 
-**Include each generated file alone in its own module:**
-
-```rust
-#![deny(unsafe_code)]   // in the crate (generated code carries #[allow(unsafe_code)] where needed)
-
-pub mod bank {
-    include!(concat!(env!("OUT_DIR"), "/bank.rs"));
-    // nothing else here
-}
-```
-
-The view `XVerified<'a>` reads strings without revalidating UTF-8 (`str_unchecked`).
-That is sound because it is only constructed after `verify()` has passed. Its tuple
-field is private — but privacy in Rust is **per module**: *safe* code written in the
-same module as the `include!` could write `XVerified(X::read(buf)?)` without verifying
-and, given an invalid string, cause undefined behavior. Outside the module, that
-construction does not compile. The header of every generated file repeats this warning.
-
-When schemas import each other, include each generated file in a module named after the
-last segment of its namespace, side by side: the generated `orders` code refers to
-`super::common::Money`.
-
-```rust
-pub mod common { include!(concat!(env!("OUT_DIR"), "/common.rs")); }
-pub mod orders { include!(concat!(env!("OUT_DIR"), "/orders.rs")); }
-```
-
-## 11. Generated API (summary)
-
-For each **table** `X` (with a field `field`):
-
-- `mod x { FIXED_LEN, FIELD, FIELD_BIT, PTR_SLOTS }` — the layout (spec §3.3);
-- `X<'a>` — checked reader: `X::read(buf)`, accessors that validate on demand
-  (required scalar ⇒ value; optional ⇒ `Option`; pointer ⇒ `Result<…>`),
-  `verify(&mut VerifyCtx)`, `X::verified(buf)` / `X::verified_with(buf, ctx)` (read +
-  verify ⇒ view), `X::from_bytes(envelope)` (checks the `schema_id` and verifies),
-  `X::SCHEMA_ID`;
-- `XVerified<'a>` — verified view: the same accessors, without revalidating UTF-8;
-  `reader()` goes back to the reader;
-- `XW<'b>` — writer: `XW::root(&mut builder)`, `XW::to_bytes(&mut builder, |w| …)`
-  (an enveloped message), `XW::seal(…)` (envelope in a batch), chainable setters
-  (`w.id(1).ts(2)`), a table list with a count (`w.entries(n)`) or streaming
-  (`w.entries_streaming()`), a nested table (`w.child()`), a union by variant
-  (`w.choice_leaf()`);
-- `XE` (list element descriptor) and, for a table of scalars only, `XListW`;
-- at module level: `X_REQ` and `X_SCHEMA_ID`. There is no module-level `SCHEMA_ID`: the
-  "root" depends on who references whom and would silently change when a new table
-  referenced the old one; use `X::SCHEMA_ID`.
-
-**Enum** `E`: `enum E { …, Unknown(base) }` with `from_raw`/`to_raw`, `Default` (raw
-value 0) and `graven::Le`. **Struct** `S`: `struct S { pub fields }` (`Copy`, `Default`,
-`PartialEq`, and `Eq` when there are no floats) with `graven::Le`. **Union** `U`:
-`enum U<'a> { Variant(T<'a>), …, Unknown(u16) }` for the reader and
-`enum UVerified<'a>` for the view.
-
-## 12. Services (RPC)
-
-A `service` groups typed RPC methods over the binary framing protocol ([spec](spec/graven-rpc-v1.md)):
+A `service` declares operations: methods with an input, an output, typed errors, streamed
+replies, one-way calls and timeouts. [Services](services.md) explains them; the bytes are
+[RPC frames v1](spec/graven-rpc-v1.md).
 
 ```graven
 #[timeout(ms = 5000)]
 service Inventory {
-    #[timeout(ms = 500)]
-    get_item @1: (GetReq) -> Result<Item, ReserveErr>;
-    watch @2: (WatchReq) -> stream Event;
-    batch @3: (BatchReq) -> Result<stream BatchItem, BatchErr>;
-    audit @4: (AuditLog);
-    #[allow_breaking_readers]
-    @5: reserved;
+  #[timeout(ms = 500)]
+  get    @1: (GetProduct)   -> Result<Product, LookupError>;
+  list   @2: (ListProducts) -> stream Product;
+  adjust @3: (AdjustStock)  -> Result<StockChanged, StockError>;
+  ping   @4: (Ping);
+  @5: reserved;
 }
 ```
 
-- Method IDs (`@1..=@65535`) must be unique and never reused even after retiring via `@n: reserved;`.
-- Five shapes: unary (`(Req) -> Resp`), fallible unary (`Result<Resp, Err>`), streaming (`stream Item`), fallible streaming (`Result<stream Item, Err>`), and one-way (`(Req);`). Payload types (`Req`, `Resp`, `Item`, `Err`) must be local or imported **tables** or **unions**.
-- `#[timeout(ms = n)]` (`n >= 1`) sets a default timeout for a `service` or overrides it on a method; one-way methods do not accept `#[timeout]`.
-- Retiring a method with `@n: reserved;` is a warning (`method-retired`) confirmed with `#[allow_breaking_readers]` on the reserved line. Removing a method without reserving its ID (`method-removed`), reusing a reserved ID (`method-id-reused`), changing a method's input, output, error or shape (`method-changed`) and removing or renaming a service (`service-removed`) are errors. New methods and services, renamed methods and changed timeouts are allowed.
-- **Generated server API** (`--side server` / `Build::server()`): `<SERVICE>_SERVICE_ID`, `<service>_timeouts::<METHOD>_MS`, `<Service>Call<'a>` with `decode(frame)` (and `decode_validated(frame, checks)` when the schema declares validation rules, since `Checks` exists only then) returning `Reply<O, E>` / `StreamReply<O, E>` (or unit on one-way), plus `Rejected::to_frame()` (`None` on one-way calls).
-- **Generated client API** (`--side client` / `Build::client()`): `<Service>Client<T>` for any `T: graven::rpc::Sender` (the application's function that sends a call frame and returns the reply; `Sender::send_stream` may return a `ReplyStream` so stream items are read as they arrive), offering `<method>(f)` (using the declared default timeout) and `<method>_with_timeout(f, timeout_ms)`, returning `Response<T>` / `StreamResponse<T, _>` (read with `.next().await`) or `CallError<Response<E>, T::Error>`.
+- Method IDs (`@1..=@65535`) are unique in a service and never reused, even after a method is
+  retired with `@n: reserved;`.
+- Inputs, outputs and errors are local or imported **tables** or **unions**. `stream` appears
+  only in the output (`-> stream T`, `-> Result<stream T, E>`); `stream Result<T, E>` is
+  refused. A method without `->` is one-way.
+- `#[timeout(ms = n)]` (`n >= 1`) sets a default timeout for a `service` or overrides it on a
+  method; one-way methods do not accept it.
+- The compatibility rules for services are in [Services](services.md#how-services-evolve) and
+  in §8.

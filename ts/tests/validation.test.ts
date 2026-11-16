@@ -11,8 +11,8 @@ import {
 } from "./gen/validation.js";
 
 const appChecks: Checks = {
-  slug: (v) => v.length > 0 && /^[A-Za-z0-9-]+$/.test(v),
-  valid_period: (p) => p.starts() < p.ends(),
+  slug: (v) => /^[A-Za-z0-9-]*$/.test(v) || "bad_char",
+  valid_period: (p) => p.starts() < p.ends() || "ends_before_start",
 };
 
 describe("validation codegen (validation.ts)", () => {
@@ -35,7 +35,9 @@ describe("validation codegen (validation.ts)", () => {
         err.failure.table === "Promo" &&
         err.failure.field === "price" &&
         err.failure.index === undefined &&
-        err.failure.rule === "range",
+        err.failure.rule === "range" &&
+        err.failure.min === "1" &&
+        err.failure.max === "10000000",
     );
 
     // 2. Failure inside nested [Item] list records element index
@@ -53,7 +55,8 @@ describe("validation codegen (validation.ts)", () => {
         err.failure.table === "Item" &&
         err.failure.field === "sku" &&
         err.failure.index === 1 &&
-        err.failure.rule === "check(slug)",
+        err.failure.rule === "check(slug)" &&
+        err.failure.reason === "bad_char",
     );
 
     // 3. `known` on [Status] records element index
@@ -80,7 +83,8 @@ describe("validation codegen (validation.ts)", () => {
         err.failure.table === "Promo" &&
         err.failure.field === undefined &&
         err.failure.index === undefined &&
-        err.failure.rule === "check(valid_period)",
+        err.failure.rule === "check(valid_period)" &&
+        err.failure.reason === "ends_before_start",
     );
 
     // 5. #[len] on string measures UTF-8 bytes, not UTF-16 code units:
@@ -96,7 +100,7 @@ describe("validation codegen (validation.ts)", () => {
       valid_period: () => true,
     });
     assert.deepEqual(lenFailures, [
-      { table: "Item", field: "sku", index: 0, rule: "len" },
+      { table: "Item", field: "sku", index: 0, rule: "len", min: "1", max: "32" },
     ]);
   });
 
@@ -113,15 +117,15 @@ describe("validation codegen (validation.ts)", () => {
     });
     const failures = Promo.fromBytes(bytes).validateAll(appChecks);
     assert.deepEqual(failures, [
-      { table: "Promo", field: "price", rule: "range" },
-      { table: "Promo", field: "discount", rule: "range" },
+      { table: "Promo", field: "price", rule: "range", min: "1", max: "10000000" },
+      { table: "Promo", field: "discount", rule: "range", min: "0.0", max: "100.0" },
       { table: "Promo", field: "discount", rule: "finite" },
-      { table: "Promo", field: "tags", rule: "len" },
+      { table: "Promo", field: "tags", rule: "len", max: "5" },
       { table: "Promo", field: "statuses", index: 1, rule: "known" },
-      { table: "Item", field: "sku", index: 0, rule: "check(slug)" },
-      { table: "Item", field: "qty", index: 0, rule: "range" },
+      { table: "Item", field: "sku", index: 0, rule: "check(slug)", reason: "bad_char" },
+      { table: "Item", field: "qty", index: 0, rule: "range", min: "1", max: "100" },
       { table: "Item", field: "status", index: 0, rule: "known" },
-      { table: "Promo", rule: "check(valid_period)" },
+      { table: "Promo", rule: "check(valid_period)", reason: "ends_before_start" },
     ]);
 
     // Reading also validates with appChecks (and schemas without custom checks default `checks = {}`).

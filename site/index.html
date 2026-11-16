@@ -238,10 +238,17 @@ ledger.graven.lock: written</code></pre>
       <tbody>
         <tr>
           <th scope="row">Rust</th>
-          <td>Reference implementation. Passes all v1 vectors.</td>
+          <td>Reference implementation. Passes all v1 and RPC frame vectors.</td>
           <td>Runtime (<code>no_std</code>), the <code>gravenc</code> compiler with lockfile and compatibility
-            checks, Rust code generation, and the conformance interpreter.
-            <a href="api/graven/index.html">API reference</a></td>
+            checks, Rust code generation (client and server edge), and the conformance interpreter.
+            <a href="docs/sdk/rust.html">Rust SDK</a> · <a href="api/graven/index.html">API reference</a></td>
+        </tr>
+        <tr>
+          <th scope="row">JavaScript / TypeScript</th>
+          <td><code>gravenc gen --lang js</code>. Passes all v1 and RPC frame vectors.</td>
+          <td>Zero-dependency ES2022 <code>.js</code> modules with TypeScript <code>.d.ts</code> declarations,
+            canonical writers, validation, and RPC clients for browsers, Node, and Deno.
+            <a href="docs/sdk/js.html">JS / TS SDK</a></td>
         </tr>
       </tbody>
     </table>
@@ -308,7 +315,7 @@ println!("{}", tx.id());</code></pre>
     <nav aria-label="Footer">
       <a href="docs/spec/graven-format-v1.html">Specification</a>
       <a href="docs/graven-language.html">Schema language</a>
-      <a href="docs/tools.html">Tools</a>
+      <a href="docs/tools.html">gravenc</a>
       <a href="docs/conformance-vectors.html">Conformance vectors</a>
       <a href="api/graven/index.html">Rust API</a>
       <a href="docs/testing.html">Testing</a>

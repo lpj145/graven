@@ -3,11 +3,11 @@
 Graven is a language-neutral binary format, and its validation model is designed so
 every language agrees on the same rules without changing the wire format:
 
-- **Structural (`verify` / `from_bytes`):** checks buffer bounds, UTF-8, required fields, depth
-  and budget. Runs on read to guarantee memory safety.
-- **Value rules (`validate` / `validate_all` / `to_bytes_validated`):** checks domain rules
-  declared in the schema (`range`, `len`, `finite`, `known`, `check(name)`). **Never runs
-  automatically on read**, so old data written under looser rules stays readable.
+- **Structure (`verify`):** buffer bounds, UTF-8, required fields, depth and budget. It runs
+  when bytes are opened, because reading malformed bytes would be unsafe.
+- **Value rules (`validate`):** domain rules declared in the schema (`range`, `len`, `finite`,
+  `known`, `check(name)`). They **never run automatically on read**, so data written under
+  looser rules stays readable; a program runs them when it asks.
 
 ## 1. Built-in rules (portable across languages)
 
@@ -72,90 +72,128 @@ table Promo {
 - On a **table**, `check(name)` receives the verified table view.
 - A check name must always have the same input type across the schema.
 
-### In Rust (reference implementation)
+### In each language
 
-From `Promo`, `gravenc` generates a `Checks` trait in `mod shop`:
+The schema stays identical; each SDK turns `check(name)` into its native callback
+interface, backed by whatever library your project already uses:
 
-```rust
-// Generated in `mod shop` (do not write this yourself):
-pub trait Checks {
-    fn email(&self, v: &str) -> bool;
-    fn slug(&self, v: &str) -> bool;
-    fn valid_period(&self, v: &PromoVerified<'_>) -> bool;
-}
-```
-
-Implement `Checks` in your application (delegating to crates like `regex` or `validator`):
+<!-- tabs -->
+#### Rust
 
 ```rust
 use shop::{Checks, Promo, PromoVerified, PromoW};
 
 struct AppChecks;
 
+// Ok(()) accepts the value; Err(code) rejects it with a reason code.
 impl Checks for AppChecks {
-    fn email(&self, v: &str) -> bool {
-        v.contains('@') // or delegate to `validator::ValidateEmail`
+    fn email(&self, v: &str) -> Result<(), &'static str> {
+        if v.contains('@') { Ok(()) } else { Err("missing_at") }
     }
-
-    fn slug(&self, v: &str) -> bool {
-        !v.is_empty() && v.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
+    fn slug(&self, v: &str) -> Result<(), &'static str> {
+        if v.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-') { Ok(()) } else { Err("bad_char") }
     }
-
-    fn valid_period(&self, p: &PromoVerified<'_>) -> bool {
-        p.starts() < p.ends()
+    fn valid_period(&self, p: &PromoVerified<'_>) -> Result<(), &'static str> {
+        if p.starts() < p.ends() { Ok(()) } else { Err("ends_before_start") }
     }
 }
-```
 
-*(If a schema has only built-in rules, `Checks` is implemented for `()` so you can pass `&()`.)*
-
-### In other languages
-
-The schema stays identical. Any language generator maps `#[check(name)]` to its own
-interface or callback object — for example, in TypeScript (once a TypeScript generator
-exists), delegating to Zod:
-
-```ts
-const checks: shop.Checks = {
-  email: (v) => z.string().email().safeParse(v).success,
-  slug: (v) => /^[a-z0-9-]+$/.test(v),
-  valid_period: (p) => p.starts() < p.ends(),
-};
-```
-
-## 3. Running validation
-
-Validation runs only when asked:
-
-```rust
-// On write: builds, verifies structure, and runs `AppChecks` + built-in rules.
 let bytes = PromoW::to_bytes_validated(&mut builder, &AppChecks, |p| {
     p.name("summer-sale").contact("hi@example.com").starts(10).ends(20);
 })?;
 
-// On read: `from_bytes` checks structure only; call `validate` when needed.
 let view = Promo::from_bytes(&bytes)?;
-view.validate(&AppChecks)?;                  // stops at first failure (no allocation)
-let all = view.validate_all(&AppChecks)?;    // collects every failure
+view.validate(&AppChecks)?;               // stops at first failure
+let all = view.validate_all(&AppChecks)?; // collects every failure
 ```
 
-Every failure reports the table, optional field, optional list index (for `[Enum]` or `[Table]`),
-and the rule that failed (`Range`, `Len`, `Finite`, `Known`, or `Check("slug")`).
+*(Details: [Rust SDK validation](sdk/rust.md#validation).)*
 
-Schemas without any rules generate the exact same code as before.
+#### JavaScript / TypeScript
 
-## 4. Evolution (`graven.lock`)
+```ts
+import { z } from "zod";
+import type { Checks } from "./gen/shop.js";
+import { Promo, PromoW } from "./gen/shop.js";
 
-`graven.lock` records every field's rules and each table's `check`s:
+// `true` accepts the value; a string rejects it with that reason code.
+const checks: Checks = {
+  email: (v) => z.string().email().safeParse(v).success || "not_an_email",
+  slug: (v) => /^[a-z0-9-]+$/.test(v) || "bad_char",
+  valid_period: (p) => p.starts() < p.ends() || "ends_before_start",
+};
+
+const bytes = PromoW.toBytesValidated(
+  (p) => p.name("summer-sale").contact("hi@example.com").starts(10n).ends(20n),
+  checks,
+);
+
+const promo = Promo.fromBytes(bytes);
+promo.validate(checks);                // throws ValidationError at first failure
+const all = promo.validateAll(checks); // returns ValidationFailure[]
+```
+
+*(Details: [JS / TS SDK validation](sdk/js.md#validation).)*
+<!-- /tabs -->
+
+## 3. Running validation
+
+Validation runs only when asked, in every implementation:
+
+- **when writing**, a validated write builds the message, verifies it and runs the rules
+  before returning the bytes;
+- **when reading**, opening bytes checks structure only; the program calls `validate` (stop
+  at the first failure) or `validate_all` (collect every failure) when it needs the rules.
+
+Every failure reports:
+
+| | |
+|---|---|
+| table | where the rule is declared |
+| field | the field, or none for a table-level check |
+| index | the list position, when the value sits in a list (`[Enum]` or `[Table]`) |
+| rule | `range`, `len`, `finite`, `known` or `check(name)` |
+| min, max | for `range` and `len`: the bounds declared in the schema, as decimal numbers |
+| reason | for `check(name)`: the code the check returned |
+
+Services carry the same report in the `Invalid` fault
+([Services](services.md#errors-and-faults)).
+
+### Messages in the reader's language
+
+A failure carries codes, never text. The schema is the same in every language, and a server
+does not know who reads its reply, so neither of them writes messages. The program that shows
+the failure turns the codes into a message in its user's language, with the translation
+library it already uses:
+
+```ts
+// en.json: "rule.len": "Must be {{min}} to {{max}} characters long",
+//          "reason.missing_at": "Missing @"
+// pt.json: "rule.len": "Deve ter entre {{min}} e {{max}} caracteres",
+//          "reason.missing_at": "Falta o @"
+function message(f: ValidationFailure): string {
+  if (f.reason !== undefined) return i18n.t(`reason.${f.reason}`);
+  return i18n.t(`rule.${f.rule}`, { min: f.min, max: f.max });
+}
+```
+
+The same function serves a failure from `validate` and the `broken` part of an `Invalid`
+fault from a server.
+
+A schema without rules generates no validation code.
+
+## 4. Evolution
+
+The lockfile (`<schema>.graven.lock`) records every field's rules and each table's `check`s,
+and `gravenc update` checks how they change:
 
 - **Allowed:** rules on a new field or table; loosening a `range`/`len` bound; removing a rule or `check(name)`.
 - **Warning (`rule-tightened` / `check-added`):** tightening bounds, adding a rule to an
   existing field, or adding `check(name)` to an existing field or table. Confirm with
   `#[allow_breaking_readers]` on that field or table.
 
-## 5. Dynamic validation & `gravenc inspect`
+## 5. `gravenc inspect`
 
-- **`graven-dynamic`:** `Validator::new(root, schema, registry)` checks at construction time
-  that every reachable `check(name)` is registered in `CheckRegistry`.
-- **`gravenc inspect`:** checks built-in rules (`range`, `len`, `finite`, `known`) and
-  reports each `check(name)` as `not checked`.
+`gravenc inspect` checks the built-in rules (`range`, `len`, `finite`, `known`) of the
+messages it reads and reports each `check(name)` as `not checked`: named checks live in the
+application, not in the schema.

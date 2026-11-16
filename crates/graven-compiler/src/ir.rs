@@ -149,6 +149,17 @@ pub enum RangeBound {
     Float(f64),
 }
 
+impl RangeBound {
+    /// The bound as a decimal number, as the lockfile and validation failures write it.
+    pub fn text(&self) -> String {
+        match self {
+            RangeBound::Int(i) => i.to_string(),
+            RangeBound::UInt(u) => u.to_string(),
+            RangeBound::Float(x) => format!("{x:?}"),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct FieldRules {
     pub range: Option<(Option<RangeBound>, Option<RangeBound>)>,

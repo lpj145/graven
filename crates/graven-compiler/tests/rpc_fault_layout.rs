@@ -32,7 +32,15 @@ fn cases() -> Vec<(Fault<'static>, Value)> {
             Fault {
                 code: FaultCode::Invalid,
                 message: Some("Item.qty: breaks rule `range`"),
-                broken: Some(BrokenRule { table_name: "Item", field: Some("qty"), index: Some(3), rule: "range" }),
+                broken: Some(BrokenRule {
+                    table_name: "Item",
+                    field: Some("qty"),
+                    index: Some(3),
+                    rule: "range",
+                    min: Some("1"),
+                    max: Some("99"),
+                    reason: None,
+                }),
             },
             table(&[
                 ("code", Value::UInt(3)),
@@ -44,6 +52,8 @@ fn cases() -> Vec<(Fault<'static>, Value)> {
                         ("field", Value::Str("qty".into())),
                         ("index", Value::UInt(3)),
                         ("rule", Value::Str("range".into())),
+                        ("min", Value::Str("1".into())),
+                        ("max", Value::Str("99".into())),
                     ]),
                 ),
             ]),
@@ -52,13 +62,25 @@ fn cases() -> Vec<(Fault<'static>, Value)> {
             Fault {
                 code: FaultCode::Unknown(99),
                 message: None,
-                broken: Some(BrokenRule { table_name: "Promo", field: None, index: None, rule: "check(valid_period)" }),
+                broken: Some(BrokenRule {
+                    table_name: "Promo",
+                    field: None,
+                    index: None,
+                    rule: "check(valid_period)",
+                    min: None,
+                    max: None,
+                    reason: Some("ends_before_start"),
+                }),
             },
             table(&[
                 ("code", Value::UInt(99)),
                 (
                     "broken",
-                    table(&[("table_name", Value::Str("Promo".into())), ("rule", Value::Str("check(valid_period)".into()))]),
+                    table(&[
+                        ("table_name", Value::Str("Promo".into())),
+                        ("rule", Value::Str("check(valid_period)".into())),
+                        ("reason", Value::Str("ends_before_start".into())),
+                    ]),
                 ),
             ]),
         ),

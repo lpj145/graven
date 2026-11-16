@@ -31,9 +31,10 @@ code read each other's messages without guessing; changes that would break that 
 refused at build time, and [`gravenc diff`](tools.md#diff) shows the verdict of every
 change before it ships.
 
-**What would make it go further.** Implementations in the languages SDKs are written in,
-such as TypeScript, Python, Go, Java, Kotlin, Swift and C#. Each one is measured against
-the same 42 vectors, so "compatible" means the same thing everywhere.
+**What would make it go further.** Implementations in more of the languages SDKs are
+written in, such as Python, Go, Java, Kotlin, Swift and C#, next to the Rust and
+[JavaScript / TypeScript](implementations.md) ones. Each one is measured against the same 42
+vectors, so "compatible" means the same thing everywhere.
 
 ## Event streams and messaging
 
@@ -78,20 +79,17 @@ every response is parsed in full, numbers lose precision past 2^53, and nothing 
 newer server from sending a shape that an older tab, still open since yesterday, cannot
 read.
 
-**What already fits.** The browser already speaks binary: `fetch` returns an
-`ArrayBuffer`, and WebSocket and WebTransport carry binary frames. Graven is little-endian
-with no alignment, which is exactly what a `DataView` reads, so a client can read fields
-in place from the response. Because the format is fully specified, nothing about it
-depends on Rust. The compatibility rules cover the case JSON leaves to discipline: old
-tabs keep working while the server moves ahead. `verify` protects the client from a
-malformed response, and the schema id in the envelope says what arrived.
+**What already fits.** The [JavaScript implementation](sdk/js.md) runs in browsers, Node
+and Deno with no dependency: `gravenc gen --lang js` writes typed readers and writers, and
+reads fields in place from a `fetch` response. It passes the same 42 vectors as Rust. The
+compatibility rules cover the case JSON leaves to discipline: old tabs keep working while
+the server moves ahead. `verify` protects the client from a malformed response, and the
+schema id in the envelope says what arrived. A schema's [services](services.md) generate a
+typed client, so a page calls the server through one endpoint with typed inputs, outputs
+and errors.
 
-**What would make it go further.** A TypeScript implementation (runtime, `verify`,
-envelope) with a code generator that reads the lockfile and emits typed readers and
-writers, held to the same 42 vectors in the browser and in Node. A native implementation
-suits the browser better than the Rust runtime compiled to WebAssembly, where every field
-access would cross the JavaScript boundary and strings would be copied. A browser
-DevTools panel would show binary responses as readable data.
+**What would make it go further.** The server edge in JavaScript, for servers written in
+Node or Deno, and a browser DevTools panel that shows binary responses as readable data.
 
 **What to expect.** `JSON.parse` is highly optimized native code, so the gain is largest
 for large messages, or when only a few fields of a response are read. With gzip or brotli

@@ -1,6 +1,18 @@
 # Conformance vectors
 
-**Download:** [all v1 vectors (`.tar.gz`)](../graven-testvectors-v1.tar.gz). The files also live in
-`testvectors/v1/` in the repository.
+Two sets of frozen vectors define conformance: one for the format, one for the frames of
+services. Each is a directory of `.bin` files, each with a `.json` describing the expected
+result.
 
-{{#include ../testvectors/v1/README.md:body}}
+| Set | Pins | Download | In the repository |
+|---|---|---|---|
+| Format v1 | [format v1](spec/graven-format-v1.md): reading, verification, envelope | [`.tar.gz`](../graven-testvectors-v1.tar.gz) | `testvectors/v1/` |
+| RPC frames v1 | [RPC frames v1](spec/graven-rpc-v1.md): frame decoding and faults | [`.tar.gz`](../graven-testvectors-rpc-v1.tar.gz) | `testvectors/rpc-v1/` |
+
+## Format v1
+
+{{#include ../testvectors/v1/README.md:body:1}}
+
+## RPC frames v1
+
+{{#include ../testvectors/rpc-v1/README.md:body:1}}
