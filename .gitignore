@@ -11,3 +11,4 @@ node_modules/
 /ts/dist
 /ts/tests/gen
 /ts/out-runtime
+/ts/fuzz-crashes

@@ -1,16 +1,18 @@
-//! Graven RPC frame v1 encoder, decoder, and protocol fault helpers (`docs/spec/graven-rpc-v1.md`).
+//! Graven RPC frames v1: encoder, decoder and protocol fault helpers
+//! (`docs/spec/graven-rpc-v1.md`).
 //!
-//! Frame layout (16-byte little-endian header followed by a format v1 envelope, except `End`):
+//! A frame carries one format v1 message, with no envelope: the envelope is the container
+//! for messages at rest, a frame the container for messages in flight. Every frame starts
+//! with 7 bytes (little-endian); a `Call` adds the method and the service it is for:
 //!
 //! ```text
 //! offset  size  field
-//! 0       1     frame_version = 1
-//! 1       1     kind (1=Call, 2=Ok, 3=Err, 4=Item, 5=End, 6=Fault)
-//! 2       2     method (@n)
-//! 4       2     variant (union tag if body type is union, 0 otherwise)
-//! 6       2     reserved = 0
-//! 8       8     service_id
-//! 16      ...   body (one envelope, or empty for End)
+//! 0       1     version_kind  high 4 bits: frame version (1); low 4 bits: kind (1..=6)
+//! 1       2     variant       union tag of the message, 0 otherwise
+//! 3       4     len           message length (0 for End)
+//! 7       2     method        (Call only)
+//! 9       8     service_id    (Call only)
+//! 7 / 17  len   message
 //! ```
 
 use alloc::boxed::Box;
@@ -25,13 +27,17 @@ use core::iter::FusedIterator;
 use core::marker::PhantomData;
 use core::ops::Range;
 
-use crate::envelope::{self, schema_id};
+use crate::envelope::schema_id;
 use crate::{Bit, BufPool, Builder, Error, TableRef, ValidateError, VerifyCtx};
 
 /// RPC frame format version implemented by this module.
 pub const FRAME_VERSION: u8 = 1;
-/// Size of the fixed RPC frame header in bytes.
-pub const HEADER_LEN: usize = 16;
+/// Size of the header every frame starts with.
+pub const HEADER_LEN: usize = 7;
+/// Size of a `Call` frame's header (`HEADER_LEN` plus method and service id).
+pub const CALL_HEADER_LEN: usize = 17;
+/// Largest message a frame may carry.
+pub const MAX_MESSAGE_LEN: usize = i32::MAX as usize;
 
 /// Schema id of `graven.rpc.BrokenRule`.
 pub const BROKEN_RULE_SCHEMA_ID: u64 = schema_id("graven.rpc.BrokenRule");
@@ -51,7 +57,7 @@ pub enum FrameKind {
 }
 
 impl FrameKind {
-    /// Parses a wire `kind` byte (`1..=6`).
+    /// Parses a wire `kind` (`1..=6`).
     #[inline]
     pub const fn from_u8(v: u8) -> Option<Self> {
         match v {
@@ -70,6 +76,15 @@ impl FrameKind {
     pub const fn as_u8(self) -> u8 {
         self as u8
     }
+
+    /// Length of this kind's header: [`CALL_HEADER_LEN`] for `Call`, [`HEADER_LEN`] otherwise.
+    #[inline]
+    pub const fn header_len(self) -> usize {
+        match self {
+            FrameKind::Call => CALL_HEADER_LEN,
+            _ => HEADER_LEN,
+        }
+    }
 }
 
 impl TryFrom<u8> for FrameKind {
@@ -81,28 +96,41 @@ impl TryFrom<u8> for FrameKind {
     }
 }
 
-/// The 16-byte header at the start of every RPC frame.
+/// The header of an RPC frame. `method` and `service_id` are on the wire only for a `Call`;
+/// a reply belongs to the call it answers, and decodes them as `0`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct FrameHeader {
     pub kind: FrameKind,
-    pub method: u16,
     pub variant: u16,
+    pub method: u16,
     pub service_id: u64,
+}
+
+impl FrameHeader {
+    /// The header of a `Call` to `method` of service `service_id`.
+    #[inline]
+    pub const fn call(service_id: u64, method: u16, variant: u16) -> Self {
+        FrameHeader { kind: FrameKind::Call, variant, method, service_id }
+    }
+
+    /// The header of a reply frame (`Ok`, `Err`, `Item`, `End`, `Fault`).
+    #[inline]
+    pub const fn reply(kind: FrameKind, variant: u16) -> Self {
+        FrameHeader { kind, variant, method: 0, service_id: 0 }
+    }
 }
 
 /// A decoded RPC frame borrowed from the input buffer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Frame<'a> {
     pub header: FrameHeader,
-    /// Envelope `schema_id`, or `0` for `FrameKind::End`.
-    pub schema_id: u64,
-    /// Raw Graven message bytes inside the envelope, or empty for `FrameKind::End`.
+    /// The format v1 message the frame carries (empty for `End`), not yet verified.
     pub payload: &'a [u8],
     len: usize,
 }
 
 impl Frame<'_> {
-    /// Total bytes occupied by this frame in the input (`16` for `End`, or `16 + 24 + payload.len()`).
+    /// Total bytes occupied by this frame in the input (header plus message).
     #[allow(clippy::len_without_is_empty)]
     #[inline]
     pub fn len(&self) -> usize {
@@ -110,20 +138,18 @@ impl Frame<'_> {
     }
 }
 
-/// Failure modes when decoding an RPC frame header or its envelope body.
+/// Failure modes when decoding an RPC frame.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum FrameError {
     /// More input bytes are needed to finish the frame (`needed` is total bytes from frame start).
     Incomplete { needed: usize },
-    /// Frame `frame_version` byte is not `1`.
+    /// The frame version (high 4 bits of the first byte) is not `1`.
     UnsupportedFrameVersion(u8),
-    /// Frame `kind` byte is not in `1..=6`.
+    /// The frame kind (low 4 bits of the first byte) is not in `1..=6`.
     BadKind(u8),
-    /// Non-zero reserved bytes or non-zero `variant` on an `End` frame.
+    /// A length over `2^31 - 1`, or an `End` frame with a variant or a message.
     BadFrameHeader,
-    /// Failure while decoding the envelope body (`BadMagic`, `UnsupportedVersion`, `BadHeader`, `ChecksumMismatch`).
-    Envelope(Error),
 }
 
 impl fmt::Display for FrameError {
@@ -137,106 +163,88 @@ impl fmt::Display for FrameError {
             }
             FrameError::BadKind(k) => write!(f, "unknown rpc frame kind {k}"),
             FrameError::BadFrameHeader => f.write_str("malformed rpc frame header"),
-            FrameError::Envelope(e) => write!(f, "rpc frame body envelope error: {e}"),
         }
     }
 }
 
 impl core::error::Error for FrameError {}
 
-/// Serializes `header` into its 16-byte little-endian representation.
+/// Appends the header of a frame carrying a message of `len` bytes to `out`.
 #[inline]
-pub fn header_bytes(header: FrameHeader) -> [u8; HEADER_LEN] {
-    let mut h = [0u8; HEADER_LEN];
-    h[0] = FRAME_VERSION;
-    h[1] = header.kind.as_u8();
-    h[2..4].copy_from_slice(&header.method.to_le_bytes());
-    h[4..6].copy_from_slice(&header.variant.to_le_bytes());
-    // h[6..8] reserved = 0
-    h[8..16].copy_from_slice(&header.service_id.to_le_bytes());
-    h
+fn put_header(header: FrameHeader, len: u32, out: &mut BytesMut) {
+    out.put_u8((FRAME_VERSION << 4) | header.kind.as_u8());
+    out.put_u16_le(header.variant);
+    out.put_u32_le(len);
+    if header.kind == FrameKind::Call {
+        out.put_u16_le(header.method);
+        out.put_u64_le(header.service_id);
+    }
 }
 
 /// Decodes and validates a single RPC frame at the start of `buf`.
 ///
-/// Follows the normative check order in `docs/spec/graven-rpc-v1.md` §4:
-/// 1. `buf.len() < 16` -> `Incomplete { needed: 16 }`
-/// 2. `buf[0] != 1` -> `UnsupportedFrameVersion(buf[0])`
-/// 3. `buf[1]` not in `1..=6` -> `BadKind(buf[1])`
-/// 4. `reserved != 0` or `(kind == End && variant != 0)` -> `BadFrameHeader`
-/// 5. For `End`, returns immediately with `len = 16`. Otherwise decodes `&buf[16..]` as an envelope.
+/// Follows the normative check order of `docs/spec/graven-rpc-v1.md` §4:
+/// 1. `buf.len() < 7` -> `Incomplete { needed: 7 }`
+/// 2. version (`buf[0] >> 4`) `!= 1` -> `UnsupportedFrameVersion(version)`
+/// 3. kind (`buf[0] & 0x0f`) not in `1..=6` -> `BadKind(kind)`
+/// 4. `len > 2^31 - 1`, or `End` with `variant != 0` or `len != 0` -> `BadFrameHeader`
+/// 5. `buf.len() < header_len + len` -> `Incomplete { needed: header_len + len }`
 ///
-/// Trailing bytes after `frame.len()` belong to subsequent frames and are ignored.
+/// Trailing bytes after `frame.len()` belong to subsequent frames and are ignored. The
+/// message is returned as is: verifying it is the caller's job.
 pub fn decode_frame(buf: &[u8]) -> Result<Frame<'_>, FrameError> {
     if buf.len() < HEADER_LEN {
         return Err(FrameError::Incomplete { needed: HEADER_LEN });
     }
-    if buf[0] != FRAME_VERSION {
-        return Err(FrameError::UnsupportedFrameVersion(buf[0]));
+    let version = buf[0] >> 4;
+    if version != FRAME_VERSION {
+        return Err(FrameError::UnsupportedFrameVersion(version));
     }
-    let kind = FrameKind::from_u8(buf[1]).ok_or(FrameError::BadKind(buf[1]))?;
-    let method = u16::from_le_bytes(buf[2..4].try_into().unwrap());
-    let variant = u16::from_le_bytes(buf[4..6].try_into().unwrap());
-    let reserved = u16::from_le_bytes(buf[6..8].try_into().unwrap());
-    let service_id = u64::from_le_bytes(buf[8..16].try_into().unwrap());
-
-    if reserved != 0 || (kind == FrameKind::End && variant != 0) {
+    let kind_raw = buf[0] & 0x0f;
+    let kind = FrameKind::from_u8(kind_raw).ok_or(FrameError::BadKind(kind_raw))?;
+    let variant = u16::from_le_bytes([buf[1], buf[2]]);
+    let len = u32::from_le_bytes([buf[3], buf[4], buf[5], buf[6]]) as usize;
+    if len > MAX_MESSAGE_LEN || (kind == FrameKind::End && (variant != 0 || len != 0)) {
         return Err(FrameError::BadFrameHeader);
     }
-
-    let header = FrameHeader { kind, method, variant, service_id };
-    if kind == FrameKind::End {
-        return Ok(Frame { header, schema_id: 0, payload: &[], len: HEADER_LEN });
+    let h = kind.header_len();
+    let total = h + len;
+    if buf.len() < total {
+        return Err(FrameError::Incomplete { needed: total });
     }
-
-    match envelope::decode(&buf[HEADER_LEN..]) {
-        Ok(env) => Ok(Frame {
-            header,
-            schema_id: env.schema_id,
-            payload: env.payload,
-            len: HEADER_LEN + env.len(),
-        }),
-        Err(Error::Incomplete { needed }) => {
-            Err(FrameError::Incomplete { needed: HEADER_LEN.saturating_add(needed) })
-        }
-        Err(e) => Err(FrameError::Envelope(e)),
-    }
+    let (method, service_id) = if kind == FrameKind::Call {
+        (u16::from_le_bytes([buf[7], buf[8]]), u64::from_le_bytes(buf[9..17].try_into().unwrap()))
+    } else {
+        (0, 0)
+    };
+    Ok(Frame {
+        header: FrameHeader { kind, variant, method, service_id },
+        payload: &buf[h..total],
+        len: total,
+    })
 }
 
-/// Appends one RPC frame to `out`.
+/// Appends one RPC frame carrying `payload` (a format v1 message) to `out`.
 ///
 /// For `FrameKind::End`, `header.variant` must be `0` and `payload` must be empty, otherwise
 /// `Error::BadHeader` is returned and `out` is untouched.
-pub fn encode_frame(
-    header: FrameHeader,
-    schema_id: u64,
-    payload: &[u8],
-    out: &mut BytesMut,
-) -> Result<(), Error> {
-    if header.kind == FrameKind::End {
-        if header.variant != 0 || !payload.is_empty() {
-            return Err(Error::BadHeader);
-        }
-        out.put_slice(&header_bytes(header));
-        return Ok(());
+pub fn encode_frame(header: FrameHeader, payload: &[u8], out: &mut BytesMut) -> Result<(), Error> {
+    if header.kind == FrameKind::End && (header.variant != 0 || !payload.is_empty()) {
+        return Err(Error::BadHeader);
     }
-    if payload.len() as u64 > i32::MAX as u64 {
+    if payload.len() > MAX_MESSAGE_LEN {
         return Err(Error::TooLarge);
     }
-    out.reserve(HEADER_LEN + envelope::HEADER_LEN + payload.len() + envelope::TRAILER_LEN);
-    out.put_slice(&header_bytes(header));
-    envelope::encode(schema_id, payload, out)
+    out.reserve(header.kind.header_len() + payload.len());
+    put_header(header, payload.len() as u32, out);
+    out.put_slice(payload);
+    Ok(())
 }
 
-/// Appends an `End` frame (16 bytes, no body) to `out`.
+/// Appends an `End` frame (7 bytes, no message) to `out`.
 #[inline]
-pub fn encode_end(service_id: u64, method: u16, out: &mut BytesMut) {
-    out.put_slice(&header_bytes(FrameHeader {
-        kind: FrameKind::End,
-        method,
-        variant: 0,
-        service_id,
-    }));
+pub fn encode_end(out: &mut BytesMut) {
+    put_header(FrameHeader::reply(FrameKind::End, 0), 0, out);
 }
 
 /// Iterates over RPC frames concatenated in `buf`.
@@ -355,10 +363,6 @@ pub struct Fault<'a> {
 }
 
 const FAULT_FIXED_LEN: u16 = 11;
-/// Fixed part of `BrokenRule` up to `rule` (@3): the layout of the first RPC frames v1
-/// release, written when `min`, `max` and `reason` are absent so those bytes stay unchanged.
-const BROKEN_RULE_FIXED_LEN_V0: u16 = 17;
-/// Fixed part of `BrokenRule` with `min`, `max` and `reason` (@4–@6).
 const BROKEN_RULE_FIXED_LEN: u16 = 29;
 
 /// Zero-state buffer pool for one-shot message encoding under `no_std`.
@@ -431,9 +435,7 @@ pub fn encode_fault_payload(fault: &Fault<'_>) -> Result<Vec<u8>, Error> {
             w.set_str(3, msg);
         }
         if let Some(br) = fault.broken {
-            let extended = br.min.is_some() || br.max.is_some() || br.reason.is_some();
-            let len = if extended { BROKEN_RULE_FIXED_LEN } else { BROKEN_RULE_FIXED_LEN_V0 };
-            let mut bw = w.table(7, len);
+            let mut bw = w.table(7, BROKEN_RULE_FIXED_LEN);
             bw.set_str(0, br.table_name);
             if let Some(f) = br.field {
                 bw.set_str(4, f);
@@ -453,30 +455,15 @@ pub fn encode_fault_payload(fault: &Fault<'_>) -> Result<Vec<u8>, Error> {
 }
 
 /// Appends a `Fault` RPC frame encoding `fault` to `out`.
-pub fn encode_fault_frame(
-    service_id: u64,
-    method: u16,
-    fault: &Fault<'_>,
-    out: &mut BytesMut,
-) -> Result<(), Error> {
+pub fn encode_fault_frame(fault: &Fault<'_>, out: &mut BytesMut) -> Result<(), Error> {
     let payload = encode_fault_payload(fault)?;
-    encode_frame(
-        FrameHeader {
-            kind: FrameKind::Fault,
-            method,
-            variant: 0,
-            service_id,
-        },
-        FAULT_SCHEMA_ID,
-        &payload,
-        out,
-    )
+    encode_frame(FrameHeader::reply(FrameKind::Fault, 0), &payload, out)
 }
 
 /// Builds a complete `Fault` RPC frame as owned bytes.
-pub fn fault_frame_bytes(service_id: u64, method: u16, fault: &Fault<'_>) -> Vec<u8> {
+pub fn fault_frame_bytes(fault: &Fault<'_>) -> Vec<u8> {
     let mut out = BytesMut::new();
-    encode_fault_frame(service_id, method, fault, &mut out)
+    encode_fault_frame(fault, &mut out)
         .expect("fault payload always fits in i32::MAX bytes");
     out.to_vec()
 }
@@ -580,9 +567,6 @@ pub enum ProtocolError {
     Payload(Error),
     EmptyReply,
     UnexpectedKind(FrameKind),
-    ServiceMismatch { expected: u64, found: u64 },
-    MethodMismatch { expected: u16, found: u16 },
-    SchemaMismatch { expected: u64, found: u64 },
     MissingVariant,
     UnexpectedVariant(u16),
     TrailingBytes(usize),
@@ -598,15 +582,6 @@ impl fmt::Display for ProtocolError {
             ProtocolError::Payload(e) => write!(f, "payload decode error: {e}"),
             ProtocolError::EmptyReply => f.write_str("empty reply where a frame was expected"),
             ProtocolError::UnexpectedKind(k) => write!(f, "unexpected frame kind `{k:?}`"),
-            ProtocolError::ServiceMismatch { expected, found } => {
-                write!(f, "reply service_id mismatch: expected {expected:#018x}, found {found:#018x}")
-            }
-            ProtocolError::MethodMismatch { expected, found } => {
-                write!(f, "reply method mismatch: expected @{expected}, found @{found}")
-            }
-            ProtocolError::SchemaMismatch { expected, found } => {
-                write!(f, "reply schema_id mismatch: expected {expected:#018x}, found {found:#018x}")
-            }
             ProtocolError::MissingVariant => f.write_str("expected union variant in frame header (found 0)"),
             ProtocolError::UnexpectedVariant(v) => write!(f, "unexpected non-zero union variant {v} for table body"),
             ProtocolError::TrailingBytes(n) => write!(f, "unexpected {n} trailing byte(s) after terminal frame"),
@@ -680,18 +655,14 @@ impl<E: fmt::Debug, S: fmt::Debug + fmt::Display> core::error::Error for CallErr
 /// Server-side rejection when decoding or validating an incoming `Call` frame.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Rejected {
-    service_id: u64,
-    method: u16,
     one_way: bool,
     fault: Box<OwnedFault>,
 }
 
 impl Rejected {
     #[doc(hidden)]
-    pub fn malformed(service_id: u64, method: u16, one_way: bool, message: impl Into<String>) -> Self {
+    pub fn malformed(one_way: bool, message: impl Into<String>) -> Self {
         Rejected {
-            service_id,
-            method,
             one_way,
             fault: Box::new(OwnedFault {
                 code: FaultCode::Malformed,
@@ -702,10 +673,8 @@ impl Rejected {
     }
 
     #[doc(hidden)]
-    pub fn unsupported(service_id: u64, method: u16, message: impl Into<String>) -> Self {
+    pub fn unsupported(message: impl Into<String>) -> Self {
         Rejected {
-            service_id,
-            method,
             one_way: false,
             fault: Box::new(OwnedFault {
                 code: FaultCode::Unsupported,
@@ -716,16 +685,14 @@ impl Rejected {
     }
 
     #[doc(hidden)]
-    pub fn from_read_error(service_id: u64, method: u16, one_way: bool, err: crate::Error) -> Self {
-        Self::malformed(service_id, method, one_way, format!("{err}"))
+    pub fn from_read_error(one_way: bool, err: crate::Error) -> Self {
+        Self::malformed(one_way, format!("{err}"))
     }
 
     #[doc(hidden)]
-    pub fn from_validate_error(service_id: u64, method: u16, one_way: bool, err: ValidateError) -> Self {
+    pub fn from_validate_error(one_way: bool, err: ValidateError) -> Self {
         match err {
             ValidateError::Invalid(inv) => Rejected {
-                service_id,
-                method,
                 one_way,
                 fault: Box::new(OwnedFault {
                     code: FaultCode::Invalid,
@@ -742,30 +709,28 @@ impl Rejected {
                     })),
                 }),
             },
-            ValidateError::Read(e) => Self::from_read_error(service_id, method, one_way, e),
+            ValidateError::Read(e) => Self::from_read_error(one_way, e),
         }
     }
 
-    /// Best-effort `(service_id, method)` extracted from an incoming frame header when `buf` has 16 bytes
-    /// and `frame_version == 1`; `(0, 0)` otherwise.
+    /// A rejection of a frame that could not be decoded.
     #[doc(hidden)]
     pub fn from_frame_error(buf: &[u8], err: FrameError) -> Self {
         Self::from_frame_error_for(buf, err, 0, &[])
     }
 
     /// Like [`from_frame_error`](Self::from_frame_error), for the service `service_id` whose
-    /// one-way methods are `one_way`: a broken frame addressed to one of them gets no reply.
+    /// one-way methods are `one_way`: a broken `Call` whose header says it is for one of them
+    /// gets no reply.
     #[doc(hidden)]
     pub fn from_frame_error_for(buf: &[u8], err: FrameError, service_id: u64, one_way: &[u16]) -> Self {
-        let (sid, method) = if buf.len() >= HEADER_LEN && buf[0] == FRAME_VERSION {
-            let method = u16::from_le_bytes(buf[2..4].try_into().unwrap());
-            let sid = u64::from_le_bytes(buf[8..16].try_into().unwrap());
-            (sid, method)
-        } else {
-            (0, 0)
+        let is_call = buf.len() >= CALL_HEADER_LEN && buf[0] == (FRAME_VERSION << 4) | FrameKind::Call.as_u8();
+        let is_one_way = is_call && {
+            let method = u16::from_le_bytes([buf[7], buf[8]]);
+            let sid = u64::from_le_bytes(buf[9..17].try_into().unwrap());
+            sid == service_id && one_way.contains(&method)
         };
-        let is_one_way = sid == service_id && buf.get(1) == Some(&FrameKind::Call.as_u8()) && one_way.contains(&method);
-        Self::malformed(sid, method, is_one_way, format!("{err}"))
+        Self::malformed(is_one_way, format!("{err}"))
     }
 
     /// The `FaultCode` describing this rejection (`Malformed`, `Unsupported`, or `Invalid`).
@@ -779,7 +744,7 @@ impl Rejected {
             None
         } else {
             let f = self.fault.as_borrowed();
-            Some(fault_frame_bytes(self.service_id, self.method, &f))
+            Some(fault_frame_bytes(&f))
         }
     }
 }
@@ -798,7 +763,8 @@ pub trait RpcPayload {
     type Writer<'b>;
 
     #[doc(hidden)]
-    fn encode_with(f: impl FnOnce(&mut Self::Writer<'_>)) -> Result<(u16, u64, Vec<u8>), Error>;
+    /// Writes the message; returns its union variant (`0` for a table) and its bytes.
+    fn encode_with(f: impl FnOnce(&mut Self::Writer<'_>)) -> Result<(u16, Vec<u8>), Error>;
 }
 
 /// Trait implemented by generated message/union types (`T<'static>` / `U<'static>`) for verified
@@ -807,24 +773,30 @@ pub trait RpcView {
     type View<'a>;
 
     #[doc(hidden)]
-    fn verify_payload(variant: u16, schema_id: u64, payload: &[u8]) -> Result<(), ProtocolError>;
+    fn verify_payload(variant: u16, payload: &[u8]) -> Result<(), ProtocolError>;
 
     #[doc(hidden)]
     fn view_verified(variant: u16, payload: &[u8]) -> Self::View<'_>;
 }
 
+/// Encodes one reply frame of `kind` carrying the message `O` writes.
+fn reply_frame<O: RpcPayload>(kind: FrameKind, f: impl FnOnce(&mut O::Writer<'_>)) -> Vec<u8> {
+    let (variant, payload) = O::encode_with(f).expect("rpc reply fits in i32::MAX");
+    let mut out = BytesMut::with_capacity(HEADER_LEN + payload.len());
+    encode_frame(FrameHeader::reply(kind, variant), &payload, &mut out).expect("rpc reply fits in i32::MAX");
+    out.to_vec()
+}
+
 /// Typed reply builder for a unary method on the server edge.
 pub struct Reply<O, E = ()> {
-    service_id: u64,
-    method: u16,
     _marker: PhantomData<fn() -> (O, E)>,
 }
 
 impl<O, E> Reply<O, E> {
     #[doc(hidden)]
     #[inline]
-    pub fn new(service_id: u64, method: u16) -> Self {
-        Reply { service_id, method, _marker: PhantomData }
+    pub fn new() -> Self {
+        Reply { _marker: PhantomData }
     }
 
     /// Encodes an `Ok` frame using the method's declared output type `O`.
@@ -832,21 +804,7 @@ impl<O, E> Reply<O, E> {
     where
         O: RpcPayload,
     {
-        let (variant, schema_id, payload) = O::encode_with(f).expect("rpc reply fits in i32::MAX");
-        let mut out = BytesMut::new();
-        encode_frame(
-            FrameHeader {
-                kind: FrameKind::Ok,
-                method: self.method,
-                variant,
-                service_id: self.service_id,
-            },
-            schema_id,
-            &payload,
-            &mut out,
-        )
-        .expect("rpc ok frame fits in i32::MAX");
-        out.to_vec()
+        reply_frame::<O>(FrameKind::Ok, f)
     }
 
     /// Encodes an `Err` frame using the method's declared error type `E`.
@@ -855,37 +813,17 @@ impl<O, E> Reply<O, E> {
     where
         E: RpcPayload,
     {
-        let (variant, schema_id, payload) = E::encode_with(f).expect("rpc err fits in i32::MAX");
-        let mut out = BytesMut::new();
-        encode_frame(
-            FrameHeader {
-                kind: FrameKind::Err,
-                method: self.method,
-                variant,
-                service_id: self.service_id,
-            },
-            schema_id,
-            &payload,
-            &mut out,
-        )
-        .expect("rpc err frame fits in i32::MAX");
-        out.to_vec()
+        reply_frame::<E>(FrameKind::Err, f)
     }
 
     /// Encodes a `Fault` frame for this call.
     pub fn fault(self, code: FaultCode, message: Option<&str>) -> Vec<u8> {
-        fault_frame_bytes(
-            self.service_id,
-            self.method,
-            &Fault { code, message, broken: None },
-        )
+        fault_frame_bytes(&Fault { code, message, broken: None })
     }
 }
 
 /// Typed reply builder for a streaming method on the server edge.
 pub struct StreamReply<O, E = ()> {
-    service_id: u64,
-    method: u16,
     sent_item: bool,
     _marker: PhantomData<fn() -> (O, E)>,
 }
@@ -893,8 +831,8 @@ pub struct StreamReply<O, E = ()> {
 impl<O, E> StreamReply<O, E> {
     #[doc(hidden)]
     #[inline]
-    pub fn new(service_id: u64, method: u16) -> Self {
-        StreamReply { service_id, method, sent_item: false, _marker: PhantomData }
+    pub fn new() -> Self {
+        StreamReply { sent_item: false, _marker: PhantomData }
     }
 
     /// Encodes one `Item` frame using the method's declared item type `O`.
@@ -903,27 +841,13 @@ impl<O, E> StreamReply<O, E> {
         O: RpcPayload,
     {
         self.sent_item = true;
-        let (variant, schema_id, payload) = O::encode_with(f).expect("rpc item fits in i32::MAX");
-        let mut out = BytesMut::new();
-        encode_frame(
-            FrameHeader {
-                kind: FrameKind::Item,
-                method: self.method,
-                variant,
-                service_id: self.service_id,
-            },
-            schema_id,
-            &payload,
-            &mut out,
-        )
-        .expect("rpc item frame fits in i32::MAX");
-        out.to_vec()
+        reply_frame::<O>(FrameKind::Item, f)
     }
 
-    /// Encodes the terminating `End` frame (16 bytes).
+    /// Encodes the terminating `End` frame (7 bytes).
     pub fn end(self) -> Vec<u8> {
         let mut out = BytesMut::with_capacity(HEADER_LEN);
-        encode_end(self.service_id, self.method, &mut out);
+        encode_end(&mut out);
         out.to_vec()
     }
 
@@ -936,30 +860,12 @@ impl<O, E> StreamReply<O, E> {
         E: RpcPayload,
     {
         assert!(!self.sent_item, "StreamReply::err cannot be called after an Item was sent");
-        let (variant, schema_id, payload) = E::encode_with(f).expect("rpc stream err fits in i32::MAX");
-        let mut out = BytesMut::new();
-        encode_frame(
-            FrameHeader {
-                kind: FrameKind::Err,
-                method: self.method,
-                variant,
-                service_id: self.service_id,
-            },
-            schema_id,
-            &payload,
-            &mut out,
-        )
-        .expect("rpc stream err frame fits in i32::MAX");
-        out.to_vec()
+        reply_frame::<E>(FrameKind::Err, f)
     }
 
     /// Encodes a terminating `Fault` frame for this call.
     pub fn fault(self, code: FaultCode, message: Option<&str>) -> Vec<u8> {
-        fault_frame_bytes(
-            self.service_id,
-            self.method,
-            &Fault { code, message, broken: None },
-        )
+        fault_frame_bytes(&Fault { code, message, broken: None })
     }
 }
 
@@ -1086,13 +992,12 @@ impl<T: Sender + ?Sized> Sender for &T {
 struct RawFrame {
     bytes: Bytes,
     header: FrameHeader,
-    schema_id: u64,
     payload_len: usize,
 }
 
 impl RawFrame {
     fn payload_range(&self) -> Range<usize> {
-        let start = HEADER_LEN + envelope::HEADER_LEN;
+        let start = self.header.kind.header_len();
         start..start + self.payload_len
     }
 
@@ -1101,22 +1006,16 @@ impl RawFrame {
     }
 
     fn fault(&self) -> StreamError<core::convert::Infallible> {
-        match decode_verified_fault(self.header.variant, self.schema_id, self.payload()) {
+        match decode_verified_fault(self.header.variant, self.payload()) {
             Ok(flt) => StreamError::Fault(flt),
             Err(p) => StreamError::Protocol(p),
         }
     }
 }
 
-fn decode_verified_fault(variant: u16, schema_id: u64, payload: &[u8]) -> Result<OwnedFault, ProtocolError> {
+fn decode_verified_fault(variant: u16, payload: &[u8]) -> Result<OwnedFault, ProtocolError> {
     if variant != 0 {
         return Err(ProtocolError::UnexpectedVariant(variant));
-    }
-    if schema_id != FAULT_SCHEMA_ID {
-        return Err(ProtocolError::SchemaMismatch {
-            expected: FAULT_SCHEMA_ID,
-            found: schema_id,
-        });
     }
     decode_fault(payload).map(|flt| flt.to_owned()).map_err(ProtocolError::Payload)
 }
@@ -1135,8 +1034,6 @@ pub struct StreamResponse<T, R> {
     buf: BytesMut,
     src_done: bool,
     pending: Option<RawFrame>,
-    service_id: u64,
-    method: u16,
     done: bool,
     _marker: PhantomData<fn() -> T>,
 }
@@ -1164,13 +1061,10 @@ impl<T: RpcView, R: ReplyStream> StreamResponse<T, R> {
                 Err(e) => return Some(Err(e)),
             },
         };
-        if let Err(e) = self.check_call(&frame) {
-            return Some(Err(e));
-        }
         match frame.header.kind {
             FrameKind::Item => {
                 let variant = frame.header.variant;
-                if let Err(e) = T::verify_payload(variant, frame.schema_id, frame.payload()) {
+                if let Err(e) = T::verify_payload(variant, frame.payload()) {
                     return Some(Err(StreamError::Protocol(e)));
                 }
                 let range = frame.payload_range();
@@ -1189,9 +1083,9 @@ impl<T: RpcView, R: ReplyStream> StreamResponse<T, R> {
             if !self.buf.is_empty() {
                 match decode_frame(&self.buf) {
                     Ok(f) => {
-                        let (header, schema_id, payload_len, len) = (f.header, f.schema_id, f.payload.len(), f.len());
+                        let (header, payload_len, len) = (f.header, f.payload.len(), f.len());
                         let bytes = self.buf.split_to(len).freeze();
-                        return Ok(Some(RawFrame { bytes, header, schema_id, payload_len }));
+                        return Ok(Some(RawFrame { bytes, header, payload_len }));
                     }
                     Err(FrameError::Incomplete { .. }) if !self.src_done => {}
                     Err(FrameError::Incomplete { .. }) => {
@@ -1210,22 +1104,6 @@ impl<T: RpcView, R: ReplyStream> StreamResponse<T, R> {
         }
     }
 
-    fn check_call(&self, frame: &RawFrame) -> Result<(), StreamError<R::Error>> {
-        if frame.header.service_id != self.service_id {
-            return Err(StreamError::Protocol(ProtocolError::ServiceMismatch {
-                expected: self.service_id,
-                found: frame.header.service_id,
-            }));
-        }
-        if frame.header.method != self.method {
-            return Err(StreamError::Protocol(ProtocolError::MethodMismatch {
-                expected: self.method,
-                found: frame.header.method,
-            }));
-        }
-        Ok(())
-    }
-
     /// After a final frame, nothing else may already be buffered. The source is not read
     /// further: a reply that stays open after its last frame is the application's concern.
     fn check_last(&self) -> Result<(), StreamError<R::Error>> {
@@ -1238,14 +1116,12 @@ impl<T: RpcView, R: ReplyStream> StreamResponse<T, R> {
 
     /// Reads the first frame. A stream (`Item` or `End`) is kept for [`next`](Self::next); an
     /// `Err` frame is returned to the caller; a `Fault` becomes the error.
-    async fn open(src: R, service_id: u64, method: u16) -> Result<(Self, Option<RawFrame>), StreamError<R::Error>> {
+    async fn open(src: R) -> Result<(Self, Option<RawFrame>), StreamError<R::Error>> {
         let mut s = StreamResponse {
             src,
             buf: BytesMut::new(),
             src_done: false,
             pending: None,
-            service_id,
-            method,
             done: false,
             _marker: PhantomData,
         };
@@ -1253,7 +1129,6 @@ impl<T: RpcView, R: ReplyStream> StreamResponse<T, R> {
             Some(f) => f,
             None => return Err(StreamError::Protocol(ProtocolError::EmptyReply)),
         };
-        s.check_call(&frame)?;
         match frame.header.kind {
             FrameKind::Item | FrameKind::End => {
                 s.pending = Some(frame);
@@ -1279,19 +1154,14 @@ pub fn encode_call_frame<I: RpcPayload>(
     method: u16,
     f: impl FnOnce(&mut I::Writer<'_>),
 ) -> Vec<u8> {
-    let (variant, schema_id, payload) = I::encode_with(f).expect("rpc call fits in i32::MAX");
-    let mut out = BytesMut::new();
-    encode_frame(
-        FrameHeader { kind: FrameKind::Call, method, variant, service_id },
-        schema_id,
-        &payload,
-        &mut out,
-    )
-    .expect("rpc call frame fits in i32::MAX");
+    let (variant, payload) = I::encode_with(f).expect("rpc call fits in i32::MAX");
+    let mut out = BytesMut::with_capacity(CALL_HEADER_LEN + payload.len());
+    encode_frame(FrameHeader::call(service_id, method, variant), &payload, &mut out)
+        .expect("rpc call frame fits in i32::MAX");
     out.to_vec()
 }
 
-fn check_terminal_header<E, S>(bytes: &[u8], expected_service: u64, expected_method: u16) -> Result<Frame<'_>, CallError<E, S>> {
+fn check_terminal_header<E, S>(bytes: &[u8]) -> Result<Frame<'_>, CallError<E, S>> {
     if bytes.is_empty() {
         return Err(CallError::Protocol(ProtocolError::EmptyReply));
     }
@@ -1299,23 +1169,11 @@ fn check_terminal_header<E, S>(bytes: &[u8], expected_service: u64, expected_met
     if frame.len() != bytes.len() {
         return Err(CallError::Protocol(ProtocolError::TrailingBytes(bytes.len() - frame.len())));
     }
-    if frame.header.service_id != expected_service {
-        return Err(CallError::Protocol(ProtocolError::ServiceMismatch {
-            expected: expected_service,
-            found: frame.header.service_id,
-        }));
-    }
-    if frame.header.method != expected_method {
-        return Err(CallError::Protocol(ProtocolError::MethodMismatch {
-            expected: expected_method,
-            found: frame.header.method,
-        }));
-    }
     Ok(frame)
 }
 
 fn decode_fault_from_frame<E, S>(frame: &Frame<'_>) -> CallError<E, S> {
-    match decode_verified_fault(frame.header.variant, frame.schema_id, frame.payload) {
+    match decode_verified_fault(frame.header.variant, frame.payload) {
         Ok(flt) => CallError::Fault(flt),
         Err(p) => CallError::Protocol(p),
     }
@@ -1323,28 +1181,23 @@ fn decode_fault_from_frame<E, S>(frame: &Frame<'_>) -> CallError<E, S> {
 
 /// Helper used by generated clients to decode a `Result<T, E>` unary reply.
 #[doc(hidden)]
-pub fn decode_unary<T: RpcView, E: RpcView, S>(
-    service_id: u64,
-    method: u16,
-    bytes: Vec<u8>,
-) -> Result<Response<T>, CallError<Response<E>, S>> {
+pub fn decode_unary<T: RpcView, E: RpcView, S>(bytes: Vec<u8>) -> Result<Response<T>, CallError<Response<E>, S>> {
     let bytes = Bytes::from(bytes);
     let payload_range;
     let variant;
     let is_err;
     {
-        let frame = check_terminal_header(&bytes, service_id, method)?;
-        let len = frame.payload.len();
-        let start = HEADER_LEN + envelope::HEADER_LEN;
-        payload_range = start..start + len;
+        let frame = check_terminal_header(&bytes)?;
+        let start = frame.header.kind.header_len();
+        payload_range = start..start + frame.payload.len();
         variant = frame.header.variant;
         match frame.header.kind {
             FrameKind::Ok => {
-                T::verify_payload(variant, frame.schema_id, frame.payload).map_err(CallError::Protocol)?;
+                T::verify_payload(variant, frame.payload).map_err(CallError::Protocol)?;
                 is_err = false;
             }
             FrameKind::Err => {
-                E::verify_payload(variant, frame.schema_id, frame.payload).map_err(CallError::Protocol)?;
+                E::verify_payload(variant, frame.payload).map_err(CallError::Protocol)?;
                 is_err = true;
             }
             FrameKind::Fault => return Err(decode_fault_from_frame(&frame)),
@@ -1357,23 +1210,18 @@ pub fn decode_unary<T: RpcView, E: RpcView, S>(
 
 /// Helper used by generated clients to decode an infallible (`-> T`) unary reply.
 #[doc(hidden)]
-pub fn decode_unary_ok<T: RpcView, S>(
-    service_id: u64,
-    method: u16,
-    bytes: Vec<u8>,
-) -> Result<Response<T>, CallError<(), S>> {
+pub fn decode_unary_ok<T: RpcView, S>(bytes: Vec<u8>) -> Result<Response<T>, CallError<(), S>> {
     let bytes = Bytes::from(bytes);
     let payload_range;
     let variant;
     {
-        let frame = check_terminal_header(&bytes, service_id, method)?;
-        let len = frame.payload.len();
-        let start = HEADER_LEN + envelope::HEADER_LEN;
-        payload_range = start..start + len;
+        let frame = check_terminal_header(&bytes)?;
+        let start = frame.header.kind.header_len();
+        payload_range = start..start + frame.payload.len();
         variant = frame.header.variant;
         match frame.header.kind {
             FrameKind::Ok => {
-                T::verify_payload(variant, frame.schema_id, frame.payload).map_err(CallError::Protocol)?;
+                T::verify_payload(variant, frame.payload).map_err(CallError::Protocol)?;
             }
             FrameKind::Fault => return Err(decode_fault_from_frame(&frame)),
             other => return Err(CallError::Protocol(ProtocolError::UnexpectedKind(other))),
@@ -1385,15 +1233,13 @@ pub fn decode_unary_ok<T: RpcView, S>(
 /// Helper used by generated clients to start reading a `Result<stream T, E>` reply.
 #[doc(hidden)]
 pub async fn decode_stream_start<T: RpcView, E: RpcView, R: ReplyStream>(
-    service_id: u64,
-    method: u16,
     src: R,
 ) -> Result<StreamResponse<T, R>, CallError<Response<E>, R::Error>> {
-    let (stream, err) = StreamResponse::open(src, service_id, method).await?;
+    let (stream, err) = StreamResponse::open(src).await?;
     match err {
         None => Ok(stream),
         Some(frame) => {
-            E::verify_payload(frame.header.variant, frame.schema_id, frame.payload()).map_err(CallError::Protocol)?;
+            E::verify_payload(frame.header.variant, frame.payload()).map_err(CallError::Protocol)?;
             let range = frame.payload_range();
             Err(CallError::Err(Response::from_bytes_slice(frame.bytes, range, frame.header.variant)))
         }
@@ -1402,12 +1248,8 @@ pub async fn decode_stream_start<T: RpcView, E: RpcView, R: ReplyStream>(
 
 /// Helper used by generated clients to start reading a `-> stream T` reply.
 #[doc(hidden)]
-pub async fn decode_stream_ok<T: RpcView, R: ReplyStream>(
-    service_id: u64,
-    method: u16,
-    src: R,
-) -> Result<StreamResponse<T, R>, CallError<(), R::Error>> {
-    match StreamResponse::open(src, service_id, method).await? {
+pub async fn decode_stream_ok<T: RpcView, R: ReplyStream>(src: R) -> Result<StreamResponse<T, R>, CallError<(), R::Error>> {
+    match StreamResponse::open(src).await? {
         (stream, None) => Ok(stream),
         (_, Some(_)) => Err(CallError::Protocol(ProtocolError::UnexpectedKind(FrameKind::Err))),
     }
@@ -1428,108 +1270,90 @@ mod tests {
     use super::*;
     use alloc::vec;
 
+    const SID: u64 = 0x1122_3344_5566_7788;
+
     fn sample_call_frame() -> BytesMut {
         let mut out = BytesMut::new();
-        encode_frame(
-            FrameHeader {
-                kind: FrameKind::Call,
-                method: 3,
-                variant: 0,
-                service_id: 0x1122_3344_5566_7788,
-            },
-            0xdead_beef_cafe_babe,
-            b"hello",
-            &mut out,
-        )
-        .unwrap();
+        encode_frame(FrameHeader::call(SID, 3, 0), b"hello", &mut out).unwrap();
         out
+    }
+
+    #[test]
+    fn call_frame_layout() {
+        let f = sample_call_frame();
+        assert_eq!(f.len(), CALL_HEADER_LEN + 5);
+        assert_eq!(f[0], 0x11); // version 1, kind Call
+        assert_eq!(&f[1..3], &[0, 0]); // variant
+        assert_eq!(&f[3..7], &[5, 0, 0, 0]); // len
+        assert_eq!(&f[7..9], &[3, 0]); // method
+        assert_eq!(&f[9..17], &SID.to_le_bytes());
+        assert_eq!(&f[17..], b"hello");
+        let d = decode_frame(&f).unwrap();
+        assert_eq!(d.header, FrameHeader::call(SID, 3, 0));
+        assert_eq!(d.payload, b"hello");
+        assert_eq!(d.len(), f.len());
     }
 
     #[test]
     fn decode_check_order_normative() {
         let valid = sample_call_frame();
 
-        // 1. Input shorter than 16 -> Incomplete { needed: 16 } even if byte 0/1 look bad.
-        for len in 0..16 {
-            let mut short = vec![99u8; len];
-            if len >= 2 {
-                short[1] = 200;
-            }
-            assert_eq!(decode_frame(&short), Err(FrameError::Incomplete { needed: 16 }));
+        // 1. Input shorter than 7 -> Incomplete { needed: 7 }, whatever its bytes.
+        for len in 0..HEADER_LEN {
+            let short = vec![0xffu8; len];
+            assert_eq!(decode_frame(&short), Err(FrameError::Incomplete { needed: HEADER_LEN }));
         }
 
-        // 2. Bad frame_version takes priority over bad kind and reserved.
+        // 2. A bad version takes priority over a bad kind and a bad length.
         let mut bad_ver = valid.clone();
-        bad_ver[0] = 2;
-        bad_ver[1] = 99;
-        bad_ver[6] = 1;
+        bad_ver[0] = 0x20;
+        bad_ver[6] = 0xff;
         assert_eq!(decode_frame(&bad_ver), Err(FrameError::UnsupportedFrameVersion(2)));
+        let mut old = valid.clone();
+        old[0] = 0x01; // the first byte of an older frame layout
+        assert_eq!(decode_frame(&old), Err(FrameError::UnsupportedFrameVersion(0)));
 
-        // 3. Bad kind takes priority over non-zero reserved.
-        for bad_k in [0u8, 7, 255] {
+        // 3. A bad kind takes priority over a bad length.
+        for bad_k in [0u8, 7, 15] {
             let mut bad_kind = valid.clone();
-            bad_kind[1] = bad_k;
-            bad_kind[6] = 1;
+            bad_kind[0] = 0x10 | bad_k;
+            bad_kind[6] = 0xff;
             assert_eq!(decode_frame(&bad_kind), Err(FrameError::BadKind(bad_k)));
         }
 
-        // 4. Non-zero reserved -> BadFrameHeader (even with corrupt body).
-        let mut bad_res = valid.clone();
-        bad_res[6] = 1;
-        bad_res[16] = b'X';
-        assert_eq!(decode_frame(&bad_res), Err(FrameError::BadFrameHeader));
-
-        // 4b. End with non-zero variant -> BadFrameHeader.
-        let mut bad_end = BytesMut::new();
-        encode_end(0x42, 1, &mut bad_end);
-        bad_end[4] = 1;
+        // 4. A length over 2^31 - 1, or an End with a variant or a message -> BadFrameHeader.
+        let mut too_long = valid.clone();
+        too_long[6] = 0x80;
+        assert_eq!(decode_frame(&too_long), Err(FrameError::BadFrameHeader));
+        let mut end = BytesMut::new();
+        encode_end(&mut end);
+        assert_eq!(&end[..], &[0x15, 0, 0, 0, 0, 0, 0]);
+        let mut bad_end = end.clone();
+        bad_end[1] = 1;
+        assert_eq!(decode_frame(&bad_end), Err(FrameError::BadFrameHeader));
+        let mut bad_end = end.clone();
+        bad_end[3] = 1;
         assert_eq!(decode_frame(&bad_end), Err(FrameError::BadFrameHeader));
 
-        // 5. Cut envelope body -> Incomplete with total frame length needed.
-        assert_eq!(
-            decode_frame(&valid[..20]),
-            Err(FrameError::Incomplete { needed: 16 + 20 })
-        );
-        assert_eq!(
-            decode_frame(&valid[..valid.len() - 1]),
-            Err(FrameError::Incomplete { needed: valid.len() })
-        );
-
-        // 5b. Bad magic -> Envelope(BadMagic).
-        let mut bad_magic = valid.clone();
-        bad_magic[16] = b'X';
-        assert_eq!(decode_frame(&bad_magic), Err(FrameError::Envelope(Error::BadMagic)));
-
-        // 5c. Bitflip in payload -> Envelope(ChecksumMismatch).
-        let mut bad_crc = valid.clone();
-        bad_crc[36] ^= 1;
-        assert_eq!(decode_frame(&bad_crc), Err(FrameError::Envelope(Error::ChecksumMismatch)));
+        // 5. Cut header or message -> Incomplete with the whole frame's length.
+        assert_eq!(decode_frame(&valid[..10]), Err(FrameError::Incomplete { needed: valid.len() }));
+        assert_eq!(decode_frame(&valid[..valid.len() - 1]), Err(FrameError::Incomplete { needed: valid.len() }));
     }
 
     #[test]
     fn roundtrip_multiple_frames_and_end() {
         let mut stream = BytesMut::new();
-        let h1 = FrameHeader {
-            kind: FrameKind::Item,
-            method: 2,
-            variant: 7,
-            service_id: 12345,
-        };
-        encode_frame(h1, 0xaaaa, b"one", &mut stream).unwrap();
-        encode_end(12345, 2, &mut stream);
-        let h2 = FrameHeader {
-            kind: FrameKind::Ok,
-            method: 9,
-            variant: 0,
-            service_id: 999,
-        };
-        encode_frame(h2, 0xbbbb, b"two", &mut stream).unwrap();
+        let h1 = FrameHeader::reply(FrameKind::Item, 7);
+        encode_frame(h1, b"one", &mut stream).unwrap();
+        encode_end(&mut stream);
+        let h2 = FrameHeader::reply(FrameKind::Ok, 0);
+        encode_frame(h2, b"two", &mut stream).unwrap();
 
         let decoded: Vec<_> = frames(&stream).collect::<Result<Vec<_>, _>>().unwrap();
         assert_eq!(decoded.len(), 3);
         assert_eq!(decoded[0].header, h1);
-        assert_eq!(decoded[0].schema_id, 0xaaaa);
         assert_eq!(decoded[0].payload, b"one");
+        assert_eq!(decoded[0].len(), HEADER_LEN + 3);
         assert_eq!(decoded[1].header.kind, FrameKind::End);
         assert_eq!(decoded[1].len(), HEADER_LEN);
         assert_eq!(decoded[1].payload, b"");
@@ -1552,25 +1376,15 @@ mod tests {
                 reason: None,
             }),
         };
-        let bytes = fault_frame_bytes(0x55, 3, &fault);
+        let bytes = fault_frame_bytes(&fault);
         let frame = decode_frame(&bytes).unwrap();
-        assert_eq!(frame.header.kind, FrameKind::Fault);
-        assert_eq!(frame.header.method, 3);
-        assert_eq!(frame.header.variant, 0);
-        assert_eq!(frame.header.service_id, 0x55);
-        assert_eq!(frame.schema_id, FAULT_SCHEMA_ID);
-        let decoded = decode_fault(frame.payload).unwrap();
-        assert_eq!(decoded, fault);
+        assert_eq!(frame.header, FrameHeader::reply(FrameKind::Fault, 0));
+        assert_eq!(decode_fault(frame.payload).unwrap(), fault);
 
         // Future FaultCode roundtrips as Unknown and normalizes to Internal.
-        let future = Fault {
-            code: FaultCode::Unknown(99),
-            message: None,
-            broken: None,
-        };
-        let fbytes = fault_frame_bytes(0x55, 3, &future);
-        let fframe = decode_frame(&fbytes).unwrap();
-        let fdec = decode_fault(fframe.payload).unwrap();
+        let future = Fault { code: FaultCode::Unknown(99), message: None, broken: None };
+        let fbytes = fault_frame_bytes(&future);
+        let fdec = decode_fault(decode_frame(&fbytes).unwrap().payload).unwrap();
         assert_eq!(fdec.code, FaultCode::Unknown(99));
         assert_eq!(fdec.code.normalized(), FaultCode::Internal);
     }

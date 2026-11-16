@@ -5,9 +5,7 @@
 use std::io::{self, Read, Write};
 
 use graven::rpc::{Fault, FaultCode, fault_frame_bytes};
-use graven_codegen_tests::inventory::{
-    Checks, CommandVerified, InventoryCall, INVENTORY_SERVICE_ID,
-};
+use graven_codegen_tests::inventory::{Checks, CommandVerified, InventoryCall};
 
 struct NoChecks;
 impl Checks for NoChecks {}
@@ -44,15 +42,11 @@ fn handle_call(call: &[u8]) -> Vec<u8> {
                     let mut buf = reply.item(|w| {
                         w.seq(1).stock(50);
                     });
-                    buf.extend_from_slice(&fault_frame_bytes(
-                        INVENTORY_SERVICE_ID,
-                        3,
-                        &Fault {
+                    buf.extend_from_slice(&fault_frame_bytes(&Fault {
                             code: FaultCode::Unavailable,
                             message: Some("replica lost"),
                             broken: None,
-                        },
-                    ));
+                        }));
                     buf
                 } else {
                     let mut buf = reply.item(|w| {

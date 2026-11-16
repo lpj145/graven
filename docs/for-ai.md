@@ -132,6 +132,9 @@ service Inventory {
   the start when errors may come later. Adding a method or a union variant is allowed.
 - A declared error `E` is a normal reply; a protocol fault (`Malformed`, `Unsupported`,
   `Invalid`, `DeadlineExceeded`, `Internal`, `Unavailable`) is the same for every method.
+- One message, two containers: files and logs carry enveloped messages (schema id, CRC);
+  service calls carry frames with bare messages (7-byte header, 17 for a call) and need a
+  transport that delivers bytes intact. Never put an envelope inside a frame.
 - `gravenc gen --side client` generates a complete typed client that calls a send function
   the application writes; `--side server` (Rust only) generates the server edge, an enum
   with one variant per method and typed reply builders.

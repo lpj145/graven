@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Graven — an open specification for a zero-copy binary format</title>
-<meta name="description" content="Graven is an open specification for a zero-copy binary format and its schema language, with frozen conformance vectors and a reference implementation in Rust.">
+<meta name="description" content="Graven is an open specification for a zero-copy binary format and its schema language, with frozen conformance vectors and implementations in Rust and JavaScript.">
 <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
 <link rel="icon" href="assets/favicon.ico" sizes="48x48">
 <link rel="apple-touch-icon" href="assets/apple-touch-icon.png">
@@ -24,6 +24,8 @@
   <div class="wrap top-inner">
     <a class="wordmark" href="./" aria-label="Graven home"><svg class="mark" viewBox="0 0 32 32" aria-hidden="true"><rect class="mk-bg" width="32" height="32" rx="7"/><rect class="mk-l" x="7" y="8.5" width="18" height="3.5" rx="1.75"/><rect class="mk-l" x="7" y="14.25" width="13" height="3.5" rx="1.75"/><rect class="mk-a" x="7" y="20" width="8" height="3.5" rx="1.75"/></svg>Graven</a>
     <nav aria-label="Main">
+      <a href="#containers">How it works</a>
+      <a href="#start">Quickstart</a>
       <a href="docs/index.html">Docs</a>
       <a href="https://github.com/lpj145/graven">GitHub</a>
     </nav>
@@ -41,20 +43,21 @@
 <section class="hero">
   <div class="wrap hero-grid">
     <div class="hero-text">
-      <h1>A binary format for data that has to last.</h1>
-      <p class="lede">Graven is an open specification for a zero-copy serialization format and its schema language.
-        Messages are read in place, straight from the buffer. The format is frozen and fully specified, and its
-        conformance vectors let an implementation in any language prove that it reads every message correctly.</p>
-      <p class="lineage">Inspired by FlatBuffers and Cap'n Proto. We started from their ideas, measured their trade-offs in benchmarks, and kept exploring until we reached this format. <a href="docs/history/index.html">How we got here</a></p>
+      <p class="eyebrow">Format v1 frozen · Rust &amp; JS / TS · MIT</p>
+      <h1>A binary format built for data that lasts.</h1>
+      <p class="lede">Read fields straight from raw bytes with no parsing or allocation. One shared schema and lockfile keep Rust and TypeScript/JavaScript compatible across stored logs and RPC streams.</p>
       <div class="actions">
-        <a class="btn primary" href="docs/spec/graven-format-v1.html">Read the specification</a>
-        <a class="btn" href="#implementations">Implementations</a>
+        <a class="btn primary" href="#start">Get started</a>
+        <a class="btn" href="docs/index.html">Read the docs</a>
       </div>
-      <p class="status">Format v1 is frozen. Reference implementation in Rust. MIT licensed.</p>
+      <p class="hero-meta">Normative <a href="docs/spec/graven-format-v1.html">format v1 spec</a> · Inspired by FlatBuffers and Cap&#39;n Proto (<a href="docs/history/index.html">how we got here</a>)</p>
     </div>
 
     <figure class="anatomy" aria-labelledby="anatomy-title">
-      <figcaption id="anatomy-title" class="anatomy-title">One message, byte by byte</figcaption>
+      <div class="anatomy-head">
+        <figcaption id="anatomy-title" class="anatomy-title">One message, on disk and on the wire</figcaption>
+        <span class="anatomy-hint">Hover or tap any field</span>
+      </div>
       <pre class="schema" aria-label="Schema"><span class="sl" data-f="sid">namespace bank;</span>
 
 <span class="sl" data-f="sid">table Entry {</span>
@@ -62,6 +65,7 @@
 <span class="sl" data-f="amount">  amount  @1: i64;</span>
 <span class="sl" data-f="memo">  memo    @2: string?;</span>
 <span class="sl" data-f="sid">}</span></pre>
+      <div class="views" id="views" role="tablist" aria-label="Where the message is"></div>
       <div class="hex" id="hex" role="group" aria-label="The 59 bytes of an enveloped Entry message"></div>
       <p class="explain" id="explain" aria-live="polite"></p>
       <ul class="legend" id="legend" aria-label="Fields"></ul>
@@ -70,86 +74,141 @@
 </section>
 
 <section class="band" id="why">
-  <div class="wrap two">
-    <h2>Built for data that outlives the code that wrote it</h2>
-    <div class="prose">
-      <p>Business data is written once and read for years: by the next release, by a service that upgrades
-        later, by an audit long after the original team has moved on. Graven is designed around that reality.</p>
-      <dl class="points">
-        <dt>Read in place</dt>
-        <dd>Fields are read directly from the bytes. Strings and byte slices borrow from the buffer, so reading a
-          large record costs nothing until you touch a field.</dd>
-        <dt>Evolve without guessing</dt>
-        <dd>A lockfile records every layout. The compiler refuses changes that would make old and new code
-          disagree, and asks for explicit confirmation before anything breaks an older reader.</dd>
-        <dt>Untrusted bytes are safe to open</dt>
-        <dd>A single <code>verify</code> pass walks the whole message under fixed depth and work limits. After
-          that, a verified view reads without re-checking, and malformed input can only ever produce an error.</dd>
-        <dt>Know what happened to a file</dt>
-        <dd>The optional envelope carries a schema id and a CRC32C. A write cut short by a crash is reported as
-          incomplete; a flipped bit is reported as corruption. They are never confused.</dd>
-      </dl>
+  <div class="wrap">
+    <div class="section-head">
+      <h2>Built for data that outlives the code that wrote it</h2>
+      <p>Write records once and keep reading them as services upgrade, storage engines change, and audits run years later.</p>
+    </div>
+    <div class="pillars">
+      <article class="pillar">
+        <h3>Read in place</h3>
+        <p>Fields decode directly from byte offsets. Strings and byte slices borrow straight from the buffer, so untouched fields cost zero work.</p>
+      </article>
+      <article class="pillar">
+        <h3>One bounded verify pass</h3>
+        <p>Untrusted bytes pass through a single <code>verify</code> walk with fixed depth (64) and work limits, returning a trusted view without re-checking on every read.</p>
+      </article>
+      <article class="pillar">
+        <h3>Lockfile-guarded evolution</h3>
+        <p><code>gravenc</code> records every layout in a lockfile and rejects schema edits that would make old and new readers disagree.</p>
+      </article>
+      <article class="pillar">
+        <h3>Crash vs. corruption clarity</h3>
+        <p>Normative envelope checks distinguish a write cut short by a crash from a flipped bit (CRC32C)—they are never confused.</p>
+      </article>
+    </div>
+    <div class="use-chips">
+      <p class="uses-label">Common fits</p>
+      <span class="chip">Ledgers &amp; event logs</span>
+      <span class="chip">Browser &harr; Rust RPC</span>
+      <span class="chip">Offline &amp; embedded sync</span>
+      <span class="chip">KV storage &amp; caches</span>
+      <span class="chip">Long-term archives</span>
+      <span class="chip">Wasm plugin boundaries</span>
     </div>
   </div>
 </section>
 
-<section class="band" id="assurance">
+<section class="band" id="containers">
   <div class="wrap">
     <div class="section-head">
-      <h2>How the format is kept honest</h2>
-      <p>Every claim the specification makes is pinned by something that runs. This is what is checked, and how.</p>
+      <h2>One message, two containers</h2>
+      <p>The <code>Entry</code> payload is the exact same 35 bytes everywhere. Only its outer container changes between storage and network.</p>
     </div>
-    <div class="table-scroll">
-    <table class="ledger">
-      <thead>
-        <tr><th scope="col">Guarantee</th><th scope="col">How it is checked</th></tr>
-      </thead>
-      <tbody>
-        <tr>
-          <th scope="row">The wire format does not drift</th>
-          <td>A normative specification (RFC 2119 language) and 42 frozen conformance vectors, each a <code>.bin</code>
-            with its expected result. The reference writer must reproduce the canonical vectors byte for byte.</td>
-        </tr>
-        <tr>
-          <th scope="row">Two implementations agree</th>
-          <td>Within the reference implementation, an independent interpreter driven by the schema as data and the
-            generated code read every vector and every single-byte mutation of it. They must accept, reject and decode
-            identically. Every new implementation is held to the same vectors.</td>
-        </tr>
-        <tr>
-          <th scope="row">Hostile input stays bounded</th>
-          <td><code>verify</code> limits depth to 64 and total work to <code>max(len × 8, 1 MiB)</code>, so cycles and
-            shared-data amplification are rejected. Five fuzz targets ran more than 80 million inputs with overflow
-            checks enabled, with no findings.</td>
-        </tr>
-        <tr>
-          <th scope="row">The unsafe fast path is sound</th>
-          <td>In the Rust implementation, the only <code>unsafe</code> code skips UTF-8 revalidation after <code>verify</code>. Its invariants are
-            written down, enforced by a mutation gate, and the runtime and generated code run under Miri with no
-            undefined behaviour reported.</td>
-        </tr>
-        <tr>
-          <th scope="row">Schema changes cannot corrupt silently</th>
-          <td>The compiler compares every change against the lockfile: 15 rules reject changes that would misread
-            old data, 2 warnings require confirmation in the schema. A corpus of version chains tests each rule.</td>
-        </tr>
-        <tr>
-          <th scope="row">Crashes and corruption are told apart</th>
-          <td>The envelope's check order is normative, so a truncated tail and a damaged record produce different,
-            predictable errors on every implementation.</td>
-        </tr>
-      </tbody>
-    </table>
+    <div class="boxes">
+      <figure class="box">
+        <figcaption><span class="box-name">At rest: the envelope</span><span class="box-size">59 bytes</span></figcaption>
+        <div class="strip" aria-hidden="true">
+          <span class="seg g-env" style="--b:20">header 20</span><span class="seg g-val" style="--b:35">message 35</span><span class="seg g-sum" style="--b:4">CRC</span>
+        </div>
+        <p>Files, logs, and queues have no call context, so the envelope adds a <code>schema_id</code>, payload length, and CRC32C checksum.</p>
+      </figure>
+      <figure class="box">
+        <figcaption><span class="box-name">In flight: the frame</span><span class="box-size">42 bytes</span></figcaption>
+        <div class="strip" aria-hidden="true">
+          <span class="seg g-tbl" style="--b:7">7</span><span class="seg g-val" style="--b:35">message 35</span>
+        </div>
+        <p>Over an ordered transport (TLS, sockets), a reply needs only 7 header bytes (kind, variant, length); a call adds method and service id (17 bytes).</p>
+      </figure>
     </div>
+    <p class="more">Zero re-encoding: a server persists what it received simply by wrapping the same payload slice in an envelope. <a href="docs/services.html#the-bytes">How frames work</a></p>
+  </div>
+</section>
+
+<section class="band" id="services">
+  <div class="wrap">
+    <div class="section-head">
+      <h2>Services from the same schema</h2>
+      <p>Declare unary methods, typed errors, and streams next to your tables. <code>gravenc</code> emits typed clients for Rust and browsers/Node, plus a <code>no_std</code> Rust server edge.</p>
+    </div>
+    <div class="evo">
+      <div class="evo-col">
+        <p class="evo-label">Schema</p>
+<pre class="code"><code>union LookupError { NotFound @1: NotFound }
+
+#[timeout(ms = 5000)]
+service Inventory {
+  get  @1: (GetProduct)   -&gt; Result&lt;Product, LookupError&gt;;
+  list @2: (ListProducts) -&gt; stream Product;
+  ping @4: (Ping);
+}</code></pre>
+      </div>
+      <div class="evo-col">
+        <p class="evo-label">Typed client</p>
+        <div class="code-tabs tight">
+          <div class="code-tabbar" role="tablist" hidden>
+            <button type="button" role="tab" data-tab="rust" aria-selected="true">Rust</button>
+            <button type="button" role="tab" data-tab="js" aria-selected="false">JavaScript / TypeScript</button>
+          </div>
+          <div class="code-panel" role="tabpanel" data-tab="rust">
+            <p class="tab-label">Rust</p>
+<pre class="code"><code>let inv = InventoryClient::new(http_sender);
+match inv.get(|w| { w.sku("cafe-500g"); }).await {
+    Ok(p) =&gt; println!("{} in stock", p.view().stock()),
+    Err(CallError::Err(e)) =&gt; match e.view() {
+        LookupErrorVerified::NotFound(nf) =&gt; println!("missing {}", nf.sku()?),
+        LookupErrorVerified::Unknown(_) =&gt; println!("lookup failed"),
+    },
+    Err(fault) =&gt; return Err(fault.into()),
+}</code></pre>
+          </div>
+          <div class="code-panel" role="tabpanel" data-tab="js" hidden>
+            <p class="tab-label">JavaScript / TypeScript</p>
+<pre class="code"><code>const inv = new InventoryClient(async (call) =&gt;
+  (await fetch("/inventory", { method: "POST", body: call })).body!);
+
+const r = await inv.get((w) =&gt; w.sku("cafe-500g"));
+if (r.ok) show(r.value.stock());
+else if (r.error.variant === "NotFound") notFound();
+
+for await (const p of await inv.list((w) =&gt; w.limit(20)))
+  add(p.name());</code></pre>
+          </div>
+        </div>
+      </div>
+    </div>
+    <dl class="mini-grid">
+      <div>
+        <dt>Errors are part of the type</dt>
+        <dd>Declared errors travel as typed unions checked by the compiler; transport and decode faults share one uniform handler.</dd>
+      </div>
+      <div>
+        <dt>Streams yield as frames arrive</dt>
+        <dd>Self-delimiting frames deliver each streamed item as soon as its bytes arrive, enforcing configurable size limits.</dd>
+      </div>
+      <div>
+        <dt>Validation speaks in codes</dt>
+        <dd>Broken rules return field, rule, bounds, and check reason codes—never hardcoded server text—ready for client localization.</dd>
+      </div>
+    </dl>
   </div>
 </section>
 
 <section class="band" id="evolution">
   <div class="wrap">
     <div class="section-head">
-      <h2>Schema changes are reviewed by the compiler</h2>
-      <p>Change a type or add a required field, and <code>gravenc update</code> refuses, naming the rule and the line.
-        Add the field with a default instead, and the new lock is written. This is real output.</p>
+      <h2>Schema changes reviewed before they ship</h2>
+      <p>Change a field type or add a required field and <code>gravenc update</code> refuses, citing rule and line. Add a default instead and the lockfile updates cleanly.</p>
     </div>
     <div class="evo">
       <div class="evo-col">
@@ -182,128 +241,111 @@ ledger.graven.lock: written</code></pre>
   </div>
 </section>
 
-<section class="band" id="build">
+<section class="band" id="start">
   <div class="wrap">
     <div class="section-head">
-      <h2>What it is for</h2>
-      <p>Graven fits wherever records are written once, kept for a long time and read by software that changes.</p>
+      <h2>Get started</h2>
+      <p>Shared schema and lockfile on disk; native zero-copy bindings in your language.</p>
     </div>
-    <dl class="uses">
-      <div>
-        <dt>Ledgers and event logs</dt>
-        <dd>Append envelopes to a file and never rewrite them. Each record carries its schema id and checksum, a
-          crash leaves a detectably incomplete tail, and reports can scan the file without deserializing it.</dd>
+    <div class="setup-steps">
+      <div class="setup-step">
+        <h3><span class="step-num">1</span>Install the compiler</h3>
+<pre class="code"><code>cargo install graven-compiler</code></pre>
       </div>
-      <div>
-        <dt>Service and SDK protocols</dt>
-        <dd>Route requests by schema id, verify once at the edge and pass the verified view along without copying.
-          The compatibility rules mean an older client keeps working when the server moves ahead.</dd>
+      <div class="setup-step">
+        <h3><span class="step-num">2</span>Create your schema &amp; lockfile</h3>
+<pre class="code"><code>gravenc update schemas/bank.graven --init</code></pre>
       </div>
-      <div>
-        <dt>Archives and audit trails</dt>
-        <dd>A frozen format with public conformance vectors is something you can still decode in ten years, with
-          a different implementation if need be.</dd>
+    </div>
+    <div class="setup-step">
+      <p class="step-title"><span class="step-num">3</span>Generate code, write, and verify in place</p>
+      <div class="code-tabs tight">
+        <div class="code-tabbar" role="tablist" hidden>
+          <button type="button" role="tab" data-tab="rust" aria-selected="true">Rust</button>
+          <button type="button" role="tab" data-tab="js" aria-selected="false">JavaScript / TypeScript</button>
+        </div>
+        <div class="code-panel" role="tabpanel" data-tab="rust">
+          <p class="tab-label">Rust</p>
+<pre class="code"><code>// Generate with `gravenc gen schemas/bank.graven -o src/gen` (or build.rs)
+use graven::{Builder, SimplePool};
+use bank::{Entry, EntryW};
+
+let pool = SimplePool::new(4096);
+let mut b = Builder::new_enveloped(&pool);
+let bytes = EntryW::to_bytes(&amp;mut b, |e| {
+    e.account(1001).amount(-2500).memo("transfer");
+})?;
+
+let entry = Entry::from_bytes(&amp;bytes)?; // checks CRC32C and runs verify
+println!("{} {:?}", entry.amount(), entry.memo()?);</code></pre>
+        </div>
+        <div class="code-panel" role="tabpanel" data-tab="js" hidden>
+          <p class="tab-label">JavaScript / TypeScript</p>
+<pre class="code"><code>// Generate with `gravenc gen schemas/bank.graven -o src/gen --lang js`
+import { Entry, EntryW } from "./gen/bank.js";
+
+const bytes = EntryW.toBytes((e) =&gt;
+  e.account(1001n).amount(-2500n).memo("transfer"));
+
+const entry = Entry.fromBytes(bytes); // checks CRC32C and runs verify
+console.log(entry.amount(), entry.memo());</code></pre>
+        </div>
       </div>
-      <div>
-        <dt>Devices and offline sync</dt>
-        <dd>The format needs no allocator and no alignment, and the Rust runtime is <code>no_std</code> with two
-          dependencies, so the same records can come from point-of-sale terminals and embedded devices that batch
-          them while offline.</dd>
-      </div>
-      <div>
-        <dt>Caches and storage values</dt>
-        <dd>Store records in a key-value store and read only the field you need, straight from the stored bytes.</dd>
-      </div>
-      <div>
-        <dt>Plugin boundaries</dt>
-        <dd>Exchange buffers with untrusted extensions, for example WebAssembly modules, and let <code>verify</code>
-          protect the host from whatever they send back.</dd>
-      </div>
-    </dl>
+    </div>
+    <p class="more">Continue with the <a href="docs/getting-started.html">getting started guide</a>, <a href="docs/coming-from-json.html">coming from JSON</a>, or the <a href="docs/graven-language.html">schema language reference</a>.</p>
   </div>
 </section>
 
 <section class="band" id="implementations">
   <div class="wrap">
     <div class="section-head">
-      <h2>Implementations</h2>
-      <p>The specification is the product; implementations are measured against it. A conforming implementation
-        reads all 42 vectors with exactly the expected result (spec §10).</p>
+      <h2>Implementations &amp; verification</h2>
+      <p>The specification is the product. Every claim below is pinned by frozen conformance vectors, fuzzing, and automated checks.</p>
+    </div>
+    <div class="sdk-cards">
+      <article class="sdk-card">
+        <div class="sdk-head">
+          <h3>Rust</h3>
+          <span class="sdk-badge">Reference · no_std</span>
+        </div>
+        <p><code>no_std</code> + <code>alloc</code> runtime with two dependencies, <code>gravenc</code> compiler and lockfile checks, typed client &amp; server edge codegen, and schema interpreter. Passes all 42 v1 + 23 RPC vectors.</p>
+        <p class="sdk-links"><a href="docs/sdk/rust.html">Rust SDK</a> · <a href="api/graven/index.html">API reference</a></p>
+      </article>
+      <article class="sdk-card">
+        <div class="sdk-head">
+          <h3>JavaScript / TypeScript</h3>
+          <span class="sdk-badge">Zero dependencies</span>
+        </div>
+        <p>ES2022 <code>.js</code> modules + <code>.d.ts</code> types generated by <code>gravenc gen --lang js</code>. Canonical writers, validation codes, and browser/Node/Deno RPC clients. Passes all 42 v1 + 23 RPC vectors.</p>
+        <p class="sdk-links"><a href="docs/sdk/js.html">JS / TS SDK</a> · <a href="docs/implementations.html">Add another language</a></p>
+      </article>
     </div>
     <div class="table-scroll">
-    <table class="ledger impls">
+    <table class="ledger">
       <thead>
-        <tr><th scope="col">Language</th><th scope="col">Status</th><th scope="col">What it includes</th></tr>
+        <tr><th scope="col">Guarantee</th><th scope="col">How it is checked</th></tr>
       </thead>
       <tbody>
         <tr>
-          <th scope="row">Rust</th>
-          <td>Reference implementation. Passes all v1 and RPC frame vectors.</td>
-          <td>Runtime (<code>no_std</code>), the <code>gravenc</code> compiler with lockfile and compatibility
-            checks, Rust code generation (client and server edge), and the conformance interpreter.
-            <a href="docs/sdk/rust.html">Rust SDK</a> · <a href="api/graven/index.html">API reference</a></td>
+          <th scope="row">Frozen wire specification</th>
+          <td>Normative RFC 2119 spec with 42 format v1 vectors and 23 RPC frame vectors. The reference writer reproduces every canonical <code>.bin</code> byte for byte.</td>
         </tr>
         <tr>
-          <th scope="row">JavaScript / TypeScript</th>
-          <td><code>gravenc gen --lang js</code>. Passes all v1 and RPC frame vectors.</td>
-          <td>Zero-dependency ES2022 <code>.js</code> modules with TypeScript <code>.d.ts</code> declarations,
-            canonical writers, validation, and RPC clients for browsers, Node, and Deno.
-            <a href="docs/sdk/js.html">JS / TS SDK</a></td>
+          <th scope="row">Cross-implementation agreement</th>
+          <td>An independent Rust schema interpreter and generated code decode every vector and single-byte mutation identically; the JS runtime is fuzzed against Rust across millions of mutated messages and frames.</td>
+        </tr>
+        <tr>
+          <th scope="row">Bounded verification &amp; Miri clean</th>
+          <td><code>verify</code> caps depth at 64 and work at <code>max(len × 8, 1 MiB)</code>. Five fuzz targets ran &gt;80 million inputs with overflow checks, and the sole <code>unsafe</code> UTF-8 fast path runs clean under Miri.</td>
+        </tr>
+        <tr>
+          <th scope="row">Lockfile compatibility enforcement</th>
+          <td>15 hard errors reject breaking layout or method edits and 2 warnings require confirmation, verified over a corpus of multi-version schema chains.</td>
         </tr>
       </tbody>
     </table>
     </div>
-    <div class="two-text">
-      <div>
-        <h3>Writing an implementation</h3>
-        <p>Start with the layout algorithm (spec §3.3), the read rules (§4–§6) and <code>verify</code> (§7), then run
-          the <a href="docs/conformance-vectors.html">conformance vectors</a>. Each vector is a <code>.bin</code> with a
-          <code>.json</code> stating the decoded value or the exact error, and each invalid one has a single defect,
-          so a failure points at one rule.</p>
-      </div>
-      <div>
-        <h3>Generating code for another language</h3>
-        <p>The schema language and its compatibility rules are language-neutral. The lockfile written by
-          <code>gravenc</code> already records every table's layout, schema id and field presence, which is what a code
-          generator for another language needs to emit readers and writers.</p>
-      </div>
-    </div>
-  </div>
-</section>
-
-<section class="band" id="start">
-  <div class="wrap">
-    <div class="section-head">
-      <h2>Getting started with Rust</h2>
-      <p>Using the reference implementation needs only the Rust toolchain.</p>
-    </div>
-    <ol class="steps">
-      <li>
-        <h3>Install the compiler</h3>
-<pre class="code"><code>cargo install --path crates/graven-compiler</code></pre>
-      </li>
-      <li>
-        <h3>Write a schema and create its lockfile</h3>
-<pre class="code"><code>gravenc update schemas/bank.graven --init</code></pre>
-      </li>
-      <li>
-        <h3>Generate code from <code>build.rs</code></h3>
-<pre class="code"><code>graven_compiler::build::Build::new()
-    .schema("schemas/bank.graven")
-    .compile()
-    .unwrap_or_else(|e| panic!("{e}"));</code></pre>
-      </li>
-      <li>
-        <h3>Write and read</h3>
-<pre class="code"><code>let bytes = TransactionW::to_bytes(&amp;mut b, |t| {
-    t.id(42).currency(Currency::USD);
-})?;
-let tx = Transaction::from_bytes(&amp;bytes)?;
-println!("{}", tx.id());</code></pre>
-      </li>
-    </ol>
-    <p class="more">The <a href="docs/getting-started.html">getting started guide</a> and the
-      <a href="docs/graven-language.html">schema language reference</a> cover the full workflow.</p>
+    <p class="more">Implementing Graven in another language? Use the compiler&#39;s lockfile layouts and verify against all <a href="docs/conformance-vectors.html">conformance vectors</a>.</p>
   </div>
 </section>
 
@@ -315,6 +357,7 @@ println!("{}", tx.id());</code></pre>
     <nav aria-label="Footer">
       <a href="docs/spec/graven-format-v1.html">Specification</a>
       <a href="docs/graven-language.html">Schema language</a>
+      <a href="docs/services.html">Services</a>
       <a href="docs/tools.html">gravenc</a>
       <a href="docs/conformance-vectors.html">Conformance vectors</a>
       <a href="api/graven/index.html">Rust API</a>
@@ -326,5 +369,6 @@ println!("{}", tx.id());</code></pre>
 </footer>
 
 <script src="assets/anatomy.js"></script>
+<script src="assets/tabs.js"></script>
 </body>
 </html>

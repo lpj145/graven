@@ -138,11 +138,12 @@ of copying everything into your own structs.
 
 ### Use the envelope at boundaries
 
-Files, queues and network connections between services should carry enveloped messages:
-the schema id stops a message being read as the wrong type, and the CRC32C separates a cut
-write from corruption. Inside one process, or when a transport already frames and checks
-messages and the type is known, a bare message saves 24 bytes and the CRC (about 10 ns on a
-small message, about 1.6 µs on 64 KiB).
+Files, logs and queues that keep data should carry enveloped messages: the schema id stops a
+message being read as the wrong type, and the CRC32C separates a cut write from corruption.
+Inside one process, or when a transport already frames and checks messages and the type is
+known, a bare message saves 24 bytes and the CRC (about 10 ns on a small message, about
+1.6 µs on 64 KiB). Service calls are the second case: their [frames](services.md#the-bytes)
+carry bare messages, and the method says the type.
 
 ### Reuse the builder
 

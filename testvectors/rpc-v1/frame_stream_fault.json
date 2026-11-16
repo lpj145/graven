@@ -1,0 +1,16 @@
+{
+  "frames": [
+    {
+      "kind": 4,
+      "variant": 99,
+      "message": "6974656d2d626f6479"
+    },
+    {
+      "kind": 6,
+      "variant": 0,
+      "message": "0b0001630008000000000000000c000000667574757265206661756c74",
+      "fault_code": 99,
+      "fault_message": "future fault"
+    }
+  ]
+}

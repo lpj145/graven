@@ -9,8 +9,8 @@ use graven::rpc::{
     Sender, StreamError, StreamResponse,
 };
 use graven_codegen_tests::inventory::{
-    inventory_timeouts, metrics_timeouts, ActionOutVerified, AddCommand, AddCommandW, Checks,
-    CommandVerified, Event, EventW, GetReqW, InventoryCall, InventoryClient, Item, ItemW, MetricsCall,
+    inventory_timeouts, metrics_timeouts, ActionOutVerified, AddCommandW, Checks,
+    CommandVerified, EventW, GetReqW, InventoryCall, InventoryClient, ItemW, MetricsCall,
     MetricsClient, ReserveErrVerified, INVENTORY_SERVICE_ID, METRICS_SERVICE_ID,
 };
 
@@ -101,15 +101,11 @@ fn dispatch_inventory_validated(bytes: &[u8]) -> Result<Vec<u8>, &'static str> {
                     let mut buf = reply.item(|w| {
                         w.seq(1).stock(50);
                     });
-                    buf.extend_from_slice(&fault_frame_bytes(
-                        INVENTORY_SERVICE_ID,
-                        3,
-                        &Fault {
+                    buf.extend_from_slice(&fault_frame_bytes(&Fault {
                             code: FaultCode::Unavailable,
                             message: Some("replica lost"),
                             broken: None,
-                        },
-                    ));
+                        }));
                     Ok(buf)
                 } else {
                     let mut buf = reply.item(|w| {
@@ -367,7 +363,7 @@ fn server_edge_rejections_and_validation_faults() {
 
     // 4. Malformed frame (wrong kind) -> Malformed
     let mut bad_kind = BytesMut::new();
-    encode_end(INVENTORY_SERVICE_ID, 1, &mut bad_kind);
+    encode_end(&mut bad_kind);
     let rej = match InventoryCall::decode(&bad_kind) {
         Err(r) => r,
         Ok(_) => panic!("expected rejection for wrong kind"),
@@ -397,18 +393,7 @@ fn server_edge_rejections_and_validation_faults() {
         w.sku("k").delta(1);
     })
     .unwrap();
-    encode_frame(
-        FrameHeader {
-            kind: FrameKind::Call,
-            method: 7,
-            variant: 77,
-            service_id: INVENTORY_SERVICE_ID,
-        },
-        AddCommand::SCHEMA_ID,
-        &env[16..],
-        &mut raw_env,
-    )
-    .unwrap();
+    encode_frame(FrameHeader::call(INVENTORY_SERVICE_ID, 7, 77), &env[20..env.len() - 4], &mut raw_env).unwrap();
     match InventoryCall::decode_validated(&raw_env, &NoChecks).unwrap() {
         InventoryCall::Dispatch(input, _) => match input {
             CommandVerified::Unknown(tag) => assert_eq!(tag, 77),
@@ -434,37 +419,20 @@ fn client_reports_protocol_and_stream_errors() {
     }
     assert!(block_on(stream.next()).is_none());
 
-    // 2. Wrong method id in reply -> MethodMismatch
-    let wrong_method = Loopback::new(|_: &[u8]| {
-        let sp = graven::SimplePool::new(512);
-        let mut b = graven::Builder::new_enveloped(&sp);
-        let env = ItemW::to_bytes(&mut b, |w| {
-            w.sku("x").stock(1);
-        })
-        .unwrap();
+    // 2. A reply message that is not a valid Item -> Payload
+    let bad_message = Loopback::new(|_: &[u8]| {
         let mut out = BytesMut::new();
-        encode_frame(
-            FrameHeader {
-                kind: FrameKind::Ok,
-                method: 99,
-                variant: 0,
-                service_id: INVENTORY_SERVICE_ID,
-            },
-            Item::SCHEMA_ID,
-            &env[16..],
-            &mut out,
-        )
-        .unwrap();
+        encode_frame(FrameHeader::reply(FrameKind::Ok, 0), &[0xff, 0xff], &mut out).unwrap();
         Ok(out.to_vec())
     });
-    let err = block_on(InventoryClient::new(&wrong_method).get_item(|w| {
+    let err = block_on(InventoryClient::new(&bad_message).get_item(|w| {
         w.sku("x");
     }))
     .unwrap_err();
-    assert_eq!(err, CallError::Protocol(ProtocolError::MethodMismatch { expected: 1, found: 99 }));
+    assert!(matches!(err, CallError::Protocol(ProtocolError::Payload(_))), "{err:?}");
 
-    // 3. Wrong service_id in reply -> ServiceMismatch
-    let wrong_svc = Loopback::new(|_: &[u8]| {
+    // 3. A union variant on a table reply -> UnexpectedVariant
+    let bad_variant = Loopback::new(|_: &[u8]| {
         let sp = graven::SimplePool::new(512);
         let mut b = graven::Builder::new_enveloped(&sp);
         let env = ItemW::to_bytes(&mut b, |w| {
@@ -472,31 +440,14 @@ fn client_reports_protocol_and_stream_errors() {
         })
         .unwrap();
         let mut out = BytesMut::new();
-        encode_frame(
-            FrameHeader {
-                kind: FrameKind::Ok,
-                method: 1,
-                variant: 0,
-                service_id: 123,
-            },
-            Item::SCHEMA_ID,
-            &env[16..],
-            &mut out,
-        )
-        .unwrap();
+        encode_frame(FrameHeader::reply(FrameKind::Ok, 3), &env[20..env.len() - 4], &mut out).unwrap();
         Ok(out.to_vec())
     });
-    let err = block_on(InventoryClient::new(&wrong_svc).get_item(|w| {
+    let err = block_on(InventoryClient::new(&bad_variant).get_item(|w| {
         w.sku("x");
     }))
     .unwrap_err();
-    assert_eq!(
-        err,
-        CallError::Protocol(ProtocolError::ServiceMismatch {
-            expected: INVENTORY_SERVICE_ID,
-            found: 123,
-        })
-    );
+    assert_eq!(err, CallError::Protocol(ProtocolError::UnexpectedVariant(3)));
 
     // 4. Trailing bytes after unary Ok -> TrailingBytes
     let trailing = Loopback::new(|call: &[u8]| {
@@ -519,18 +470,7 @@ fn client_reports_protocol_and_stream_errors() {
         })
         .unwrap();
         let mut out = BytesMut::new();
-        encode_frame(
-            FrameHeader {
-                kind: FrameKind::Ok,
-                method: 3,
-                variant: 0,
-                service_id: INVENTORY_SERVICE_ID,
-            },
-            Event::SCHEMA_ID,
-            &env[16..],
-            &mut out,
-        )
-        .unwrap();
+        encode_frame(FrameHeader::reply(FrameKind::Ok, 0), &env[20..env.len() - 4], &mut out).unwrap();
         Ok(out.to_vec())
     });
     match block_on(InventoryClient::new(&wrong_kind).watch(|w| {
@@ -633,8 +573,16 @@ fn stream_reports_a_cut_reply_and_a_failing_source() {
     assert!(matches!(block_on(stream.next()), Some(Err(StreamError::Protocol(ProtocolError::Truncated)))));
     assert!(block_on(stream.next()).is_none());
 
-    // The source fails after delivering the first frame.
-    let live = Live { reply: watch_reply, pos: Default::default(), fail_at: Some(70) };
+    // The source fails after delivering the first frame, in the middle of the second.
+    let call = graven::rpc::encode_call_frame::<graven_codegen_tests::inventory::WatchReqW<'static>>(
+        graven_codegen_tests::inventory::INVENTORY_SERVICE_ID,
+        3,
+        |w| {
+            w.sku("widget-1");
+        },
+    );
+    let first_len = decode_frame(&watch_reply(&call)).unwrap().len();
+    let live = Live { reply: watch_reply, pos: Default::default(), fail_at: Some(first_len + 3) };
     let client = InventoryClient::new(&live);
     let mut stream = block_on(client.watch(|w| {
         w.sku("widget-1");

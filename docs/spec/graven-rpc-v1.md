@@ -1,22 +1,26 @@
-# Graven RPC frame format v1 (normative specification)
+# Graven RPC frames v1 (normative specification)
 
-Status: **draft**. This document, together with the conformance vectors in
-`testvectors/rpc-v1/`, defines RPC frame format v1. Any change to the wire layout or
-normative decode rules in this document is RPC frame format v2 (a new `frame_version`).
+Status: **draft** (alpha). This document, together with the conformance vectors in
+`testvectors/rpc-v1/`, defines RPC frames v1: the bytes of service calls and their replies.
 
-Every payload inside a frame is an ordinary [Graven format v1](graven-format-v1.md)
-envelope (§8). Message encoding, schema evolution, and conformance vectors in
-`testvectors/v1/` are unchanged.
+**One message, two containers.** A Graven message is the same bytes everywhere: a
+[format v1](graven-format-v1.md) message, read in place and checked by `verify`. At rest it
+travels in an **envelope** (format v1 §8: magic, version, `schema_id`, length, CRC32C),
+because stored bytes have no context and nothing else protects them. In flight it travels in a
+**frame**, which carries only what the call does not already know. A frame never contains an
+envelope. Moving a message between the two never re-encodes it: a message received in a
+frame is stored by writing the same bytes inside an envelope, and a stored record is sent by
+removing its envelope.
 
 ## 0. Terminology
 
 The key words **MUST**, **MUST NOT**, **SHOULD**, **SHOULD NOT** and **MAY** are to be
 interpreted as described in RFC 2119.
 
-- **frame**: a 16-byte fixed header followed by an optional Graven format v1 envelope.
+- **frame**: a header followed by one format v1 message (none for `End`).
 - **caller** / **server**: the party that initiates a call / sends replies.
 - **shape**: the call/reply pattern declared by a service method (§3).
-- Byte examples and field layouts use **little-endian** byte order for multi-byte integers.
+- All multi-byte integers are **little-endian**.
 
 ---
 
@@ -24,61 +28,66 @@ interpreted as described in RFC 2119.
 
 This specification defines:
 
-1. the 16-byte frame header and `frame_version = 1`;
-2. frame `kind` values and how payloads (or empty bodies) map to them;
-3. the valid reply frame sequences for each method shape;
-4. the normative decoding check order and error reporting;
-5. the fixed `graven.rpc` schema for protocol faults.
+1. the frame header, its version and kinds;
+2. the valid reply frame sequences for each method shape;
+3. the normative decoding check order and error reporting;
+4. the fixed `graven.rpc` schema for protocol faults.
 
 Out of scope: transport protocols (HTTP, TCP, UDP, queues), multiplexing (`call_id`),
 deadlines on the wire, retries, authentication, and cancellation.
+
+**Transport requirement.** Frames carry no checksum. They MUST travel over a transport that
+delivers bytes in order and intact: TLS, a local socket or pipe, or a queue that checks its
+records. Over a transport that can corrupt bytes silently, `verify` still rejects a message
+whose structure breaks, but a corrupted value inside a well-formed message goes unnoticed.
 
 ---
 
 ## 2. Frame layout
 
-A frame is a 16-byte header followed by a body. All multi-byte integers are
-little-endian.
+Every frame starts with 7 bytes:
 
 ```text
 offset  size  field
-0       1     frame_version   = 1
-1       1     kind            1..=6
-2       2     method          method ID (@n, 1..=65535)
-4       2     variant         union tag of the body when its type is a union; 0 otherwise
-6       2     reserved        = 0
-8       8     service_id      FNV-1a 64-bit hash of qualified service name
-16      M     body            one Graven format v1 envelope (absent, M = 0, for End)
+0       1     version_kind   high 4 bits: frame version (1); low 4 bits: kind (1..=6)
+1       2     variant        union tag of the message when its type is a union; 0 otherwise
+3       4     len            message length in bytes (0 for End); at most 2^31 - 1
 ```
+
+A `Call` frame continues with where it goes:
+
+```text
+7       2     method         method ID (@n, 1..=65535)
+9       8     service_id     FNV-1a 64-bit hash of the qualified service name
+```
+
+The message follows the header: at offset 17 in a `Call`, at offset 7 in every other frame.
+A frame is `17 + len` bytes for a `Call`, `7 + len` otherwise.
 
 ### 2.1 Frame kinds
 
-| `kind` | Name | Sent by | Body |
+| `kind` | Name | Sent by | Message |
 |---|---|---|---|
-| `1` | `Call` | caller | envelope holding method input `I` |
-| `2` | `Ok` | server | envelope holding method output `T` |
-| `3` | `Err` | server | envelope holding method error `E` |
-| `4` | `Item` | server | envelope holding one item `T` of a stream |
-| `5` | `End` | server | none (`0` bytes) |
-| `6` | `Fault` | server | envelope holding `graven.rpc.Fault` |
+| `1` | `Call` | caller | the method input `I` |
+| `2` | `Ok` | server | the method output `T` |
+| `3` | `Err` | server | the method error `E` |
+| `4` | `Item` | server | one item `T` of a stream |
+| `5` | `End` | server | none (`len = 0`) |
+| `6` | `Fault` | server | a `graven.rpc.Fault` (§5) |
 
-### 2.2 Bodies and self-delimitation
+### 2.2 Messages, types and variants
 
-- For every kind other than `End`, the body is a complete Graven format v1 envelope
-  (`"GRVN"`, `format_version = 1`, flags/reserved `0`, 64-bit `schema_id`, 32-bit
-  `payload_len`, `payload_len` message bytes, and 32-bit CRC32C trailer).
-- An `End` frame has no body (`M = 0`) and MUST have `variant = 0`.
-- Frames are self-delimiting: an `End` frame is `16` bytes, and any other frame is
-  `16 + 24 + payload_len` bytes. Multiple frames MAY be concatenated back-to-back on a
-  byte stream.
-- When a method's input `I`, output `T`, or error `E` is declared as a **union**, the
-  frame header's `variant` holds the chosen union tag (`u16`), and the body envelope
-  carries that variant's table (with the variant table's `schema_id`). When the declared
-  type is a table (including `Fault`), `variant` MUST be written as `0`.
-- Unknown union tags read cleanly on upgrade: a reader that does not recognize `variant`
-  treats it as `Unknown(variant)` without failing frame decoding.
-- Reply frames (`Ok`, `Err`, `Item`, `End`, `Fault`) echo the `service_id` and `method`
-  of the `Call` frame they answer.
+- The message is a bare format v1 message: no envelope, no `schema_id`. Its type follows
+  from the method (and, for a reply, from the frame kind): the caller knows which method it
+  called, and the server reads `method` and `service_id` from the `Call`.
+- When the type is a **union**, `variant` holds the chosen tag and the message is that
+  variant's table. When the type is a table (including `Fault`), `variant` MUST be `0`. An
+  `End` frame has `variant = 0` and `len = 0`.
+- A reader that does not recognize a union tag reads the message as `Unknown(variant)`
+  without failing.
+- Reply frames do not repeat `method` or `service_id`: a reply belongs to the call it
+  answers, and the transport carries one call's replies.
+- Frames are self-delimiting and MAY be concatenated back-to-back on a byte stream.
 
 ---
 
@@ -103,27 +112,21 @@ No frame may follow `Ok`, `Err`, `End`, or `Fault` for a given call.
 A frame decoder MUST perform the following checks in exact order on `buf` and stop at the
 first failure:
 
-1. If `buf.len() < 16`, fail with `Incomplete { needed: 16 }`.
-2. If `buf[0] != 1`, fail with `UnsupportedFrameVersion(buf[0])`.
-3. If `buf[1]` is not in `1..=6`, fail with `BadKind(buf[1])`.
-4. Read `variant = le_u16(buf[4..6])` and `reserved = le_u16(buf[6..8])`.
-   If `reserved != 0`, or `(kind == End && variant != 0)`, fail with `BadFrameHeader`.
-5. If `kind == End`, decoding succeeds immediately with total frame length `16` and an
-   empty body.
-   Otherwise, decode the body starting at `&buf[16..]` as a Graven format v1 envelope
-   ([spec §8.4](graven-format-v1.md)):
-   - If envelope decoding reports `Incomplete { needed: n }`, fail with
-     `Incomplete { needed: 16 + n }` (saturating on overflow).
-   - If envelope decoding reports any other error (`BadMagic`, `UnsupportedVersion`,
-     `BadHeader`, `ChecksumMismatch`), fail with that envelope error.
-   - Otherwise, decoding succeeds with total frame length `16 + env.len()`.
+1. If `buf.len() < 7`, fail with `Incomplete { needed: 7 }`.
+2. Let `version = buf[0] >> 4`. If `version != 1`, fail with
+   `UnsupportedFrameVersion(version)`.
+3. Let `kind = buf[0] & 0x0f`. If `kind` is not in `1..=6`, fail with `BadKind(kind)`.
+4. Read `variant` (`buf[1..3]`) and `len` (`buf[3..7]`). If `len > 2^31 - 1`, or
+   `kind == End` with `variant != 0` or `len != 0`, fail with `BadFrameHeader`.
+5. Let `h = 17` for `Call`, `7` otherwise. If `buf.len() < h + len`, fail with
+   `Incomplete { needed: h + len }`.
 
-Bytes after `frame.len()` belong to the next frame and MUST be ignored by the single-frame
-decoder.
+The frame is then `h + len` bytes, its message `buf[h .. h + len]`. Bytes after the frame
+belong to the next frame and MUST be ignored by the single-frame decoder.
 
-Checking that `service_id`, `method`, `variant`, and the envelope's `schema_id` match a
-particular service schema is the responsibility of generated service code (and produces
-application-level rejections / `Fault`), not of the frame decoder.
+Checking the message (`verify` against the type of the method, the variant, the service and
+the method of a `Call`) is the job of generated service code, which rejects a bad call with a
+`Fault` (§5), not of the frame decoder.
 
 ---
 
@@ -161,16 +164,12 @@ table Fault {
 }
 ```
 
-- `Fault`'s envelope `schema_id` is `schema_id("graven.rpc.Fault")` (64-bit FNV-1a).
 - New `FaultCode` values may be added in the future; a reader that does not recognize a
   code treats it as `Internal`.
 - `message` is a diagnostic for developers, never text for end users. On `Invalid`, the
   server sends codes only, in `broken`, and leaves `message` absent: the caller turns
   `rule`, `min`, `max` and `reason` into a message in its own user's language.
-- `BrokenRule.min`, `max` and `reason` (@4–@6) were added after the first release of this
-  schema, as optional fields under the rules of format v1 §9. A writer that sets none of them
-  may write `BrokenRule` with the 17-byte fixed part of the first release; readers treat the
-  missing fields as absent either way.
-- On a `Fault` frame, header `variant` MUST be `0`. When rejecting a `Call` whose method
-  could not be determined (or was malformed), `service_id` and `method` from the call's
-  header (when available; otherwise `0`) are echoed in the `Fault` header.
+- On a `Fault` frame, `variant` MUST be `0`.
+- A server that cannot decode a `Call` replies with a `Fault` (`Malformed` or
+  `Unsupported`), unless the call's header says it is for a one-way method: one-way methods
+  never get a reply.

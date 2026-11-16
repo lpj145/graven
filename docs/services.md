@@ -79,11 +79,22 @@ There are two kinds of failure, and a client handles both:
 
 ## The bytes
 
-A call and each part of a reply is a **frame**: a 16-byte header (frame version, kind,
-method, union variant, service id) followed by an ordinary [envelope](spec/graven-format-v1.md#8-envelope)
-holding the message. The envelope's checksum covers the message, and its length makes frames
-self-delimiting, so a streamed reply is its frames one after another on any byte channel.
-The full rules, with their check order, are in [RPC frames v1](spec/graven-rpc-v1.md).
+A message is the same bytes everywhere; what changes is the container around it. On disk it
+goes in an [envelope](spec/graven-format-v1.md#8-envelope), which says what it is and carries
+a checksum, because stored bytes have no context. In a call it goes in a **frame**, which
+carries only what the call does not already know:
+
+- every frame starts with 7 bytes: frame version and kind in one byte, the union variant,
+  and the message's length;
+- a call adds the method and the service id (17 bytes in all); a reply does not repeat them,
+  since it belongs to the call it answers;
+- the message follows, with no envelope. Its type comes from the method.
+
+Frames are self-delimiting, so a streamed reply is its frames one after another on any byte
+channel; a stream item of 15 bytes travels in 22. Frames carry no checksum: they require a
+transport that delivers bytes intact (TLS, a local socket, a queue that checks its records).
+Moving a message between a frame and an envelope never re-encodes it. The full rules, with
+their check order, are in [RPC frames v1](spec/graven-rpc-v1.md).
 
 ## How services evolve
 

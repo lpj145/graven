@@ -83,8 +83,8 @@ read.
 and Deno with no dependency: `gravenc gen --lang js` writes typed readers and writers, and
 reads fields in place from a `fetch` response. It passes the same 42 vectors as Rust. The
 compatibility rules cover the case JSON leaves to discipline: old tabs keep working while
-the server moves ahead. `verify` protects the client from a malformed response, and the
-schema id in the envelope says what arrived. A schema's [services](services.md) generate a
+the server moves ahead. `verify` protects the client from a malformed response, and
+[frames](services.md#the-bytes) cost 7 bytes per reply, so small messages stay small. A schema's [services](services.md) generate a
 typed client, so a page calls the server through one endpoint with typed inputs, outputs
 and errors.
 

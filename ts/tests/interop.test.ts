@@ -210,3 +210,16 @@ describe("Rust <-> TypeScript RPC interop (Inventory)", () => {
     }
   });
 });
+
+// Type-level check (never called): a Sender over `fetch` compiles under `tsc --strict`, with
+// the call passed straight as the request body (TypeScript >= 5.7 types `BodyInit` bytes as
+// ArrayBuffer-backed).
+export const fetchSender: Sender = async (call, timeoutMs) => {
+  const res = await fetch("/rpc", {
+    method: "POST",
+    headers: { "content-type": "application/octet-stream" },
+    body: call,
+    signal: timeoutMs === undefined ? null : AbortSignal.timeout(timeoutMs),
+  });
+  return res.body ?? new Uint8Array(0);
+};

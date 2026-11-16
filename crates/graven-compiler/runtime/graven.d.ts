@@ -95,6 +95,12 @@ export declare class TableRef {
     tables(off: number): TableList | undefined;
     strs(off: number): StrList | undefined;
     bytesList(off: number): BytesList | undefined;
+    /** Verifies a string slot's bounds and UTF-8 and charges `ctx` without allocating a JS string. */
+    verifyStr(off: number, ctx: VerifyCtx): void;
+    /** Verifies a bytes slot's bounds and charges `ctx` without allocating a subarray. */
+    verifyBytes(off: number, ctx: VerifyCtx): void;
+    /** Verifies a scalar/enum/struct list slot's bounds and charges `ctx` without allocating `ScalarList`. */
+    verifyScalars(off: number, elemSize: number, ctx: VerifyCtx): void;
 }
 /** View over a serialized `[T]` list of fixed-size scalars, bools, enums, or structs. */
 export declare class ScalarList<T> implements Iterable<T> {
@@ -127,6 +133,7 @@ export declare class StrList implements Iterable<string> {
     readonly length: number;
     constructor(buf: Uint8Array, dv: DataView, slots: number, length: number);
     getBytes(index: number): Uint8Array;
+    _verify(ctx: VerifyCtx, checkUtf8: boolean): void;
     get(index: number): string;
     [Symbol.iterator](): Iterator<string>;
 }
@@ -237,6 +244,7 @@ declare class GrowBuf {
     pushBytes(bytes: Uint8Array): void;
     pushU32(value: number): void;
     pushU16(value: number): void;
+    pushStrWithLen(s: string): void;
     copySlice(start: number, end: number): Uint8Array;
     clear(): void;
 }
@@ -253,6 +261,10 @@ export declare class Builder {
     private pendingClose;
     constructor(initialCapacity?: number);
     root(fixedLen: number): TableW;
+    _startRpc(): void;
+    get _capacity(): number;
+    _reset(): void;
+    _finishRpcCall(serviceIdVal: bigint, method: number, variant: number): OwnedBytes;
     private flushPending;
     /** Returns the current bare message (throws `TooLarge` if > `i32::MAX`). */
     finish(): Uint8Array;
@@ -266,6 +278,12 @@ export declare class Builder {
     takeFrames(): Uint8Array;
     private closeEnvelope;
 }
+/**
+ * Runs `fn` with a builder reused across calls (used by the generated `toBytes` and by RPC
+ * calls), so writing a message does not start from an empty buffer every time. `fn` must
+ * return bytes it copied out (`finish*`). A nested call gets a fresh builder.
+ */
+export declare function withBuilder<R>(fn: (b: Builder) => R): R;
 /** Writer for one table's fixed and variable fields. */
 export declare class TableW {
     readonly main: GrowBuf;
@@ -316,12 +334,17 @@ export declare class StreamListW {
     push(): TableW;
     close(): void;
 }
-/** Streaming scalar list writer; updates count on every `push()`. */
+/**
+ * Streaming scalar list writer; updates count on every `push()`. Its elements are appended to
+ * the message, so every `push()` must come before any other variable-size field is written.
+ */
 export declare class ScalarListW<T> {
     private readonly main;
     private readonly pos;
     private readonly codec;
     private count;
+    /** Where the next element goes; anything else written there breaks the list. */
+    private end;
     constructor(main: GrowBuf, pos: number, codec: LeCodec<T>);
     push(value: T): this;
     close(): void;
@@ -371,7 +394,10 @@ export declare class ValidationError extends Error {
     constructor(failure: ValidationFailure);
 }
 export declare const FRAME_VERSION = 1;
-export declare const FRAME_HEADER_LEN = 16;
+/** Header every frame starts with. */
+export declare const FRAME_HEADER_LEN = 7;
+/** Header of a `Call` frame: `FRAME_HEADER_LEN` plus method and service id. */
+export declare const CALL_HEADER_LEN = 17;
 export declare const FrameKind: {
     readonly Call: 1;
     readonly Ok: 2;
@@ -393,21 +419,25 @@ export declare const FaultCode: {
 };
 export declare const BROKEN_RULE_SCHEMA_ID: bigint;
 export declare const FAULT_SCHEMA_ID: bigint;
+/**
+ * Header of an RPC frame. `method` and `serviceId` are on the wire only for a `Call`; a reply
+ * belongs to the call it answers, and decodes them as `0` / `0n`.
+ */
 export interface FrameHeader {
     readonly kind: FrameKind;
-    readonly method: number;
     readonly variant: number;
+    readonly method: number;
     readonly serviceId: bigint;
 }
 export interface Frame {
     readonly header: FrameHeader;
-    /** Envelope `schemaId`, or `0n` for `FrameKind.End`. */
-    readonly schemaId: bigint;
-    /** Raw Graven message payload inside the envelope, or empty for `FrameKind.End`. */
+    /** The format v1 message the frame carries (empty for `End`), not yet verified. */
     readonly payload: Uint8Array;
-    /** Total frame byte length (`16` for `End`, or `16 + 24 + payload.length`). */
+    /** Total frame byte length: header plus message. */
     readonly totalLen: number;
 }
+/** Header length of a frame of `kind`. */
+export declare function frameHeaderLen(kind: FrameKind): number;
 export interface BrokenRule {
     readonly tableName: string;
     readonly field?: string;
@@ -426,18 +456,23 @@ export interface FaultData {
     readonly message?: string;
     readonly broken?: BrokenRule;
 }
-/** Encodes a single RPC v1 frame. */
-export declare function encodeFrame(header: FrameHeader, schemaIdVal: bigint, payload: Uint8Array): Uint8Array;
-/** Encodes a 16-byte `End` RPC frame. */
-export declare function encodeEnd(serviceIdVal: bigint, method: number): Uint8Array;
+/** The header of a reply frame (`Ok`, `Err`, `Item`, `End`, `Fault`). */
+export declare function replyHeader(kind: FrameKind, variant?: number): FrameHeader;
+/** The header of a `Call` to `method` of service `serviceId`. */
+export declare function callHeader(serviceIdVal: bigint, method: number, variant?: number): FrameHeader;
+/** Encodes one RPC frame carrying `payload` (a format v1 message). */
+export declare function encodeFrame(header: FrameHeader, payload: Uint8Array): Uint8Array;
+/** Encodes a 7-byte `End` RPC frame. */
+export declare function encodeEnd(): Uint8Array;
 /**
- * Decodes one RPC v1 frame at the start of `buf`, following the normative check order in
- * `docs/spec/graven-rpc-v1.md`:
- * 1. `buf.length < 16` -> `Incomplete { needed: 16 }`
- * 2. `buf[0] !== 1` -> `UnsupportedFrameVersion`
- * 3. `buf[1]` not in `1..=6` -> `BadKind`
- * 4. `reserved !== 0 || (kind === End && variant !== 0)` -> `BadFrameHeader`
- * 5. For `End`, returns `totalLen = 16`. Otherwise decodes `&buf[16..]` as an envelope.
+ * Decodes one RPC frame at the start of `buf`, following the normative check order of
+ * `docs/spec/graven-rpc-v1.md` §4:
+ * 1. `buf.length < 7` -> `Incomplete { needed: 7 }`
+ * 2. version (`buf[0] >> 4`) `!== 1` -> `UnsupportedFrameVersion`
+ * 3. kind (`buf[0] & 0x0f`) not in `1..=6` -> `BadKind`
+ * 4. `len > 2^31 - 1`, or `End` with a variant or a message -> `BadFrameHeader`
+ * 5. `buf.length < headerLen + len` -> `Incomplete { needed: headerLen + len }`
+ * The message is returned as is: verifying it is the caller's job.
  */
 export declare function decodeFrame(buf: Uint8Array): Frame;
 /** Iterates over concatenated RPC frames in `buf`. */
@@ -447,7 +482,7 @@ export declare function decodeFault(payload: Uint8Array): FaultData;
 /** Encodes a raw `graven.rpc.Fault` message payload (no envelope or frame header). */
 export declare function encodeFaultPayload(fault: FaultData): Uint8Array;
 /** Encodes a full `Fault` RPC frame. */
-export declare function encodeFaultFrame(serviceIdVal: bigint, method: number, fault: FaultData): Uint8Array;
+export declare function encodeFaultFrame(fault: FaultData): Uint8Array;
 /** Error thrown when the server replies with a `Fault` frame. */
 export declare class RpcFault extends Error {
     readonly code: number;
@@ -455,7 +490,7 @@ export declare class RpcFault extends Error {
     readonly broken?: BrokenRule;
     constructor(fault: FaultData);
 }
-export type RpcProtocolErrorKind = "Frame" | "Payload" | "EmptyReply" | "UnexpectedKind" | "ServiceMismatch" | "MethodMismatch" | "SchemaMismatch" | "MissingVariant" | "UnexpectedVariant" | "TrailingBytes" | "UnexpectedOneWayReply" | "Truncated";
+export type RpcProtocolErrorKind = "Frame" | "Payload" | "EmptyReply" | "UnexpectedKind" | "MissingVariant" | "UnexpectedVariant" | "TrailingBytes" | "UnexpectedOneWayReply" | "Truncated" | "TooLarge";
 export interface RpcProtocolErrorDetails {
     readonly causeError?: GravenError;
     readonly frameKind?: number;
@@ -475,11 +510,28 @@ export declare class RpcProtocolError extends Error {
     readonly trailing?: number;
     constructor(kind: RpcProtocolErrorKind, details?: RpcProtocolErrorDetails);
 }
+/** Default `CallOptions.maxFrameBytes`: 16 MiB. */
+export declare const DEFAULT_MAX_FRAME_BYTES: number;
 export interface CallOptions {
     timeoutMs?: number;
+    /**
+     * Largest reply frame accepted, in bytes (default `DEFAULT_MAX_FRAME_BYTES`). A larger
+     * frame fails with `RpcProtocolError("TooLarge")` as soon as its header announces it,
+     * without buffering it. In a stream it limits each frame, not the whole stream.
+     */
+    maxFrameBytes?: number;
 }
 export type ReplyStreamInput = Uint8Array | ReadableStream<Uint8Array> | AsyncIterable<Uint8Array>;
-export type Sender = (call: Uint8Array, timeoutMs: number | undefined) => Promise<ReplyStreamInput>;
+/**
+ * Bytes backed by a plain `ArrayBuffer`, as `fetch` (`body`), `WebSocket.send` and `Blob`
+ * accept them under TypeScript 5.7 and later. With an older TypeScript it is `Uint8Array`.
+ */
+export type OwnedBytes = ReturnType<Uint8Array["slice"]>;
+/**
+ * Sends one call and returns its reply. `call` is a complete frame in its own buffer, so it
+ * can be passed straight to `fetch`, a WebSocket or a queue.
+ */
+export type Sender = (call: OwnedBytes, timeoutMs: number | undefined) => Promise<ReplyStreamInput>;
 export type RpcResult<T, E> = {
     readonly ok: true;
     readonly value: T;
@@ -490,13 +542,15 @@ export type RpcResult<T, E> = {
 export interface RpcCodec<W, V> {
     encode(fn: (w: W) => void): {
         readonly variant: number;
-        readonly schemaId: bigint;
         readonly payload: Uint8Array;
     };
-    verify(variant: number, schemaIdVal: bigint, payload: Uint8Array): V;
+    encodeTo?(b: Builder, fn: (w: W) => void): {
+        readonly variant: number;
+    };
+    verify(variant: number, payload: Uint8Array): V;
 }
-export declare function rpcVerifyTable<V>(variant: number, foundSchemaId: bigint, payload: Uint8Array, expectedSchemaId: bigint, verifyFn: (buf: Uint8Array) => V): V;
-export declare function encodeCallFrame<W, V>(codec: RpcCodec<W, V>, serviceIdVal: bigint, method: number, fn: (w: W) => void): Uint8Array;
+export declare function rpcVerifyTable<V>(variant: number, payload: Uint8Array, verifyFn: (buf: Uint8Array) => V): V;
+export declare function encodeCallFrame<W, V>(codec: RpcCodec<W, V>, serviceIdVal: bigint, method: number, fn: (w: W) => void): OwnedBytes;
 export declare function rpcOneWay<IW, IV>(send: Sender, inCodec: RpcCodec<IW, IV>, serviceIdVal: bigint, method: number, fn: (w: IW) => void, opts?: CallOptions): Promise<void>;
 export declare function rpcUnary<IW, IV, OW, OV>(send: Sender, inCodec: RpcCodec<IW, IV>, outCodec: RpcCodec<OW, OV>, serviceIdVal: bigint, method: number, defaultTimeoutMs: number | undefined, fn: (w: IW) => void, opts?: CallOptions): Promise<OV>;
 export declare function rpcUnaryResult<IW, IV, OW, OV, EW, EV>(send: Sender, inCodec: RpcCodec<IW, IV>, outCodec: RpcCodec<OW, OV>, errCodec: RpcCodec<EW, EV>, serviceIdVal: bigint, method: number, defaultTimeoutMs: number | undefined, fn: (w: IW) => void, opts?: CallOptions): Promise<RpcResult<OV, EV>>;

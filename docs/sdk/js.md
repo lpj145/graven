@@ -70,7 +70,7 @@ for (const e of tx.entries()) {
 - **Untrusted input:** `X.fromBytes(envelope)` checks envelope header, `schemaId`, and CRC32C, verifies the message, and returns `XVerified`. `X.verified(buf)` / `X.verifiedWith(buf, ctx)` do the same for bare messages.
 - **Lazy reads:** `X.read(buf)` returns a checked reader without full traversal; optional fields return `undefined` when absent.
 - **Errors:** malformed messages throw `GravenError` whose `.kind` matches [format v1 §7.6](../spec/graven-format-v1.md#76-error-vocabulary) (`"OutOfBounds"`, `"InvalidUtf8"`, `"Missing"`, `"ChecksumMismatch"`, etc.).
-- **Writing:** `XW.toBytes(fn)` returns an enveloped `Uint8Array`. For batches, `XW.seal(builder, fn)` appends enveloped frames and `builder.takeFrames()` returns them. Nested tables return their writer (`w.child().x(1)`); unions expose `<field>_<Variant>()` (`w.choice_Leaf()`); lists accept a known count (`w.items(n)`, calling `.close()` when done) or stream via `w.items_streaming()`. Output matches the Rust canonical writer byte for byte.
+- **Writing:** `XW.toBytes(fn)` returns an enveloped `Uint8Array`. For batches, `XW.seal(builder, fn)` appends enveloped frames and `builder.takeFrames()` returns them. Nested tables return their writer (`w.child().x(1)`); unions expose `<field>_<Variant>()` (`w.choice_Leaf()`); lists accept a known count (`w.items(n)`, calling `.close()` when done) or stream via `w.items_streaming()` (a streamed list of scalars must get all its `push()` calls before any other string, bytes or list field is written; otherwise `push()` throws). Output matches the Rust canonical writer byte for byte.
 
 ## Validation
 
@@ -134,10 +134,14 @@ for await (const p of await inv.list((w) => w.prefix("cafe"))) {
 
 // Per-call timeout override (otherwise uses the schema's declared timeoutMs):
 await inv.get((w) => w.sku("cafe-500g"), { timeoutMs: 100 });
+
+// Largest reply frame accepted (default DEFAULT_MAX_FRAME_BYTES, 16 MiB); in a stream it
+// limits each frame. A frame announced larger fails before it is buffered.
+await inv.get((w) => w.sku("cafe-500g"), { maxFrameBytes: 1 << 20 });
 ```
 
 - **Protocol faults:** throws `RpcFault` with `code` (`FaultCode`), `faultMessage` (optional diagnostic string; absent on `Invalid`), `message` (`Error.message`), and `broken` (`BrokenRule` on `Invalid` faults: `tableName`, `field?`, `index?`, `rule`, `min?`, `max?`, `reason?`, the same codes as a `ValidationFailure`).
-- **Protocol violations:** throws `RpcProtocolError` (`EmptyReply`, `Truncated`, `ServiceMismatch`, `MethodMismatch`, `SchemaMismatch`, `TrailingBytes`, etc.). Transport errors thrown by `Sender` propagate untouched.
+- **Protocol violations:** throws `RpcProtocolError` (`EmptyReply`, `Truncated`, `TooLarge`, `TrailingBytes`, `UnexpectedKind`, etc.). Transport errors thrown by `Sender` propagate untouched.
 - **Metadata:** `<SERVICE>_SERVICE_ID` (`bigint`) and frozen `<service>_timeouts.<METHOD>_MS`.
 
 ## API reference and verification
@@ -169,4 +173,4 @@ await inv.get((w) => w.sku("cafe-500g"), { timeoutMs: 100 });
 ./scripts/ts.sh
 ```
 
-This recompiles `crates/graven-compiler/runtime/graven.ts` (and fails if committed `graven.js`/`graven.d.ts` differ), generates bindings for all test schemas, compiles TypeScript suites under `tsc --strict`, checks with the TS AST parser that every `.d.ts` matches its `.js` exports/members, tests plain `.mjs` usage with no build step, and runs all 42 v1 vectors, canonical write parity, 18 RPC v1 vector pairs, validation, and live Rust ↔ JS stdio RPC interoperability.
+This recompiles `crates/graven-compiler/runtime/graven.ts` (and fails if committed `graven.js`/`graven.d.ts` differ), generates bindings for all test schemas, compiles TypeScript suites under `tsc --strict`, checks with the TS AST parser that every `.d.ts` matches its `.js` exports/members, tests plain `.mjs` usage with no build step, and runs all 42 v1 vectors, canonical write parity, 23 RPC v1 vectors, validation, and live Rust ↔ JS stdio RPC interoperability.

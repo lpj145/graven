@@ -16,7 +16,7 @@ for f in crates/graven-schemas/schemas/evo/*.graven; do target/debug/gravenc che
 - the mutation gates (every single-byte mutation of every vector is read identically by
   the interpreter and the generated code);
 - the `bank` v1/v2/v3 evolution matrix (`crates/graven-schemas/tests/evolution_matrix.rs`);
-- the frozen RPC frame vectors (`testvectors/rpc-v1/`, 18 vectors), the fault schema's
+- the frozen RPC frame vectors (`testvectors/rpc-v1/`, 23 vectors), the fault schema's
   layout, and the generated service client and server edge talking to each other;
 - the compiler's compatibility corpus, including version chains.
 
@@ -61,6 +61,27 @@ few bytes. That is legal for lazy reads (spec §7.1); `verify` stops it through 
 budget.
 
 Recommendation: before each release, run ≥ 1 h per target (`scripts/fuzz.sh 3600`).
+
+### JavaScript, against the Rust reference
+
+```sh
+scripts/fuzz-js.sh            # 60 s, random seed
+scripts/fuzz-js.sh 600 1234   # 600 s, seed 1234 (replays a run)
+```
+
+`ts/tests/fuzz.ts` mutates the format and RPC vectors and valid service replies, and checks
+each input against `conformance-oracle`, a binary that reports what the Rust reference
+reads:
+
+| part | what it guarantees |
+|---|---|
+| format v1 | reading with the generated JavaScript gives the same value as Rust, or an error when Rust gives one; the envelope errors (§8.4, normative order) are the same |
+| RPC frames v1 | frames and faults decode exactly as in Rust, errors included |
+| client | fed mutated replies, whole or in chunks, the generated client always settles, throws only `RpcFault` or `RpcProtocolError`, and every value it returns reads in full |
+
+Which error a message with several defects gets is not normative (spec §7), so outside the
+envelope only "both reject" is compared. A failing input lands in `ts/fuzz-crashes/`, with
+the seed in its name.
 
 ## Miri (nightly)
 

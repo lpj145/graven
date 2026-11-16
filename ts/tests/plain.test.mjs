@@ -7,9 +7,9 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { Builder, FrameKind, decodeEnvelope, encodeFrame } from "./gen/graven.js";
+import { Builder, FrameKind, encodeFrame, replyHeader } from "./gen/graven.js";
 import { Root, RootW } from "./gen/conformance.js";
-import { INVENTORY_SERVICE_ID, InventoryClient, ItemW } from "./gen/inventory.js";
+import { InventoryClient, ItemW } from "./gen/inventory.js";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const GEN = path.join(HERE, "gen");
@@ -40,8 +40,9 @@ describe("generated JavaScript without TypeScript", () => {
   it("calls a service through the generated client", async () => {
     const client = new InventoryClient(async (_call, timeoutMs) => {
       assert.equal(timeoutMs, 2500);
-      const env = decodeEnvelope(ItemW.toBytes((w) => w.sku("espresso").stock(7)));
-      return encodeFrame({ kind: FrameKind.Ok, method: 1, variant: 0, serviceId: INVENTORY_SERVICE_ID }, env.schemaId, env.payload);
+      const b = new Builder();
+      ItemW.root(b).sku("espresso").stock(7);
+      return encodeFrame(replyHeader(FrameKind.Ok), b.finish());
     });
     const item = await client.get_item((w) => w.sku("espresso"));
     assert.equal(item.sku(), "espresso");

@@ -95,14 +95,14 @@ impl Cx<'_> {
                     #[inline]
                     fn encode_with(
                         f: impl ::core::ops::FnOnce(&mut Self::Writer<'_>),
-                    ) -> ::core::result::Result<(u16, u64, ::graven::rt::Vec<u8>), ::graven::Error> {
+                    ) -> ::core::result::Result<(u16, ::graven::rt::Vec<u8>), ::graven::Error> {
                         let pool = ::graven::rpc::NoPool;
                         let mut b = ::graven::Builder::new(&pool);
                         {
                             let mut w = #tnw::root(&mut b);
                             f(&mut w);
                         }
-                        ::core::result::Result::Ok((0u16, #tn::SCHEMA_ID, b.finished()?.to_vec()))
+                        ::core::result::Result::Ok((0u16, b.finished()?.to_vec()))
                     }
                 }
 
@@ -112,17 +112,10 @@ impl Cx<'_> {
                     #[inline]
                     fn verify_payload(
                         variant: u16,
-                        schema_id: u64,
                         payload: &[u8],
                     ) -> ::core::result::Result<(), ::graven::rpc::ProtocolError> {
                         if variant != 0 {
                             return ::core::result::Result::Err(::graven::rpc::ProtocolError::UnexpectedVariant(variant));
-                        }
-                        if schema_id != #tn::SCHEMA_ID {
-                            return ::core::result::Result::Err(::graven::rpc::ProtocolError::SchemaMismatch {
-                                expected: #tn::SCHEMA_ID,
-                                found: schema_id,
-                            });
                         }
                         #tn::verified(payload)
                             .map(|_| ())
@@ -146,13 +139,12 @@ impl Cx<'_> {
                 .iter()
                 .map(|(vname, tag, tid)| {
                     let mname = ident(&snake(vname));
-                    let vt = self.table_path(*tid, "");
                     let vtw = self.table_path(*tid, "W");
                     let tag_lit = lit_u16(*tag);
                     quote! {
                         #[inline]
                         pub fn #mname(&mut self) -> #vtw<'_> {
-                            self.chosen = ::core::option::Option::Some((#tag_lit, #vt::SCHEMA_ID));
+                            self.chosen = ::core::option::Option::Some(#tag_lit);
                             #vtw::root(self.builder)
                         }
                     }
@@ -166,12 +158,6 @@ impl Cx<'_> {
                     let tag_lit = lit_u16(*tag);
                     quote! {
                         #tag_lit => {
-                            if schema_id != #vt::SCHEMA_ID {
-                                return ::core::result::Result::Err(::graven::rpc::ProtocolError::SchemaMismatch {
-                                    expected: #vt::SCHEMA_ID,
-                                    found: schema_id,
-                                });
-                            }
                             #vt::verified(payload)
                                 .map(|_| ())
                                 .map_err(::graven::rpc::ProtocolError::Payload)
@@ -205,7 +191,7 @@ impl Cx<'_> {
                 #[doc = #u_doc]
                 pub struct #unw<'b> {
                     builder: &'b mut ::graven::Builder<'static>,
-                    chosen: ::core::option::Option<(u16, u64)>,
+                    chosen: ::core::option::Option<u16>,
                 }
 
                 impl<'b> #unw<'b> {
@@ -222,15 +208,15 @@ impl Cx<'_> {
                     #[inline]
                     fn encode_with(
                         f: impl ::core::ops::FnOnce(&mut Self::Writer<'_>),
-                    ) -> ::core::result::Result<(u16, u64, ::graven::rt::Vec<u8>), ::graven::Error> {
+                    ) -> ::core::result::Result<(u16, ::graven::rt::Vec<u8>), ::graven::Error> {
                         static POOL: ::graven::rpc::NoPool = ::graven::rpc::NoPool;
                         let mut b = ::graven::Builder::new(&POOL);
-                        let (variant, sid) = {
+                        let variant = {
                             let mut w = #unw::new(&mut b);
                             f(&mut w);
                             w.chosen.expect("union writer closure must select a variant")
                         };
-                        ::core::result::Result::Ok((variant, sid, b.finished()?.to_vec()))
+                        ::core::result::Result::Ok((variant, b.finished()?.to_vec()))
                     }
                 }
 
@@ -240,7 +226,6 @@ impl Cx<'_> {
                     #[inline]
                     fn verify_payload(
                         variant: u16,
-                        schema_id: u64,
                         payload: &[u8],
                     ) -> ::core::result::Result<(), ::graven::rpc::ProtocolError> {
                         match variant {
@@ -303,7 +288,7 @@ impl Cx<'_> {
         }
     }
 
-    fn decode_input_arm(&self, sid_const: &Ident, m: &Method, validate: bool) -> TokenStream {
+    fn decode_input_arm(&self, m: &Method, validate: bool) -> TokenStream {
         let m_id = lit_u16(m.id);
         let mname = m.name.as_deref().unwrap();
         let evar = format_ident!("{}", pascal(mname));
@@ -317,7 +302,7 @@ impl Cx<'_> {
                 let val_stmt = if validate && table_needs_validate(self.ir, *tid) {
                     quote! {
                         if let ::core::result::Result::Err(e) = v.validate(checks) {
-                            return ::core::result::Result::Err(::graven::rpc::Rejected::from_validate_error(#sid_const, #m_id, #one_way, e));
+                            return ::core::result::Result::Err(::graven::rpc::Rejected::from_validate_error(#one_way, e));
                         }
                     }
                 } else {
@@ -325,15 +310,12 @@ impl Cx<'_> {
                 };
                 quote! {
                     if f.header.variant != 0 {
-                        return ::core::result::Result::Err(::graven::rpc::Rejected::malformed(#sid_const, #m_id, #one_way, "unexpected variant on table input"));
-                    }
-                    if f.schema_id != #tpath::SCHEMA_ID {
-                        return ::core::result::Result::Err(::graven::rpc::Rejected::malformed(#sid_const, #m_id, #one_way, "input schema id mismatch"));
+                        return ::core::result::Result::Err(::graven::rpc::Rejected::malformed(#one_way, "unexpected variant on table input"));
                     }
                     let v = match #tpath::verified(f.payload) {
                         ::core::result::Result::Ok(v) => v,
                         ::core::result::Result::Err(e) => {
-                            return ::core::result::Result::Err(::graven::rpc::Rejected::from_read_error(#sid_const, #m_id, #one_way, e));
+                            return ::core::result::Result::Err(::graven::rpc::Rejected::from_read_error(#one_way, e));
                         }
                     };
                     #val_stmt
@@ -352,7 +334,7 @@ impl Cx<'_> {
                         let val_stmt = if validate && table_needs_validate(self.ir, *tid) {
                             quote! {
                                 if let ::core::result::Result::Err(e) = x.validate(checks) {
-                                    return ::core::result::Result::Err(::graven::rpc::Rejected::from_validate_error(#sid_const, #m_id, #one_way, e));
+                                    return ::core::result::Result::Err(::graven::rpc::Rejected::from_validate_error(#one_way, e));
                                 }
                             }
                         } else {
@@ -360,13 +342,10 @@ impl Cx<'_> {
                         };
                         quote! {
                             #tag_lit => {
-                                if f.schema_id != #vt::SCHEMA_ID {
-                                    return ::core::result::Result::Err(::graven::rpc::Rejected::malformed(#sid_const, #m_id, #one_way, "union variant schema id mismatch"));
-                                }
                                 let x = match #vt::verified(f.payload) {
                                     ::core::result::Result::Ok(x) => x,
                                     ::core::result::Result::Err(e) => {
-                                        return ::core::result::Result::Err(::graven::rpc::Rejected::from_read_error(#sid_const, #m_id, #one_way, e));
+                                        return ::core::result::Result::Err(::graven::rpc::Rejected::from_read_error(#one_way, e));
                                     }
                                 };
                                 #val_stmt
@@ -378,7 +357,7 @@ impl Cx<'_> {
                 quote! {
                     let v = match f.header.variant {
                         0 => {
-                            return ::core::result::Result::Err(::graven::rpc::Rejected::malformed(#sid_const, #m_id, #one_way, "missing union variant"));
+                            return ::core::result::Result::Err(::graven::rpc::Rejected::malformed(#one_way, "missing union variant"));
                         }
                         #(#var_arms)*
                         tag => #upv::Unknown(tag),
@@ -390,8 +369,8 @@ impl Cx<'_> {
 
         let construct = match shape {
             MethodShape::OneWay => quote!(Self::#evar(v)),
-            MethodShape::Unary => quote!(Self::#evar(v, ::graven::rpc::Reply::new(#sid_const, #m_id))),
-            MethodShape::Stream => quote!(Self::#evar(v, ::graven::rpc::StreamReply::new(#sid_const, #m_id))),
+            MethodShape::Unary => quote!(Self::#evar(v, ::graven::rpc::Reply::new())),
+            MethodShape::Stream => quote!(Self::#evar(v, ::graven::rpc::StreamReply::new())),
         };
         quote! {
             #m_id => {
@@ -435,9 +414,9 @@ impl Cx<'_> {
         let one_way: Vec<Literal> =
             active.iter().filter(|m| m.shape == Some(MethodShape::OneWay)).map(|m| lit_u16(m.id)).collect();
         let one_way_ids = quote!(&[#(#one_way),*]);
-        let decode_arms: Vec<TokenStream> = active.iter().map(|m| self.decode_input_arm(&sid_const, m, false)).collect();
+        let decode_arms: Vec<TokenStream> = active.iter().map(|m| self.decode_input_arm(m, false)).collect();
         let decode_val_fn = if has_any_rules(self.ir) {
-            let val_arms: Vec<TokenStream> = active.iter().map(|m| self.decode_input_arm(&sid_const, m, true)).collect();
+            let val_arms: Vec<TokenStream> = active.iter().map(|m| self.decode_input_arm(m, true)).collect();
             quote! {
                 /// Decodes, verifies, and validates one `Call` frame of this service.
                 pub fn decode_validated(frame: &'a [u8], checks: &impl Checks) -> ::core::result::Result<Self, ::graven::rpc::Rejected> {
@@ -447,24 +426,18 @@ impl Cx<'_> {
                     };
                     if f.header.kind != ::graven::rpc::FrameKind::Call {
                         return ::core::result::Result::Err(::graven::rpc::Rejected::malformed(
-                            f.header.service_id,
-                            f.header.method,
                             false,
                             "expected Call frame",
                         ));
                     }
                     if f.header.service_id != #sid_const {
                         return ::core::result::Result::Err(::graven::rpc::Rejected::unsupported(
-                            f.header.service_id,
-                            f.header.method,
                             "unknown service",
                         ));
                     }
                     match f.header.method {
                         #(#val_arms)*
                         _ => ::core::result::Result::Err(::graven::rpc::Rejected::unsupported(
-                            #sid_const,
-                            f.header.method,
                             "unknown method",
                         )),
                     }
@@ -486,22 +459,16 @@ impl Cx<'_> {
                     };
                     if f.header.kind != ::graven::rpc::FrameKind::Call {
                         return ::core::result::Result::Err(::graven::rpc::Rejected::malformed(
-                            f.header.service_id,
-                            f.header.method,
                             false,
                             "expected Call frame",
                         ));
                     }
                     if f.header.service_id != #sid_const {
                         return ::core::result::Result::Err(::graven::rpc::Rejected::unsupported(
-                            f.header.service_id,
-                            f.header.method,
                             "unknown service",
                         ));
                     }
                     ::core::result::Result::Err(::graven::rpc::Rejected::unsupported(
-                        #sid_const,
-                        f.header.method,
                         "unknown method",
                     ))
                 }
@@ -516,24 +483,18 @@ impl Cx<'_> {
                     };
                     if f.header.kind != ::graven::rpc::FrameKind::Call {
                         return ::core::result::Result::Err(::graven::rpc::Rejected::malformed(
-                            f.header.service_id,
-                            f.header.method,
                             false,
                             "expected Call frame",
                         ));
                     }
                     if f.header.service_id != #sid_const {
                         return ::core::result::Result::Err(::graven::rpc::Rejected::unsupported(
-                            f.header.service_id,
-                            f.header.method,
                             "unknown service",
                         ));
                     }
                     match f.header.method {
                         #(#decode_arms)*
                         _ => ::core::result::Result::Err(::graven::rpc::Rejected::unsupported(
-                            #sid_const,
-                            f.header.method,
                             "unknown method",
                         )),
                     }
@@ -631,7 +592,7 @@ impl Cx<'_> {
                                     ) -> ::core::result::Result<::graven::rpc::Response<#out_marker>, ::graven::rpc::CallError<::graven::rpc::Response<#err_marker>, T::Error>> {
                                         let frame = ::graven::rpc::encode_call_frame::<#in_marker>(#sid_const, #m_id, f);
                                         let reply = self.send.send(frame, timeout_ms).await.map_err(::graven::rpc::CallError::Send)?;
-                                        ::graven::rpc::decode_unary::<#out_marker, #err_marker, T::Error>(#sid_const, #m_id, reply)
+                                        ::graven::rpc::decode_unary::<#out_marker, #err_marker, T::Error>(reply)
                                     }
                                 }
                             }
@@ -652,7 +613,7 @@ impl Cx<'_> {
                                 ) -> ::core::result::Result<::graven::rpc::Response<#out_marker>, ::graven::rpc::CallError<(), T::Error>> {
                                     let frame = ::graven::rpc::encode_call_frame::<#in_marker>(#sid_const, #m_id, f);
                                     let reply = self.send.send(frame, timeout_ms).await.map_err(::graven::rpc::CallError::Send)?;
-                                    ::graven::rpc::decode_unary_ok::<#out_marker, T::Error>(#sid_const, #m_id, reply)
+                                    ::graven::rpc::decode_unary_ok::<#out_marker, T::Error>(reply)
                                 }
                             },
                         }
@@ -679,7 +640,7 @@ impl Cx<'_> {
                                     ) -> ::core::result::Result<::graven::rpc::StreamResponse<#out_marker, impl ::graven::rpc::ReplyStream<Error = T::Error> + '_>, ::graven::rpc::CallError<::graven::rpc::Response<#err_marker>, T::Error>> {
                                         let frame = ::graven::rpc::encode_call_frame::<#in_marker>(#sid_const, #m_id, f);
                                         let reply = self.send.send_stream(frame, timeout_ms).await.map_err(::graven::rpc::CallError::Send)?;
-                                        ::graven::rpc::decode_stream_start::<#out_marker, #err_marker, _>(#sid_const, #m_id, reply).await
+                                        ::graven::rpc::decode_stream_start::<#out_marker, #err_marker, _>(reply).await
                                     }
                                 }
                             }
@@ -700,7 +661,7 @@ impl Cx<'_> {
                                 ) -> ::core::result::Result<::graven::rpc::StreamResponse<#out_marker, impl ::graven::rpc::ReplyStream<Error = T::Error> + '_>, ::graven::rpc::CallError<(), T::Error>> {
                                     let frame = ::graven::rpc::encode_call_frame::<#in_marker>(#sid_const, #m_id, f);
                                     let reply = self.send.send_stream(frame, timeout_ms).await.map_err(::graven::rpc::CallError::Send)?;
-                                    ::graven::rpc::decode_stream_ok::<#out_marker, _>(#sid_const, #m_id, reply).await
+                                    ::graven::rpc::decode_stream_ok::<#out_marker, _>(reply).await
                                 }
                             },
                         }

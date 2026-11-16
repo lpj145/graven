@@ -2,11 +2,8 @@
   "frames": [
     {
       "kind": 5,
-      "method": 2,
       "variant": 0,
-      "service_id": "0x7708675a6f01f170",
-      "schema_id": "0x0000000000000000",
-      "payload_len": 0
+      "message": ""
     }
   ]
 }

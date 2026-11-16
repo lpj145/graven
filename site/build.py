@@ -8,6 +8,7 @@ Each translation replaces exact English fragments of index.html; a fragment that
 longer found fails the build, so the English page and its translations cannot drift apart
 silently. The specification and the technical docs stay in English (the normative text).
 """
+import hashlib
 import os
 import re
 import shutil
@@ -15,6 +16,9 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SRC = open(os.path.join(HERE, "index.html"), encoding="utf8").read()
+# Cache busting: the stylesheet URL changes whenever the stylesheet does.
+CSS_V = hashlib.sha256(open(os.path.join(HERE, "assets", "site.css"), "rb").read()).hexdigest()[:10]
+SRC = SRC.replace('href="assets/site.css"', f'href="assets/site.css?v={CSS_V}"')
 
 COMMON = [  # shared by every translation: paths one level down
     ('href="docs/', 'href="../docs/'),
@@ -30,559 +34,453 @@ COMMON = [  # shared by every translation: paths one level down
 ]
 
 PT = [
-    ("Inspired by FlatBuffers and Cap'n Proto. We started from their ideas, measured their trade-offs in benchmarks, and kept exploring until we reached this format.", "Inspirado no FlatBuffers e no Cap'n Proto. Partimos das ideias deles, medimos seus trade-offs em benchmarks e seguimos explorando até chegar a este formato."),
-    (">How we got here</a>", ">Como chegamos aqui</a>"),
     ('<html lang="en">', '<html lang="pt-BR">'),
     ('<title>Graven — an open specification for a zero-copy binary format</title>',
      '<title>Graven — uma especificação aberta para um formato binário zero-copy</title>'),
-    ('content="Graven is an open specification for a zero-copy binary format and its schema language, with frozen conformance vectors and a reference implementation in Rust."',
-     'content="Graven é uma especificação aberta para um formato binário zero-copy e sua linguagem de schema, com vetores de conformidade congelados e uma implementação de referência em Rust."'),
+    ('content="Graven is an open specification for a zero-copy binary format and its schema language, with frozen conformance vectors and implementations in Rust and JavaScript."',
+     'content="Graven é uma especificação aberta para um formato binário zero-copy e sua linguagem de schema, com vetores de conformidade congelados e implementações em Rust e JavaScript."'),
     ('Skip to content', 'Pular para o conteúdo'),
     ('aria-label="Graven home"', 'aria-label="Página inicial do Graven"'),
-    ('>Specification</a>', '>Especificação</a>'),
-    ('>Schema language</a>', '>Linguagem de schema</a>'),
-    ('>Docs</a>', '>Documentação</a>'),
-    ('>Implementations</a>', '>Implementações</a>'),
-    ('<a href="../pt-br/" hreflang="pt-BR" lang="pt-BR">Português</a>', '<a href="./" hreflang="pt-BR" lang="pt-BR" aria-current="page">Português</a>'),
-    ('<h1>A binary format for data that has to last.</h1>', '<h1>Um formato binário para dados que precisam durar.</h1>'),
-    ('''Graven is an open specification for a zero-copy serialization format and its schema language.
-        Messages are read in place, straight from the buffer. The format is frozen and fully specified, and its
-        conformance vectors let an implementation in any language prove that it reads every message correctly.''',
-     '''Graven é uma especificação aberta para um formato de serialização zero-copy e sua linguagem de schema.
-        As mensagens são lidas no lugar, direto do buffer. O formato está congelado e totalmente especificado, e seus
-        vetores de conformidade permitem que uma implementação em qualquer linguagem prove que lê cada mensagem corretamente.'''),
-    ('>Read the specification</a>', '>Ler a especificação</a>'),
-    ('Format v1 is frozen. Reference implementation in Rust. MIT licensed.',
-     'Formato v1 congelado. Implementação de referência em Rust. Licença MIT.</p>\n      <p class="note">A especificação e a documentação técnica estão em inglês.'),
-    ('One message, byte by byte', 'Uma mensagem, byte a byte'),
-    ('aria-label="The 59 bytes of an enveloped Entry message"', 'aria-label="Os 59 bytes de uma mensagem Entry com envelope"'),
-    ('aria-label="Fields"', 'aria-label="Campos"'),
-    ('<h2>Built for data that outlives the code that wrote it</h2>', '<h2>Feito para dados que duram mais que o código que os escreveu</h2>'),
-    ('''Business data is written once and read for years: by the next release, by a service that upgrades
-        later, by an audit long after the original team has moved on. Graven is designed around that reality.''',
-     '''Dados de negócio são escritos uma vez e lidos por anos: pela próxima versão, por um serviço que só atualiza
-        depois, por uma auditoria muito tempo após a equipe original ter seguido em frente. O Graven foi pensado para essa realidade.'''),
-    ('<dt>Read in place</dt>', '<dt>Leitura no lugar</dt>'),
-    ('''Fields are read directly from the bytes. Strings and byte slices borrow from the buffer, so reading a
-          large record costs nothing until you touch a field.''',
-     '''Os campos são lidos direto dos bytes. Strings e fatias de bytes são emprestadas do buffer, então ler um
-          registro grande não custa nada até você tocar num campo.'''),
-    ('<dt>Evolve without guessing</dt>', '<dt>Evoluir sem adivinhar</dt>'),
-    ('''A lockfile records every layout. The compiler refuses changes that would make old and new code
-          disagree, and asks for explicit confirmation before anything breaks an older reader.''',
-     '''Um lockfile registra cada layout. O compilador recusa mudanças que fariam código antigo e novo
-          discordarem, e pede confirmação explícita antes de qualquer coisa quebrar um leitor antigo.'''),
-    ('<dt>Untrusted bytes are safe to open</dt>', '<dt>Bytes não confiáveis podem ser abertos com segurança</dt>'),
-    ('''A single <code>verify</code> pass walks the whole message under fixed depth and work limits. After
-          that, a verified view reads without re-checking, and malformed input can only ever produce an error.''',
-     '''Uma única passada de <code>verify</code> percorre a mensagem inteira com limites fixos de profundidade e de trabalho.
-          Depois disso, a view verificada lê sem checar de novo, e entrada malformada só consegue produzir um erro.'''),
-    ('<dt>Know what happened to a file</dt>', '<dt>Saber o que aconteceu com um arquivo</dt>'),
-    ('''The optional envelope carries a schema id and a CRC32C. A write cut short by a crash is reported as
-          incomplete; a flipped bit is reported as corruption. They are never confused.''',
-     '''O envelope opcional carrega um schema id e um CRC32C. Uma escrita interrompida por uma queda é reportada como
-          incompleta; um bit trocado é reportado como corrupção. Os dois nunca se confundem.'''),
-    ('<h2>How the format is kept honest</h2>', '<h2>Como o formato se mantém confiável</h2>'),
-    ('Every claim the specification makes is pinned by something that runs. This is what is checked, and how.',
-     'Cada afirmação da especificação é garantida por algo que roda. Isto é o que é verificado, e como.'),
-    ('<th scope="col">Guarantee</th><th scope="col">How it is checked</th>', '<th scope="col">Garantia</th><th scope="col">Como é verificada</th>'),
-    ('<th scope="row">The wire format does not drift</th>', '<th scope="row">O formato não muda por acidente</th>'),
-    ('''A normative specification (RFC 2119 language) and 42 frozen conformance vectors, each a <code>.bin</code>
-            with its expected result. The reference writer must reproduce the canonical vectors byte for byte.''',
-     '''Uma especificação normativa (linguagem RFC 2119) e 42 vetores de conformidade congelados, cada um um <code>.bin</code>
-            com seu resultado esperado. O writer de referência precisa reproduzir os vetores canônicos byte a byte.'''),
-    ('<th scope="row">Two implementations agree</th>', '<th scope="row">Duas implementações concordam</th>'),
-    ('''Within the reference implementation, an independent interpreter driven by the schema as data and the
-            generated code read every vector and every single-byte mutation of it. They must accept, reject and decode
-            identically. Every new implementation is held to the same vectors.''',
-     '''Dentro da implementação de referência, um interpretador independente guiado pelo schema como dado e o
-            código gerado leem cada vetor e cada mutação de um byte dele. Os dois precisam aceitar, recusar e decodificar
-            da mesma forma. Toda nova implementação é cobrada pelos mesmos vetores.'''),
-    ('<th scope="row">Hostile input stays bounded</th>', '<th scope="row">Entrada hostil fica limitada</th>'),
-    ('''limits depth to 64 and total work to <code>max(len × 8, 1 MiB)</code>, so cycles and
-            shared-data amplification are rejected. Five fuzz targets ran more than 80 million inputs with overflow
-            checks enabled, with no findings.''',
-     '''limita a profundidade a 64 e o trabalho total a <code>max(len × 8, 1 MiB)</code>, então ciclos e
-            amplificação por dados compartilhados são recusados. Cinco alvos de fuzzing rodaram mais de 80 milhões de entradas
-            com checagem de overflow ligada, sem nenhum achado.'''),
-    ('<th scope="row">The unsafe fast path is sound</th>', '<th scope="row">O caminho rápido com unsafe é correto</th>'),
-    ('''In the Rust implementation, the only <code>unsafe</code> code skips UTF-8 revalidation after <code>verify</code>. Its invariants are
-            written down, enforced by a mutation gate, and the runtime and generated code run under Miri with no
-            undefined behaviour reported.''',
-     '''Na implementação em Rust, o único código <code>unsafe</code> pula a revalidação de UTF-8 depois do <code>verify</code>. Suas invariantes
-            estão documentadas, são cobradas por um teste de mutação, e o runtime e o código gerado rodam sob o Miri sem
-            nenhum comportamento indefinido reportado.'''),
-    ('<th scope="row">Schema changes cannot corrupt silently</th>', '<th scope="row">Mudanças de schema não corrompem em silêncio</th>'),
-    ('''The compiler compares every change against the lockfile: 15 rules reject changes that would misread
-            old data, 2 warnings require confirmation in the schema. A corpus of version chains tests each rule.''',
-     '''O compilador compara cada mudança com o lockfile: 15 regras recusam mudanças que leriam dados antigos
-            errado, e 2 avisos exigem confirmação no schema. Um corpus de cadeias de versões testa cada regra.'''),
-    ('<th scope="row">Crashes and corruption are told apart</th>', '<th scope="row">Queda e corrupção são diferenciadas</th>'),
-    ('''The envelope's check order is normative, so a truncated tail and a damaged record produce different,
-            predictable errors on every implementation.''',
-     '''A ordem de checagem do envelope é normativa, então um final truncado e um registro danificado produzem erros
-            diferentes e previsíveis em todas as implementações.'''),
-    ('<h2>Schema changes are reviewed by the compiler</h2>', '<h2>Mudanças de schema são revisadas pelo compilador</h2>'),
-    ('''Change a type or add a required field, and <code>gravenc update</code> refuses, naming the rule and the line.
-        Add the field with a default instead, and the new lock is written. This is real output.''',
-     '''Mude um tipo ou acrescente um campo obrigatório, e o <code>gravenc update</code> recusa, citando a regra e a linha.
-        Acrescente o campo com um default, e o novo lock é escrito. Esta é a saída real.'''),
-    ('<p class="evo-label">Rejected</p>', '<p class="evo-label">Recusado</p>'),
-    ('<p class="evo-label">Accepted</p>', '<p class="evo-label">Aceito</p>'),
-    ('<h2>What it is for</h2>', '<h2>Para que serve</h2>'),
-    ('Graven fits wherever records are written once, kept for a long time and read by software that changes.',
-     'O Graven se encaixa onde registros são escritos uma vez, guardados por muito tempo e lidos por software que muda.'),
-    ('<dt>Ledgers and event logs</dt>', '<dt>Livros-razão e logs de eventos</dt>'),
-    ('''Append envelopes to a file and never rewrite them. Each record carries its schema id and checksum, a
-          crash leaves a detectably incomplete tail, and reports can scan the file without deserializing it.''',
-     '''Acrescente envelopes a um arquivo e nunca os reescreva. Cada registro carrega seu schema id e checksum, uma
-          queda deixa um final reconhecidamente incompleto, e relatórios podem varrer o arquivo sem desserializá-lo.'''),
-    ('<dt>Service and SDK protocols</dt>', '<dt>Protocolos de serviços e SDKs</dt>'),
-    ('''Route requests by schema id, verify once at the edge and pass the verified view along without copying.
-          The compatibility rules mean an older client keeps working when the server moves ahead.''',
-     '''Roteie requisições pelo schema id, verifique uma vez na entrada e repasse a view verificada sem copiar.
-          As regras de compatibilidade garantem que um cliente antigo continue funcionando quando o servidor avança.'''),
-    ('<dt>Archives and audit trails</dt>', '<dt>Arquivos e trilhas de auditoria</dt>'),
-    ('''A frozen format with public conformance vectors is something you can still decode in ten years, with
-          a different implementation if need be.''',
-     '''Um formato congelado com vetores de conformidade públicos é algo que você ainda consegue decodificar daqui a dez anos,
-          com outra implementação se for preciso.'''),
-    ('<dt>Devices and offline sync</dt>', '<dt>Dispositivos e sincronização offline</dt>'),
-    ('''The format needs no allocator and no alignment, and the Rust runtime is <code>no_std</code> with two
-          dependencies, so the same records can come from point-of-sale terminals and embedded devices that batch
-          them while offline.''',
-     '''O formato não precisa de alocador nem de alinhamento, e o runtime em Rust é <code>no_std</code> com duas
-          dependências, então os mesmos registros podem vir de terminais de ponto de venda e dispositivos embarcados que
-          os acumulam enquanto estão offline.'''),
-    ('<dt>Caches and storage values</dt>', '<dt>Caches e valores armazenados</dt>'),
-    ('Store records in a key-value store and read only the field you need, straight from the stored bytes.',
-     'Guarde registros num banco chave-valor e leia só o campo de que precisa, direto dos bytes armazenados.'),
-    ('<dt>Plugin boundaries</dt>', '<dt>Fronteiras com plugins</dt>'),
-    ('''Exchange buffers with untrusted extensions, for example WebAssembly modules, and let <code>verify</code>
-          protect the host from whatever they send back.''',
-     '''Troque buffers com extensões não confiáveis, como módulos WebAssembly, e deixe o <code>verify</code>
-          proteger o host de qualquer coisa que elas devolvam.'''),
-    ('<h2>Implementations</h2>', '<h2>Implementações</h2>'),
-    ('''The specification is the product; implementations are measured against it. A conforming implementation
-        reads all 42 vectors with exactly the expected result (spec §10).''',
-     '''A especificação é o produto; as implementações são medidas por ela. Uma implementação conforme
-        lê os 42 vetores com exatamente o resultado esperado (spec §10).'''),
-    ('<th scope="col">Language</th><th scope="col">Status</th><th scope="col">What it includes</th>',
-     '<th scope="col">Linguagem</th><th scope="col">Status</th><th scope="col">O que inclui</th>'),
-    ('<td>Reference implementation. Passes all v1 and RPC frame vectors.</td>', '<td>Implementação de referência. Passa em todos os vetores v1 e de frames RPC.</td>'),
-    ('''Runtime (<code>no_std</code>), the <code>gravenc</code> compiler with lockfile and compatibility
-            checks, Rust code generation (client and server edge), and the conformance interpreter.''',
-     '''Runtime (<code>no_std</code>), o compilador <code>gravenc</code> com lockfile e checagem de
-            compatibilidade, geração de código Rust (cliente e borda de servidor) e o interpretador de conformidade.'''),
-    ('>Rust SDK</a>', '>SDK Rust</a>'),
-    ('<td><code>gravenc gen --lang js</code>. Passes all v1 and RPC frame vectors.</td>',
-     '<td><code>gravenc gen --lang js</code>. Passa em todos os vetores v1 e de frames RPC.</td>'),
-    ('''Zero-dependency ES2022 <code>.js</code> modules with TypeScript <code>.d.ts</code> declarations,
-            canonical writers, validation, and RPC clients for browsers, Node, and Deno.''',
-     '''Módulos ES2022 <code>.js</code> sem dependências com declarações TypeScript <code>.d.ts</code>,
-            writers canônicos, validação e clientes RPC para navegadores, Node e Deno.'''),
-    ('>JS / TS SDK</a>', '>SDK JS / TS</a>'),
-    ('>API reference</a>', '>Referência da API</a>'),
-    ('<h3>Writing an implementation</h3>', '<h3>Escrevendo uma implementação</h3>'),
-    ('''Start with the layout algorithm (spec §3.3), the read rules (§4–§6) and <code>verify</code> (§7), then run
-          the <a href="../docs/conformance-vectors.html">conformance vectors</a>. Each vector is a <code>.bin</code> with a
-          <code>.json</code> stating the decoded value or the exact error, and each invalid one has a single defect,
-          so a failure points at one rule.''',
-     '''Comece pelo algoritmo de layout (spec §3.3), pelas regras de leitura (§4–§6) e pelo <code>verify</code> (§7), e então rode
-          os <a href="../docs/conformance-vectors.html">vetores de conformidade</a>. Cada vetor é um <code>.bin</code> com um
-          <code>.json</code> que traz o valor decodificado ou o erro exato, e cada vetor inválido tem um único defeito,
-          então uma falha aponta para uma única regra.'''),
-    ('<h3>Generating code for another language</h3>', '<h3>Gerando código para outra linguagem</h3>'),
-    ('''The schema language and its compatibility rules are language-neutral. The lockfile written by
-          <code>gravenc</code> already records every table's layout, schema id and field presence, which is what a code
-          generator for another language needs to emit readers and writers.''',
-     '''A linguagem de schema e suas regras de compatibilidade não dependem de linguagem. O lockfile escrito pelo
-          <code>gravenc</code> já registra o layout, o schema id e a presença dos campos de cada tabela, que é o que um
-          gerador de código para outra linguagem precisa para emitir leitores e writers.'''),
-    ('<h2>Getting started with Rust</h2>', '<h2>Primeiros passos com Rust</h2>'),
-    ('Using the reference implementation needs only the Rust toolchain.', 'Usar a implementação de referência exige só o toolchain do Rust.'),
-    ('<h3>Install the compiler</h3>', '<h3>Instale o compilador</h3>'),
-    ('<h3>Write a schema and create its lockfile</h3>', '<h3>Escreva um schema e crie seu lockfile</h3>'),
-    ('<h3>Generate code from <code>build.rs</code></h3>', '<h3>Gere o código no <code>build.rs</code></h3>'),
-    ('<h3>Write and read</h3>', '<h3>Escreva e leia</h3>'),
-    ('''The <a href="../docs/getting-started.html">getting started guide</a> and the
-      <a href="../docs/graven-language.html">schema language reference</a> cover the full workflow.''',
-     '''O <a href="../docs/getting-started.html">guia de primeiros passos</a> e a
-      <a href="../docs/graven-language.html">referência da linguagem de schema</a> (em inglês) cobrem o fluxo completo.'''),
-    ('Graven · format v1 · MIT license', 'Graven · formato v1 · licença MIT'),
-    ('aria-label="Footer"', 'aria-label="Rodapé"'),
     ('aria-label="Main"', 'aria-label="Principal"'),
     ('aria-label="Language"', 'aria-label="Idioma"'),
+    ('aria-label="Footer"', 'aria-label="Rodapé"'),
+    ('<a href="#containers">How it works</a>', '<a href="#containers">Como funciona</a>'),
+    ('<a href="#start">Quickstart</a>', '<a href="#start">Começar</a>'),
+    ('>Docs</a>', '>Documentação</a>'),
+    ('<a href="../pt-br/" hreflang="pt-BR" lang="pt-BR">Português</a>',
+     '<a href="./" hreflang="pt-BR" lang="pt-BR" aria-current="page">Português</a>'),
+
+    # Hero
+    ('<p class="eyebrow">Format v1 frozen · Rust &amp; JS / TS · MIT</p>',
+     '<p class="eyebrow">Formato v1 congelado · Rust &amp; JS / TS · MIT</p>'),
+    ('<h1>A binary format built for data that lasts.</h1>',
+     '<h1>Um formato binário feito para dados que duram.</h1>'),
+    ('<p class="lede">Read fields straight from raw bytes with no parsing or allocation. One shared schema and lockfile keep Rust and TypeScript/JavaScript compatible across stored logs and RPC streams.</p>',
+     '<p class="lede">Leia campos direto dos bytes brutos, sem parsing nem alocação. Um schema e lockfile compartilhados mantêm Rust e TypeScript/JavaScript compatíveis em logs em disco e streams RPC.</p>'),
+    ('<a class="btn primary" href="#start">Get started</a>', '<a class="btn primary" href="#start">Primeiros passos</a>'),
+    ('<a class="btn" href="../docs/index.html">Read the docs</a>', '<a class="btn" href="../docs/index.html">Ler a documentação</a>'),
+    ('<p class="hero-meta">Normative <a href="../docs/spec/graven-format-v1.html">format v1 spec</a> · Inspired by FlatBuffers and Cap&#39;n Proto (<a href="../docs/history/index.html">how we got here</a>)</p>',
+     '<p class="hero-meta"><a href="../docs/spec/graven-format-v1.html">Especificação normativa v1</a> · Inspirado no FlatBuffers e Cap&#39;n Proto (<a href="../docs/history/index.html">como chegamos aqui</a>)</p>\n      <p class="note">A especificação e a documentação técnica estão em inglês.</p>'),
+    ('One message, on disk and on the wire', 'Uma mensagem, no disco e na rede'),
+    ('<span class="anatomy-hint">Hover or tap any field</span>', '<span class="anatomy-hint">Passe o cursor ou toque em um campo</span>'),
+    ('aria-label="Where the message is"', 'aria-label="Onde a mensagem está"'),
+    ('aria-label="The 59 bytes of an enveloped Entry message"', 'aria-label="Os 59 bytes de uma mensagem Entry com envelope"'),
+    ('aria-label="Fields"', 'aria-label="Campos"'),
+
+    # Band 1: Why
+    ('<h2>Built for data that outlives the code that wrote it</h2>',
+     '<h2>Feito para dados que vivem mais que o código que os escreveu</h2>'),
+    ('<p>Write records once and keep reading them as services upgrade, storage engines change, and audits run years later.</p>',
+     '<p>Escreva registros uma vez e siga lendo enquanto serviços evoluem, bancos mudam e auditorias rodam anos depois.</p>'),
+    ('<h3>Read in place</h3>', '<h3>Leitura no lugar</h3>'),
+    ('<p>Fields decode directly from byte offsets. Strings and byte slices borrow straight from the buffer, so untouched fields cost zero work.</p>',
+     '<p>Os campos são lidos direto dos offsets nos bytes. Strings e fatias emprestam direto do buffer, então campos não acessados têm custo zero.</p>'),
+    ('<h3>One bounded verify pass</h3>', '<h3>Passada única e limitada de verify</h3>'),
+    ('<p>Untrusted bytes pass through a single <code>verify</code> walk with fixed depth (64) and work limits, returning a trusted view without re-checking on every read.</p>',
+     '<p>Bytes não confiáveis passam por uma única checagem <code>verify</code> com limite fixo de profundidade (64) e trabalho, devolvendo uma view confiável sem revalidar leituras.</p>'),
+    ('<h3>Lockfile-guarded evolution</h3>', '<h3>Evolução protegida por lockfile</h3>'),
+    ('<p><code>gravenc</code> records every layout in a lockfile and rejects schema edits that would make old and new readers disagree.</p>',
+     '<p>O <code>gravenc</code> registra cada layout num lockfile e recusa alterações de schema que fariam leitores antigos e novos discordarem.</p>'),
+    ('<h3>Crash vs. corruption clarity</h3>', '<h3>Diferença clara entre queda e corrupção</h3>'),
+    ('<p>Normative envelope checks distinguish a write cut short by a crash from a flipped bit (CRC32C)—they are never confused.</p>',
+     '<p>As checagens normativas do envelope separam uma escrita cortada por queda de um bit invertido (CRC32C) — os dois nunca se confundem.</p>'),
+    ('<p class="uses-label">Common fits</p>', '<p class="uses-label">Onde se encaixa</p>'),
+    ('<span class="chip">Ledgers &amp; event logs</span>', '<span class="chip">Livros-razão e logs de eventos</span>'),
+    ('<span class="chip">Browser &harr; Rust RPC</span>', '<span class="chip">RPC Browser &harr; Rust</span>'),
+    ('<span class="chip">Offline &amp; embedded sync</span>', '<span class="chip">Sync offline e embarcados</span>'),
+    ('<span class="chip">KV storage &amp; caches</span>', '<span class="chip">Caches e bancos KV</span>'),
+    ('<span class="chip">Long-term archives</span>', '<span class="chip">Arquivos de longo prazo</span>'),
+    ('<span class="chip">Wasm plugin boundaries</span>', '<span class="chip">Fronteiras Wasm</span>'),
+
+    # Band 2: Containers
+    ('<h2>One message, two containers</h2>', '<h2>Uma mensagem, dois contêineres</h2>'),
+    ('<p>The <code>Entry</code> payload is the exact same 35 bytes everywhere. Only its outer container changes between storage and network.</p>',
+     '<p>Os dados de <code>Entry</code> são os exatos mesmos 35 bytes em qualquer lugar. Só muda o contêiner externo entre disco e rede.</p>'),
+    ('<span class="box-name">At rest: the envelope</span>', '<span class="box-name">Em repouso: o envelope</span>'),
+    ('<span class="box-name">In flight: the frame</span>', '<span class="box-name">Em trânsito: o frame</span>'),
+    ('>header 20</span>', '>cabeçalho 20</span>'),
+    ('>message 35</span>', '>mensagem 35</span>'),
+    ('<p>Files, logs, and queues have no call context, so the envelope adds a <code>schema_id</code>, payload length, and CRC32C checksum.</p>',
+     '<p>Arquivos, logs e filas não têm contexto de chamada, então o envelope adiciona <code>schema_id</code>, tamanho e checksum CRC32C.</p>'),
+    ('<p>Over an ordered transport (TLS, sockets), a reply needs only 7 header bytes (kind, variant, length); a call adds method and service id (17 bytes).</p>',
+     '<p>Sobre transporte ordenado (TLS, sockets), uma resposta precisa só de 7 bytes de cabeçalho (tipo, variante, tamanho); chamadas somam método e service id (17 bytes).</p>'),
+    ('<p class="more">Zero re-encoding: a server persists what it received simply by wrapping the same payload slice in an envelope. <a href="../docs/services.html#the-bytes">How frames work</a></p>',
+     '<p class="more">Sem recodificar: o servidor grava o que recebeu apenas envolvendo a mesma fatia de payload num envelope. <a href="../docs/services.html#the-bytes">Como os frames funcionam</a></p>'),
+
+    # Band 3: Services
+    ('<h2>Services from the same schema</h2>', '<h2>Serviços a partir do mesmo schema</h2>'),
+    ('<p>Declare unary methods, typed errors, and streams next to your tables. <code>gravenc</code> emits typed clients for Rust and browsers/Node, plus a <code>no_std</code> Rust server edge.</p>',
+     '<p>Declare métodos unários, erros tipados e streams ao lado das tabelas. O <code>gravenc</code> gera clientes tipados para Rust e browser/Node, além de borda de servidor <code>no_std</code> em Rust.</p>'),
+    ('<p class="evo-label">Typed client</p>', '<p class="evo-label">Cliente tipado</p>'),
+    ('<dt>Errors are part of the type</dt>', '<dt>Erros fazem parte do tipo</dt>'),
+    ('<dd>Declared errors travel as typed unions checked by the compiler; transport and decode faults share one uniform handler.</dd>',
+     '<dd>Erros declarados viajam como uniões tipadas checadas pelo compilador; falhas de transporte e decodificação usam um único handler.</dd>'),
+    ('<dt>Streams yield as frames arrive</dt>', '<dt>Streams entregam conforme chegam</dt>'),
+    ('<dd>Self-delimiting frames deliver each streamed item as soon as its bytes arrive, enforcing configurable size limits.</dd>',
+     '<dd>Frames autodelimitados entregam cada item do stream assim que seus bytes chegam, aplicando limites configuráveis de tamanho.</dd>'),
+    ('<dt>Validation speaks in codes</dt>', '<dt>A validação fala em códigos</dt>'),
+    ('<dd>Broken rules return field, rule, bounds, and check reason codes—never hardcoded server text—ready for client localization.</dd>',
+     '<dd>Regras violadas devolvem códigos de campo, regra, limites e motivo — nunca texto fixo do servidor — prontos para tradução no cliente.</dd>'),
+
+    # Band 4: Evolution
+    ('<h2>Schema changes reviewed before they ship</h2>', '<h2>Mudanças de schema revisadas antes de publicar</h2>'),
+    ('<p>Change a field type or add a required field and <code>gravenc update</code> refuses, citing rule and line. Add a default instead and the lockfile updates cleanly.</p>',
+     '<p>Altere o tipo ou adicione um campo obrigatório e o <code>gravenc update</code> recusa, citando regra e linha. Adicione um valor padrão e o lockfile é atualizado.</p>'),
+    ('<p class="evo-label">Rejected</p>', '<p class="evo-label">Recusado</p>'),
+    ('<p class="evo-label">Accepted</p>', '<p class="evo-label">Aceito</p>'),
+
+    # Band 5: Quickstart
+    ('<h2>Get started</h2>', '<h2>Primeiros passos</h2>'),
+    ('<p>Shared schema and lockfile on disk; native zero-copy bindings in your language.</p>',
+     '<p>Schema e lockfile compartilhados no disco; bindings zero-copy nativos na sua linguagem.</p>'),
+    ('Install the compiler', 'Instale o compilador'),
+    ('Create your schema &amp; lockfile', 'Crie o schema e o lockfile'),
+    ('Generate code, write, and verify in place', 'Gere o código, escreva e verifique no lugar'),
+    ('// Generate with `gravenc gen schemas/bank.graven -o src/gen` (or build.rs)',
+     '// Gere com `gravenc gen schemas/bank.graven -o src/gen` (ou via build.rs)'),
+    ('// checks CRC32C and runs verify', '// confere CRC32C e executa verify'),
+    ('// Generate with `gravenc gen schemas/bank.graven -o src/gen --lang js`',
+     '// Gere com `gravenc gen schemas/bank.graven -o src/gen --lang js`'),
+    ('<p class="more">Continue with the <a href="../docs/getting-started.html">getting started guide</a>, <a href="../docs/coming-from-json.html">coming from JSON</a>, or the <a href="../docs/graven-language.html">schema language reference</a>.</p>',
+     '<p class="more">Continue no <a href="../docs/getting-started.html">guia de primeiros passos</a>, <a href="../docs/coming-from-json.html">vindo do JSON</a> ou na <a href="../docs/graven-language.html">referência da linguagem de schema</a> (em inglês).</p>'),
+
+    # Band 6: Implementations & Verification
+    ('<h2>Implementations &amp; verification</h2>', '<h2>Implementações e verificação</h2>'),
+    ('<p>The specification is the product. Every claim below is pinned by frozen conformance vectors, fuzzing, and automated checks.</p>',
+     '<p>A especificação é o produto. Cada afirmação abaixo é garantida por vetores de conformidade congelados, fuzzing e testes automatizados.</p>'),
+    ('<span class="sdk-badge">Reference · no_std</span>', '<span class="sdk-badge">Referência · no_std</span>'),
+    ('<p><code>no_std</code> + <code>alloc</code> runtime with two dependencies, <code>gravenc</code> compiler and lockfile checks, typed client &amp; server edge codegen, and schema interpreter. Passes all 42 v1 + 23 RPC vectors.</p>',
+     '<p>Runtime <code>no_std</code> + <code>alloc</code> com duas dependências, compilador <code>gravenc</code> com lockfile, codegen tipado de cliente e borda de servidor, e interpretador de schema. Passa em todos os 42 vetores v1 + 23 RPC.</p>'),
+    ('>Rust SDK</a>', '>SDK Rust</a>'),
+    ('>API reference</a>', '>Referência da API</a>'),
+    ('<span class="sdk-badge">Zero dependencies</span>', '<span class="sdk-badge">Zero dependências</span>'),
+    ('<p>ES2022 <code>.js</code> modules + <code>.d.ts</code> types generated by <code>gravenc gen --lang js</code>. Canonical writers, validation codes, and browser/Node/Deno RPC clients. Passes all 42 v1 + 23 RPC vectors.</p>',
+     '<p>Módulos ES2022 <code>.js</code> + tipos <code>.d.ts</code> gerados via <code>gravenc gen --lang js</code>. Writers canônicos, códigos de validação e clientes RPC para browser, Node e Deno. Passa nos 42 vetores v1 + 23 RPC.</p>'),
+    ('>JS / TS SDK</a>', '>SDK JS / TS</a>'),
+    ('>Add another language</a>', '>Adicionar outra linguagem</a>'),
+    ('<th scope="col">Guarantee</th><th scope="col">How it is checked</th>', '<th scope="col">Garantia</th><th scope="col">Como é verificada</th>'),
+    ('<th scope="row">Frozen wire specification</th>', '<th scope="row">Especificação binária congelada</th>'),
+    ('<td>Normative RFC 2119 spec with 42 format v1 vectors and 23 RPC frame vectors. The reference writer reproduces every canonical <code>.bin</code> byte for byte.</td>',
+     '<td>Especificação normativa RFC 2119 com 42 vetores v1 e 23 vetores de frames RPC. O writer de referência reproduz cada <code>.bin</code> canônico byte a byte.</td>'),
+    ('<th scope="row">Cross-implementation agreement</th>', '<th scope="row">Acordo entre implementações</th>'),
+    ('<td>An independent Rust schema interpreter and generated code decode every vector and single-byte mutation identically; the JS runtime is fuzzed against Rust across millions of mutated messages and frames.</td>',
+     '<td>Um interpretador independente em Rust e o código gerado decodificam igual cada vetor e mutação de 1 byte; o runtime JS passa por fuzzing contra o Rust em milhões de mensagens e frames mutados.</td>'),
+    ('<th scope="row">Bounded verification &amp; Miri clean</th>', '<th scope="row">Verificação limitada e limpa no Miri</th>'),
+    ('<td><code>verify</code> caps depth at 64 and work at <code>max(len × 8, 1 MiB)</code>. Five fuzz targets ran &gt;80 million inputs with overflow checks, and the sole <code>unsafe</code> UTF-8 fast path runs clean under Miri.</td>',
+     '<td><code>verify</code> limita profundidade em 64 e trabalho em <code>max(len × 8, 1 MiB)</code>. Cinco alvos de fuzz rodaram &gt;80 milhões de entradas com checagem de overflow, e o único caminho rápido <code>unsafe</code> para UTF-8 passa limpo no Miri.</td>'),
+    ('<th scope="row">Lockfile compatibility enforcement</th>', '<th scope="row">Compatibilidade garantida pelo lockfile</th>'),
+    ('<td>15 hard errors reject breaking layout or method edits and 2 warnings require confirmation, verified over a corpus of multi-version schema chains.</td>',
+     '<td>15 erros rígidos recusam quebras de layout ou método e 2 avisos exigem confirmação, testados contra um corpus de cadeias de versões.</td>'),
+    ('<p class="more">Implementing Graven in another language? Use the compiler&#39;s lockfile layouts and verify against all <a href="../docs/conformance-vectors.html">conformance vectors</a>.</p>',
+     '<p class="more">Implementando Graven em outra linguagem? Use os layouts do lockfile do compilador e valide contra os <a href="../docs/conformance-vectors.html">vetores de conformidade</a>.</p>'),
+
+    # Footer
+    ('Graven · format v1 · MIT license', 'Graven · formato v1 · licença MIT'),
+    ('>Specification</a>', '>Especificação</a>'),
+    ('>Schema language</a>', '>Linguagem de schema</a>'),
+    ('>Services</a>', '>Serviços</a>'),
     ('>Conformance vectors</a>', '>Vetores de conformidade</a>'),
     ('>Rust API</a>', '>API Rust</a>'),
     ('>Testing</a>', '>Testes</a>'),
 ]
 
 ES = [
-    ("Inspired by FlatBuffers and Cap'n Proto. We started from their ideas, measured their trade-offs in benchmarks, and kept exploring until we reached this format.", "Inspirado en FlatBuffers y Cap'n Proto. Partimos de sus ideas, medimos sus compromisos con benchmarks y seguimos explorando hasta llegar a este formato."),
-    (">How we got here</a>", ">Cómo llegamos aquí</a>"),
     ('<html lang="en">', '<html lang="es">'),
     ('<title>Graven — an open specification for a zero-copy binary format</title>',
      '<title>Graven — una especificación abierta para un formato binario zero-copy</title>'),
-    ('content="Graven is an open specification for a zero-copy binary format and its schema language, with frozen conformance vectors and a reference implementation in Rust."',
-     'content="Graven es una especificación abierta para un formato binario zero-copy y su lenguaje de esquemas, con vectores de conformidad congelados y una implementación de referencia en Rust."'),
+    ('content="Graven is an open specification for a zero-copy binary format and its schema language, with frozen conformance vectors and implementations in Rust and JavaScript."',
+     'content="Graven es una especificación abierta para un formato binario zero-copy y su lenguaje de esquemas, con vectores de conformidad congelados e implementaciones en Rust y JavaScript."'),
     ('Skip to content', 'Saltar al contenido'),
     ('aria-label="Graven home"', 'aria-label="Inicio de Graven"'),
-    ('>Specification</a>', '>Especificación</a>'),
-    ('>Schema language</a>', '>Lenguaje de esquemas</a>'),
-    ('>Docs</a>', '>Documentación</a>'),
-    ('>Implementations</a>', '>Implementaciones</a>'),
-    ('<a href="../es/" hreflang="es" lang="es">Español</a>', '<a href="./" hreflang="es" lang="es" aria-current="page">Español</a>'),
-    ('<h1>A binary format for data that has to last.</h1>', '<h1>Un formato binario para datos que tienen que durar.</h1>'),
-    ('''Graven is an open specification for a zero-copy serialization format and its schema language.
-        Messages are read in place, straight from the buffer. The format is frozen and fully specified, and its
-        conformance vectors let an implementation in any language prove that it reads every message correctly.''',
-     '''Graven es una especificación abierta para un formato de serialización zero-copy y su lenguaje de esquemas.
-        Los mensajes se leen en su lugar, directamente del buffer. El formato está congelado y completamente especificado, y sus
-        vectores de conformidad permiten que una implementación en cualquier lenguaje demuestre que lee cada mensaje correctamente.'''),
-    ('>Read the specification</a>', '>Leer la especificación</a>'),
-    ('Format v1 is frozen. Reference implementation in Rust. MIT licensed.',
-     'Formato v1 congelado. Implementación de referencia en Rust. Licencia MIT.</p>\n      <p class="note">La especificación y la documentación técnica están en inglés.'),
-    ('One message, byte by byte', 'Un mensaje, byte a byte'),
-    ('aria-label="The 59 bytes of an enveloped Entry message"', 'aria-label="Los 59 bytes de un mensaje Entry con sobre"'),
-    ('aria-label="Fields"', 'aria-label="Campos"'),
-    ('<h2>Built for data that outlives the code that wrote it</h2>', '<h2>Hecho para datos que sobreviven al código que los escribió</h2>'),
-    ('''Business data is written once and read for years: by the next release, by a service that upgrades
-        later, by an audit long after the original team has moved on. Graven is designed around that reality.''',
-     '''Los datos de negocio se escriben una vez y se leen durante años: por la próxima versión, por un servicio que se
-        actualiza más tarde, por una auditoría mucho después de que el equipo original haya cambiado. Graven está diseñado para esa realidad.'''),
-    ('<dt>Read in place</dt>', '<dt>Lectura en su lugar</dt>'),
-    ('''Fields are read directly from the bytes. Strings and byte slices borrow from the buffer, so reading a
-          large record costs nothing until you touch a field.''',
-     '''Los campos se leen directamente de los bytes. Las cadenas y los segmentos de bytes se toman prestados del buffer,
-          así que leer un registro grande no cuesta nada hasta que tocas un campo.'''),
-    ('<dt>Evolve without guessing</dt>', '<dt>Evolucionar sin adivinar</dt>'),
-    ('''A lockfile records every layout. The compiler refuses changes that would make old and new code
-          disagree, and asks for explicit confirmation before anything breaks an older reader.''',
-     '''Un lockfile registra cada layout. El compilador rechaza los cambios que harían que el código antiguo y el nuevo
-          no coincidan, y pide confirmación explícita antes de que algo rompa a un lector antiguo.'''),
-    ('<dt>Untrusted bytes are safe to open</dt>', '<dt>Los bytes no confiables se abren con seguridad</dt>'),
-    ('''A single <code>verify</code> pass walks the whole message under fixed depth and work limits. After
-          that, a verified view reads without re-checking, and malformed input can only ever produce an error.''',
-     '''Una sola pasada de <code>verify</code> recorre todo el mensaje con límites fijos de profundidad y de trabajo.
-          Después, una vista verificada lee sin volver a comprobar, y una entrada mal formada solo puede producir un error.'''),
-    ('<dt>Know what happened to a file</dt>', '<dt>Saber qué le pasó a un archivo</dt>'),
-    ('''The optional envelope carries a schema id and a CRC32C. A write cut short by a crash is reported as
-          incomplete; a flipped bit is reported as corruption. They are never confused.''',
-     '''El sobre opcional lleva un schema id y un CRC32C. Una escritura interrumpida por una caída se informa como
-          incompleta; un bit alterado se informa como corrupción. Nunca se confunden.'''),
-    ('<h2>How the format is kept honest</h2>', '<h2>Cómo se mantiene fiable el formato</h2>'),
-    ('Every claim the specification makes is pinned by something that runs. This is what is checked, and how.',
-     'Cada afirmación de la especificación está respaldada por algo que se ejecuta. Esto es lo que se comprueba, y cómo.'),
-    ('<th scope="col">Guarantee</th><th scope="col">How it is checked</th>', '<th scope="col">Garantía</th><th scope="col">Cómo se comprueba</th>'),
-    ('<th scope="row">The wire format does not drift</th>', '<th scope="row">El formato no cambia por accidente</th>'),
-    ('''A normative specification (RFC 2119 language) and 42 frozen conformance vectors, each a <code>.bin</code>
-            with its expected result. The reference writer must reproduce the canonical vectors byte for byte.''',
-     '''Una especificación normativa (lenguaje RFC 2119) y 42 vectores de conformidad congelados, cada uno un <code>.bin</code>
-            con su resultado esperado. El escritor de referencia debe reproducir los vectores canónicos byte a byte.'''),
-    ('<th scope="row">Two implementations agree</th>', '<th scope="row">Dos implementaciones coinciden</th>'),
-    ('''Within the reference implementation, an independent interpreter driven by the schema as data and the
-            generated code read every vector and every single-byte mutation of it. They must accept, reject and decode
-            identically. Every new implementation is held to the same vectors.''',
-     '''Dentro de la implementación de referencia, un intérprete independiente guiado por el esquema como dato y el
-            código generado leen cada vector y cada mutación de un byte. Deben aceptar, rechazar y decodificar
-            igual. Toda nueva implementación se mide con los mismos vectores.'''),
-    ('<th scope="row">Hostile input stays bounded</th>', '<th scope="row">La entrada hostil queda acotada</th>'),
-    ('''limits depth to 64 and total work to <code>max(len × 8, 1 MiB)</code>, so cycles and
-            shared-data amplification are rejected. Five fuzz targets ran more than 80 million inputs with overflow
-            checks enabled, with no findings.''',
-     '''limita la profundidad a 64 y el trabajo total a <code>max(len × 8, 1 MiB)</code>, así que los ciclos y la
-            amplificación por datos compartidos se rechazan. Cinco objetivos de fuzzing ejecutaron más de 80 millones de entradas
-            con comprobación de desbordamiento activada, sin hallazgos.'''),
-    ('<th scope="row">The unsafe fast path is sound</th>', '<th scope="row">El camino rápido con unsafe es correcto</th>'),
-    ('''In the Rust implementation, the only <code>unsafe</code> code skips UTF-8 revalidation after <code>verify</code>. Its invariants are
-            written down, enforced by a mutation gate, and the runtime and generated code run under Miri with no
-            undefined behaviour reported.''',
-     '''En la implementación en Rust, el único código <code>unsafe</code> omite la revalidación de UTF-8 después de <code>verify</code>. Sus invariantes
-            están documentadas, se hacen cumplir con una prueba de mutación, y el runtime y el código generado se ejecutan bajo Miri sin
-            ningún comportamiento indefinido reportado.'''),
-    ('<th scope="row">Schema changes cannot corrupt silently</th>', '<th scope="row">Los cambios de esquema no corrompen en silencio</th>'),
-    ('''The compiler compares every change against the lockfile: 15 rules reject changes that would misread
-            old data, 2 warnings require confirmation in the schema. A corpus of version chains tests each rule.''',
-     '''El compilador compara cada cambio con el lockfile: 15 reglas rechazan los cambios que leerían mal
-            datos antiguos, y 2 avisos exigen confirmación en el esquema. Un corpus de cadenas de versiones prueba cada regla.'''),
-    ('<th scope="row">Crashes and corruption are told apart</th>', '<th scope="row">Caídas y corrupción se distinguen</th>'),
-    ('''The envelope's check order is normative, so a truncated tail and a damaged record produce different,
-            predictable errors on every implementation.''',
-     '''El orden de comprobación del sobre es normativo, así que un final truncado y un registro dañado producen errores
-            distintos y predecibles en todas las implementaciones.'''),
-    ('<h2>Schema changes are reviewed by the compiler</h2>', '<h2>El compilador revisa los cambios de esquema</h2>'),
-    ('''Change a type or add a required field, and <code>gravenc update</code> refuses, naming the rule and the line.
-        Add the field with a default instead, and the new lock is written. This is real output.''',
-     '''Cambia un tipo o añade un campo obligatorio, y <code>gravenc update</code> lo rechaza, indicando la regla y la línea.
-        Añade el campo con un valor por defecto, y se escribe el nuevo lock. Esta es la salida real.'''),
-    ('<p class="evo-label">Rejected</p>', '<p class="evo-label">Rechazado</p>'),
-    ('<p class="evo-label">Accepted</p>', '<p class="evo-label">Aceptado</p>'),
-    ('<h2>What it is for</h2>', '<h2>Para qué sirve</h2>'),
-    ('Graven fits wherever records are written once, kept for a long time and read by software that changes.',
-     'Graven encaja donde los registros se escriben una vez, se guardan mucho tiempo y los lee software que cambia.'),
-    ('<dt>Ledgers and event logs</dt>', '<dt>Libros contables y logs de eventos</dt>'),
-    ('''Append envelopes to a file and never rewrite them. Each record carries its schema id and checksum, a
-          crash leaves a detectably incomplete tail, and reports can scan the file without deserializing it.''',
-     '''Añade sobres a un archivo y nunca los reescribas. Cada registro lleva su schema id y su checksum, una
-          caída deja un final detectablemente incompleto, y los informes pueden recorrer el archivo sin deserializarlo.'''),
-    ('<dt>Service and SDK protocols</dt>', '<dt>Protocolos de servicios y SDKs</dt>'),
-    ('''Route requests by schema id, verify once at the edge and pass the verified view along without copying.
-          The compatibility rules mean an older client keeps working when the server moves ahead.''',
-     '''Enruta las peticiones por schema id, verifica una vez en la entrada y pasa la vista verificada sin copiar.
-          Las reglas de compatibilidad hacen que un cliente antiguo siga funcionando cuando el servidor avanza.'''),
-    ('<dt>Archives and audit trails</dt>', '<dt>Archivos y registros de auditoría</dt>'),
-    ('''A frozen format with public conformance vectors is something you can still decode in ten years, with
-          a different implementation if need be.''',
-     '''Un formato congelado con vectores de conformidad públicos es algo que todavía podrás decodificar dentro de diez años,
-          con otra implementación si hace falta.'''),
-    ('<dt>Devices and offline sync</dt>', '<dt>Dispositivos y sincronización sin conexión</dt>'),
-    ('''The format needs no allocator and no alignment, and the Rust runtime is <code>no_std</code> with two
-          dependencies, so the same records can come from point-of-sale terminals and embedded devices that batch
-          them while offline.''',
-     '''El formato no necesita asignador de memoria ni alineación, y el runtime en Rust es <code>no_std</code> con dos
-          dependencias, así que los mismos registros pueden venir de terminales de punto de venta y dispositivos embebidos
-          que los acumulan mientras están sin conexión.'''),
-    ('<dt>Caches and storage values</dt>', '<dt>Cachés y valores almacenados</dt>'),
-    ('Store records in a key-value store and read only the field you need, straight from the stored bytes.',
-     'Guarda registros en un almacén clave-valor y lee solo el campo que necesitas, directamente de los bytes guardados.'),
-    ('<dt>Plugin boundaries</dt>', '<dt>Fronteras con plugins</dt>'),
-    ('''Exchange buffers with untrusted extensions, for example WebAssembly modules, and let <code>verify</code>
-          protect the host from whatever they send back.''',
-     '''Intercambia buffers con extensiones no confiables, por ejemplo módulos WebAssembly, y deja que <code>verify</code>
-          proteja al host de lo que devuelvan.'''),
-    ('<h2>Implementations</h2>', '<h2>Implementaciones</h2>'),
-    ('''The specification is the product; implementations are measured against it. A conforming implementation
-        reads all 42 vectors with exactly the expected result (spec §10).''',
-     '''La especificación es el producto; las implementaciones se miden con ella. Una implementación conforme
-        lee los 42 vectores con exactamente el resultado esperado (spec §10).'''),
-    ('<th scope="col">Language</th><th scope="col">Status</th><th scope="col">What it includes</th>',
-     '<th scope="col">Lenguaje</th><th scope="col">Estado</th><th scope="col">Qué incluye</th>'),
-    ('<td>Reference implementation. Passes all v1 and RPC frame vectors.</td>', '<td>Implementación de referencia. Pasa todos los vectores v1 y de tramas RPC.</td>'),
-    ('''Runtime (<code>no_std</code>), the <code>gravenc</code> compiler with lockfile and compatibility
-            checks, Rust code generation (client and server edge), and the conformance interpreter.''',
-     '''Runtime (<code>no_std</code>), el compilador <code>gravenc</code> con lockfile y comprobación de
-            compatibilidad, generación de código Rust (cliente y servidor) y el intérprete de conformidad.'''),
-    ('>Rust SDK</a>', '>SDK Rust</a>'),
-    ('<td><code>gravenc gen --lang js</code>. Passes all v1 and RPC frame vectors.</td>',
-     '<td><code>gravenc gen --lang js</code>. Pasa todos los vectores v1 y de tramas RPC.</td>'),
-    ('''Zero-dependency ES2022 <code>.js</code> modules with TypeScript <code>.d.ts</code> declarations,
-            canonical writers, validation, and RPC clients for browsers, Node, and Deno.''',
-     '''Módulos ES2022 <code>.js</code> sin dependencias con declaraciones TypeScript <code>.d.ts</code>,
-            writers canónicos, validación y clientes RPC para navegadores, Node y Deno.'''),
-    ('>JS / TS SDK</a>', '>SDK JS / TS</a>'),
-    ('>API reference</a>', '>Referencia de la API</a>'),
-    ('<h3>Writing an implementation</h3>', '<h3>Escribir una implementación</h3>'),
-    ('''Start with the layout algorithm (spec §3.3), the read rules (§4–§6) and <code>verify</code> (§7), then run
-          the <a href="../docs/conformance-vectors.html">conformance vectors</a>. Each vector is a <code>.bin</code> with a
-          <code>.json</code> stating the decoded value or the exact error, and each invalid one has a single defect,
-          so a failure points at one rule.''',
-     '''Empieza por el algoritmo de layout (spec §3.3), las reglas de lectura (§4–§6) y <code>verify</code> (§7), y luego ejecuta
-          los <a href="../docs/conformance-vectors.html">vectores de conformidad</a>. Cada vector es un <code>.bin</code> con un
-          <code>.json</code> que indica el valor decodificado o el error exacto, y cada vector inválido tiene un único defecto,
-          así que un fallo apunta a una sola regla.'''),
-    ('<h3>Generating code for another language</h3>', '<h3>Generar código para otro lenguaje</h3>'),
-    ('''The schema language and its compatibility rules are language-neutral. The lockfile written by
-          <code>gravenc</code> already records every table's layout, schema id and field presence, which is what a code
-          generator for another language needs to emit readers and writers.''',
-     '''El lenguaje de esquemas y sus reglas de compatibilidad son independientes del lenguaje. El lockfile que escribe
-          <code>gravenc</code> ya registra el layout, el schema id y la presencia de los campos de cada tabla, que es lo que un
-          generador de código para otro lenguaje necesita para emitir lectores y escritores.'''),
-    ('<h2>Getting started with Rust</h2>', '<h2>Primeros pasos con Rust</h2>'),
-    ('Using the reference implementation needs only the Rust toolchain.', 'Usar la implementación de referencia solo requiere el toolchain de Rust.'),
-    ('<h3>Install the compiler</h3>', '<h3>Instala el compilador</h3>'),
-    ('<h3>Write a schema and create its lockfile</h3>', '<h3>Escribe un esquema y crea su lockfile</h3>'),
-    ('<h3>Generate code from <code>build.rs</code></h3>', '<h3>Genera el código desde <code>build.rs</code></h3>'),
-    ('<h3>Write and read</h3>', '<h3>Escribe y lee</h3>'),
-    ('''The <a href="../docs/getting-started.html">getting started guide</a> and the
-      <a href="../docs/graven-language.html">schema language reference</a> cover the full workflow.''',
-     '''La <a href="../docs/getting-started.html">guía de primeros pasos</a> y la
-      <a href="../docs/graven-language.html">referencia del lenguaje de esquemas</a> (en inglés) cubren el flujo completo.'''),
-    ('Graven · format v1 · MIT license', 'Graven · formato v1 · licencia MIT'),
-    ('aria-label="Footer"', 'aria-label="Pie de página"'),
     ('aria-label="Main"', 'aria-label="Principal"'),
     ('aria-label="Language"', 'aria-label="Idioma"'),
+    ('aria-label="Footer"', 'aria-label="Pie de página"'),
+    ('<a href="#containers">How it works</a>', '<a href="#containers">Cómo funciona</a>'),
+    ('<a href="#start">Quickstart</a>', '<a href="#start">Empezar</a>'),
+    ('>Docs</a>', '>Documentación</a>'),
+    ('<a href="../es/" hreflang="es" lang="es">Español</a>',
+     '<a href="./" hreflang="es" lang="es" aria-current="page">Español</a>'),
+
+    # Hero
+    ('<p class="eyebrow">Format v1 frozen · Rust &amp; JS / TS · MIT</p>',
+     '<p class="eyebrow">Formato v1 congelado · Rust y JS / TS · MIT</p>'),
+    ('<h1>A binary format built for data that lasts.</h1>',
+     '<h1>Un formato binario hecho para datos que perduran.</h1>'),
+    ('<p class="lede">Read fields straight from raw bytes with no parsing or allocation. One shared schema and lockfile keep Rust and TypeScript/JavaScript compatible across stored logs and RPC streams.</p>',
+     '<p class="lede">Lee campos directo desde bytes sin parsing ni asignación. Un esquema y lockfile compartidos mantienen a Rust y TypeScript/JavaScript compatibles en logs en disco y streams RPC.</p>'),
+    ('<a class="btn primary" href="#start">Get started</a>', '<a class="btn primary" href="#start">Primeros pasos</a>'),
+    ('<a class="btn" href="../docs/index.html">Read the docs</a>', '<a class="btn" href="../docs/index.html">Leer la documentación</a>'),
+    ('<p class="hero-meta">Normative <a href="../docs/spec/graven-format-v1.html">format v1 spec</a> · Inspired by FlatBuffers and Cap&#39;n Proto (<a href="../docs/history/index.html">how we got here</a>)</p>',
+     '<p class="hero-meta"><a href="../docs/spec/graven-format-v1.html">Especificación normativa v1</a> · Inspirado en FlatBuffers y Cap&#39;n Proto (<a href="../docs/history/index.html">cómo llegamos aquí</a>)</p>\n      <p class="note">La especificación y la documentación técnica están en inglés.</p>'),
+    ('One message, on disk and on the wire', 'Un mensaje, en disco y en la red'),
+    ('<span class="anatomy-hint">Hover or tap any field</span>', '<span class="anatomy-hint">Pasa el cursor o toca cualquier campo</span>'),
+    ('aria-label="Where the message is"', 'aria-label="Dónde está el mensaje"'),
+    ('aria-label="The 59 bytes of an enveloped Entry message"', 'aria-label="Los 59 bytes de un mensaje Entry con sobre"'),
+    ('aria-label="Fields"', 'aria-label="Campos"'),
+
+    # Band 1: Why
+    ('<h2>Built for data that outlives the code that wrote it</h2>',
+     '<h2>Hecho para datos que sobreviven al código que los escribió</h2>'),
+    ('<p>Write records once and keep reading them as services upgrade, storage engines change, and audits run years later.</p>',
+     '<p>Escribe registros una vez y síguelos leyendo mientras los servicios avanzan, el almacenamiento cambia y las auditorías corren años después.</p>'),
+    ('<h3>Read in place</h3>', '<h3>Lectura en su lugar</h3>'),
+    ('<p>Fields decode directly from byte offsets. Strings and byte slices borrow straight from the buffer, so untouched fields cost zero work.</p>',
+     '<p>Los campos se decodifican directo desde desplazamientos de bytes. Las cadenas y segmentos se toman prestados del buffer, sin coste para campos no tocados.</p>'),
+    ('<h3>One bounded verify pass</h3>', '<h3>Una pasada acotada de verify</h3>'),
+    ('<p>Untrusted bytes pass through a single <code>verify</code> walk with fixed depth (64) and work limits, returning a trusted view without re-checking on every read.</p>',
+     '<p>Los bytes no confiables pasan por una única comprobación <code>verify</code> con límite fijo de profundidad (64) y trabajo, devolviendo una vista verificada sin recomprobar lecturas.</p>'),
+    ('<h3>Lockfile-guarded evolution</h3>', '<h3>Evolución protegida por lockfile</h3>'),
+    ('<p><code>gravenc</code> records every layout in a lockfile and rejects schema edits that would make old and new readers disagree.</p>',
+     '<p><code>gravenc</code> registra cada layout en un lockfile y rechaza ediciones de esquema que harían discrepar a lectores antiguos y nuevos.</p>'),
+    ('<h3>Crash vs. corruption clarity</h3>', '<h3>Claridad entre caída y corrupción</h3>'),
+    ('<p>Normative envelope checks distinguish a write cut short by a crash from a flipped bit (CRC32C)—they are never confused.</p>',
+     '<p>Las comprobaciones normativas del sobre distinguen una escritura truncada por una caída de un bit alterado (CRC32C); nunca se confunden.</p>'),
+    ('<p class="uses-label">Common fits</p>', '<p class="uses-label">Casos frecuentes</p>'),
+    ('<span class="chip">Ledgers &amp; event logs</span>', '<span class="chip">Libros contables y logs</span>'),
+    ('<span class="chip">Browser &harr; Rust RPC</span>', '<span class="chip">RPC Navegador &harr; Rust</span>'),
+    ('<span class="chip">Offline &amp; embedded sync</span>', '<span class="chip">Sync sin conexión y embebidos</span>'),
+    ('<span class="chip">KV storage &amp; caches</span>', '<span class="chip">Cachés y almacenamiento KV</span>'),
+    ('<span class="chip">Long-term archives</span>', '<span class="chip">Archivos históricos</span>'),
+    ('<span class="chip">Wasm plugin boundaries</span>', '<span class="chip">Fronteras Wasm</span>'),
+
+    # Band 2: Containers
+    ('<h2>One message, two containers</h2>', '<h2>Un mensaje, dos contenedores</h2>'),
+    ('<p>The <code>Entry</code> payload is the exact same 35 bytes everywhere. Only its outer container changes between storage and network.</p>',
+     '<p>La carga de <code>Entry</code> son exactamente los mismos 35 bytes en todas partes. Solo cambia su contenedor exterior entre almacenamiento y red.</p>'),
+    ('<span class="box-name">At rest: the envelope</span>', '<span class="box-name">En reposo: el sobre</span>'),
+    ('<span class="box-name">In flight: the frame</span>', '<span class="box-name">En tránsito: el frame</span>'),
+    ('>header 20</span>', '>cabecera 20</span>'),
+    ('>message 35</span>', '>mensaje 35</span>'),
+    ('<p>Files, logs, and queues have no call context, so the envelope adds a <code>schema_id</code>, payload length, and CRC32C checksum.</p>',
+     '<p>Archivos, logs y colas no tienen contexto de llamada, así que el sobre añade <code>schema_id</code>, longitud y suma de verificación CRC32C.</p>'),
+    ('<p>Over an ordered transport (TLS, sockets), a reply needs only 7 header bytes (kind, variant, length); a call adds method and service id (17 bytes).</p>',
+     '<p>Sobre un transporte ordenado (TLS, sockets), una respuesta solo necesita 7 bytes de cabecera (tipo, variante, longitud); una llamada añade método y service id (17 bytes).</p>'),
+    ('<p class="more">Zero re-encoding: a server persists what it received simply by wrapping the same payload slice in an envelope. <a href="../docs/services.html#the-bytes">How frames work</a></p>',
+     '<p class="more">Sin recodificar: un servidor guarda lo recibido simplemente envolviendo el mismo segmento de bytes en un sobre. <a href="../docs/services.html#the-bytes">Cómo funcionan los frames</a></p>'),
+
+    # Band 3: Services
+    ('<h2>Services from the same schema</h2>', '<h2>Servicios desde el mismo esquema</h2>'),
+    ('<p>Declare unary methods, typed errors, and streams next to your tables. <code>gravenc</code> emits typed clients for Rust and browsers/Node, plus a <code>no_std</code> Rust server edge.</p>',
+     '<p>Declara métodos unarios, errores tipados y streams junto a tus tablas. <code>gravenc</code> genera clientes tipados para Rust y navegadores/Node, además de un borde de servidor Rust <code>no_std</code>.</p>'),
+    ('<p class="evo-label">Typed client</p>', '<p class="evo-label">Cliente tipado</p>'),
+    ('<dt>Errors are part of the type</dt>', '<dt>Los errores son parte del tipo</dt>'),
+    ('<dd>Declared errors travel as typed unions checked by the compiler; transport and decode faults share one uniform handler.</dd>',
+     '<dd>Los errores declarados viajan como uniones tipadas verificadas por el compilador; los fallos de transporte y decodificación comparten un único manejador.</dd>'),
+    ('<dt>Streams yield as frames arrive</dt>', '<dt>Los streams entregan al llegar cada frame</dt>'),
+    ('<dd>Self-delimiting frames deliver each streamed item as soon as its bytes arrive, enforcing configurable size limits.</dd>',
+     '<dd>Tramas autodelimitadas entregan cada elemento del stream en cuanto llegan sus bytes, aplicando límites de tamaño configurables.</dd>'),
+    ('<dt>Validation speaks in codes</dt>', '<dt>La validación habla en códigos</dt>'),
+    ('<dd>Broken rules return field, rule, bounds, and check reason codes—never hardcoded server text—ready for client localization.</dd>',
+     '<dd>Las reglas rotas devuelven códigos de campo, regla, límites y motivo — nunca texto fijo del servidor — listos para localizar en el cliente.</dd>'),
+
+    # Band 4: Evolution
+    ('<h2>Schema changes reviewed before they ship</h2>', '<h2>Cambios de esquema revisados antes de desplegar</h2>'),
+    ('<p>Change a field type or add a required field and <code>gravenc update</code> refuses, citing rule and line. Add a default instead and the lockfile updates cleanly.</p>',
+     '<p>Cambia el tipo o añade un campo obligatorio y <code>gravenc update</code> lo rechaza, indicando regla y línea. Añade un valor por defecto y el lockfile se actualiza.</p>'),
+    ('<p class="evo-label">Rejected</p>', '<p class="evo-label">Rechazado</p>'),
+    ('<p class="evo-label">Accepted</p>', '<p class="evo-label">Aceptado</p>'),
+
+    # Band 5: Quickstart
+    ('<h2>Get started</h2>', '<h2>Primeros pasos</h2>'),
+    ('<p>Shared schema and lockfile on disk; native zero-copy bindings in your language.</p>',
+     '<p>Esquema y lockfile compartidos en disco; bindings zero-copy nativos en tu lenguaje.</p>'),
+    ('Install the compiler', 'Instala el compilador'),
+    ('Create your schema &amp; lockfile', 'Crea tu esquema y lockfile'),
+    ('Generate code, write, and verify in place', 'Genera código, escribe y verifica en su lugar'),
+    ('// Generate with `gravenc gen schemas/bank.graven -o src/gen` (or build.rs)',
+     '// Genera con `gravenc gen schemas/bank.graven -o src/gen` (o build.rs)'),
+    ('// checks CRC32C and runs verify', '// comprueba CRC32C y ejecuta verify'),
+    ('// Generate with `gravenc gen schemas/bank.graven -o src/gen --lang js`',
+     '// Genera con `gravenc gen schemas/bank.graven -o src/gen --lang js`'),
+    ('<p class="more">Continue with the <a href="../docs/getting-started.html">getting started guide</a>, <a href="../docs/coming-from-json.html">coming from JSON</a>, or the <a href="../docs/graven-language.html">schema language reference</a>.</p>',
+     '<p class="more">Continúa con la <a href="../docs/getting-started.html">guía de primeros pasos</a>, <a href="../docs/coming-from-json.html">viniendo desde JSON</a> o la <a href="../docs/graven-language.html">referencia del lenguaje de esquemas</a> (en inglés).</p>'),
+
+    # Band 6: Implementations & Verification
+    ('<h2>Implementations &amp; verification</h2>', '<h2>Implementaciones y verificación</h2>'),
+    ('<p>The specification is the product. Every claim below is pinned by frozen conformance vectors, fuzzing, and automated checks.</p>',
+     '<p>La especificación es el producto. Cada afirmación está respaldada por vectores de conformidad congelados, fuzzing y pruebas automáticas.</p>'),
+    ('<span class="sdk-badge">Reference · no_std</span>', '<span class="sdk-badge">Referencia · no_std</span>'),
+    ('<p><code>no_std</code> + <code>alloc</code> runtime with two dependencies, <code>gravenc</code> compiler and lockfile checks, typed client &amp; server edge codegen, and schema interpreter. Passes all 42 v1 + 23 RPC vectors.</p>',
+     '<p>Runtime <code>no_std</code> + <code>alloc</code> con dos dependencias, compilador <code>gravenc</code> con lockfile, codegen tipado de cliente y borde de servidor, e intérprete de esquema. Pasa los 42 vectores v1 + 23 RPC.</p>'),
+    ('>Rust SDK</a>', '>SDK Rust</a>'),
+    ('>API reference</a>', '>Referencia de la API</a>'),
+    ('<span class="sdk-badge">Zero dependencies</span>', '<span class="sdk-badge">Cero dependencias</span>'),
+    ('<p>ES2022 <code>.js</code> modules + <code>.d.ts</code> types generated by <code>gravenc gen --lang js</code>. Canonical writers, validation codes, and browser/Node/Deno RPC clients. Passes all 42 v1 + 23 RPC vectors.</p>',
+     '<p>Módulos ES2022 <code>.js</code> + tipos <code>.d.ts</code> generados con <code>gravenc gen --lang js</code>. Writers canónicos, códigos de validación y clientes RPC para navegador, Node y Deno. Pasa los 42 vectores v1 + 23 RPC.</p>'),
+    ('>JS / TS SDK</a>', '>SDK JS / TS</a>'),
+    ('>Add another language</a>', '>Añadir otro lenguaje</a>'),
+    ('<th scope="col">Guarantee</th><th scope="col">How it is checked</th>', '<th scope="col">Garantía</th><th scope="col">Cómo se comprueba</th>'),
+    ('<th scope="row">Frozen wire specification</th>', '<th scope="row">Especificación binaria congelada</th>'),
+    ('<td>Normative RFC 2119 spec with 42 format v1 vectors and 23 RPC frame vectors. The reference writer reproduces every canonical <code>.bin</code> byte for byte.</td>',
+     '<td>Especificación normativa RFC 2119 con 42 vectores v1 y 23 vectores de frames RPC. El escritor de referencia reproduce cada <code>.bin</code> canónico byte a byte.</td>'),
+    ('<th scope="row">Cross-implementation agreement</th>', '<th scope="row">Consistencia entre implementaciones</th>'),
+    ('<td>An independent Rust schema interpreter and generated code decode every vector and single-byte mutation identically; the JS runtime is fuzzed against Rust across millions of mutated messages and frames.</td>',
+     '<td>Un intérprete de esquema independiente en Rust y el código generado decodifican igual cada vector y mutación de un byte; el runtime JS se somete a fuzzing contra Rust en millones de mensajes y frames mutados.</td>'),
+    ('<th scope="row">Bounded verification &amp; Miri clean</th>', '<th scope="row">Verificación acotada y limpia en Miri</th>'),
+    ('<td><code>verify</code> caps depth at 64 and work at <code>max(len × 8, 1 MiB)</code>. Five fuzz targets ran &gt;80 million inputs with overflow checks, and the sole <code>unsafe</code> UTF-8 fast path runs clean under Miri.</td>',
+     '<td><code>verify</code> limita la profundidad a 64 y el trabajo a <code>max(len × 8, 1 MiB)</code>. Cinco objetivos de fuzzing ejecutaron &gt;80 millones de entradas con comprobación de desbordamiento, y el único camino rápido <code>unsafe</code> para UTF-8 pasa limpio bajo Miri.</td>'),
+    ('<th scope="row">Lockfile compatibility enforcement</th>', '<th scope="row">Compatibilidad exigida por el lockfile</th>'),
+    ('<td>15 hard errors reject breaking layout or method edits and 2 warnings require confirmation, verified over a corpus of multi-version schema chains.</td>',
+     '<td>15 errores duros rechazan roturas de layout o método y 2 avisos exigen confirmación, verificados con un corpus de cadenas de versiones.</td>'),
+    ('<p class="more">Implementing Graven in another language? Use the compiler&#39;s lockfile layouts and verify against all <a href="../docs/conformance-vectors.html">conformance vectors</a>.</p>',
+     '<p class="more">¿Implementando Graven en otro lenguaje? Usa los layouts del lockfile del compilador y valida contra todos los <a href="../docs/conformance-vectors.html">vectores de conformidad</a>.</p>'),
+
+    # Footer
+    ('Graven · format v1 · MIT license', 'Graven · formato v1 · licencia MIT'),
+    ('>Specification</a>', '>Especificación</a>'),
+    ('>Schema language</a>', '>Lenguaje de esquemas</a>'),
+    ('>Services</a>', '>Servicios</a>'),
     ('>Conformance vectors</a>', '>Vectores de conformidad</a>'),
     ('>Rust API</a>', '>API de Rust</a>'),
     ('>Testing</a>', '>Pruebas</a>'),
 ]
 
 ZH = [
-    ("Inspired by FlatBuffers and Cap'n Proto. We started from their ideas, measured their trade-offs in benchmarks, and kept exploring until we reached this format.", "受 FlatBuffers 和 Cap'n Proto 启发。我们从它们的思路出发，用基准测试衡量各自的取舍，并持续探索，最终得到了这个格式。"),
-    (">How we got here</a>", ">我们是如何走到这里的</a>"),
     ('<html lang="en">', '<html lang="zh-CN">'),
     ('<title>Graven — an open specification for a zero-copy binary format</title>',
      '<title>Graven — 零拷贝二进制格式的开放规范</title>'),
-    ('content="Graven is an open specification for a zero-copy binary format and its schema language, with frozen conformance vectors and a reference implementation in Rust."',
-     'content="Graven 是一个零拷贝二进制格式及其 schema 语言的开放规范，附带冻结的一致性测试向量和 Rust 参考实现。"'),
+    ('content="Graven is an open specification for a zero-copy binary format and its schema language, with frozen conformance vectors and implementations in Rust and JavaScript."',
+     'content="Graven 是一个零拷贝二进制格式及其 schema 语言的开放规范，附带冻结的一致性测试向量，以及 Rust 和 JavaScript 实现。"'),
     ('Skip to content', '跳到正文'),
     ('aria-label="Graven home"', 'aria-label="Graven 首页"'),
-    ('>Specification</a>', '>规范</a>'),
-    ('>Schema language</a>', '>Schema 语言</a>'),
-    ('>Docs</a>', '>文档</a>'),
-    ('>Implementations</a>', '>实现</a>'),
-    ('<a href="../zh/" hreflang="zh-CN" lang="zh-CN">中文</a>', '<a href="./" hreflang="zh-CN" lang="zh-CN" aria-current="page">中文</a>'),
-    ('<h1>A binary format for data that has to last.</h1>', '<h1>为需要长期保存的数据而设计的二进制格式。</h1>'),
-    ('''Graven is an open specification for a zero-copy serialization format and its schema language.
-        Messages are read in place, straight from the buffer. The format is frozen and fully specified, and its
-        conformance vectors let an implementation in any language prove that it reads every message correctly.''',
-     '''Graven 是一个零拷贝序列化格式及其 schema 语言的开放规范。
-        消息直接在缓冲区中原地读取。格式已经冻结并有完整的规范，
-        其一致性测试向量让任何语言的实现都能证明自己正确读取每一条消息。'''),
-    ('>Read the specification</a>', '>阅读规范</a>'),
-    ('Format v1 is frozen. Reference implementation in Rust. MIT licensed.',
-     '格式 v1 已冻结。Rust 参考实现。MIT 许可证。</p>\n      <p class="note">规范和技术文档为英文。'),
-    ('One message, byte by byte', '逐字节解读一条消息'),
-    ('aria-label="The 59 bytes of an enveloped Entry message"', 'aria-label="一条带信封的 Entry 消息的 59 个字节"'),
-    ('aria-label="Fields"', 'aria-label="字段"'),
-    ('<h2>Built for data that outlives the code that wrote it</h2>', '<h2>为比写入它的代码活得更久的数据而生</h2>'),
-    ('''Business data is written once and read for years: by the next release, by a service that upgrades
-        later, by an audit long after the original team has moved on. Graven is designed around that reality.''',
-     '''业务数据只写一次，却要被读取很多年：被下一个版本读取，被稍后才升级的服务读取，
-        被原团队早已离开之后的审计读取。Graven 正是围绕这一现实设计的。'''),
-    ('<dt>Read in place</dt>', '<dt>原地读取</dt>'),
-    ('''Fields are read directly from the bytes. Strings and byte slices borrow from the buffer, so reading a
-          large record costs nothing until you touch a field.''',
-     '''字段直接从字节中读取。字符串和字节切片借用自缓冲区，
-          因此在访问某个字段之前，读取一条大记录没有任何开销。'''),
-    ('<dt>Evolve without guessing</dt>', '<dt>演进无需猜测</dt>'),
-    ('''A lockfile records every layout. The compiler refuses changes that would make old and new code
-          disagree, and asks for explicit confirmation before anything breaks an older reader.''',
-     '''lockfile 记录每一个布局。编译器会拒绝导致新旧代码不一致的修改，
-          并在任何修改破坏旧版读取方之前要求显式确认。'''),
-    ('<dt>Untrusted bytes are safe to open</dt>', '<dt>可以安全地打开不可信的字节</dt>'),
-    ('''A single <code>verify</code> pass walks the whole message under fixed depth and work limits. After
-          that, a verified view reads without re-checking, and malformed input can only ever produce an error.''',
-     '''一次 <code>verify</code> 在固定的深度和工作量限制下遍历整条消息。
-          之后，已验证视图读取时无需再次检查，而格式错误的输入只会产生错误。'''),
-    ('<dt>Know what happened to a file</dt>', '<dt>清楚文件发生了什么</dt>'),
-    ('''The optional envelope carries a schema id and a CRC32C. A write cut short by a crash is reported as
-          incomplete; a flipped bit is reported as corruption. They are never confused.''',
-     '''可选的信封携带 schema id 和 CRC32C。因崩溃而中断的写入被报告为不完整；
-          翻转的比特被报告为损坏。两者绝不会混淆。'''),
-    ('<h2>How the format is kept honest</h2>', '<h2>格式如何保持可信</h2>'),
-    ('Every claim the specification makes is pinned by something that runs. This is what is checked, and how.',
-     '规范中的每一项承诺都由可运行的检查来保证。以下是检查的内容和方式。'),
-    ('<th scope="col">Guarantee</th><th scope="col">How it is checked</th>', '<th scope="col">保证</th><th scope="col">检查方式</th>'),
-    ('<th scope="row">The wire format does not drift</th>', '<th scope="row">线上格式不会漂移</th>'),
-    ('''A normative specification (RFC 2119 language) and 42 frozen conformance vectors, each a <code>.bin</code>
-            with its expected result. The reference writer must reproduce the canonical vectors byte for byte.''',
-     '''一份规范性文档（采用 RFC 2119 用语）和 42 个冻结的一致性测试向量，每个向量是一个 <code>.bin</code>
-            及其预期结果。参考写入器必须逐字节复现规范向量。'''),
-    ('<th scope="row">Two implementations agree</th>', '<th scope="row">两种实现结果一致</th>'),
-    ('''Within the reference implementation, an independent interpreter driven by the schema as data and the
-            generated code read every vector and every single-byte mutation of it. They must accept, reject and decode
-            identically. Every new implementation is held to the same vectors.''',
-     '''在参考实现内部，一个以 schema 为数据驱动的独立解释器和生成的代码会读取每个向量及其每一个单字节变异。
-            二者必须以完全相同的方式接受、拒绝和解码。每个新实现都以同样的向量来检验。'''),
-    ('<th scope="row">Hostile input stays bounded</th>', '<th scope="row">恶意输入受到限制</th>'),
-    ('''limits depth to 64 and total work to <code>max(len × 8, 1 MiB)</code>, so cycles and
-            shared-data amplification are rejected. Five fuzz targets ran more than 80 million inputs with overflow
-            checks enabled, with no findings.''',
-     '''将深度限制为 64，总工作量限制为 <code>max(len × 8, 1 MiB)</code>，因此循环和共享数据放大都会被拒绝。
-            五个模糊测试目标在开启溢出检查的情况下运行了超过 8000 万个输入，没有发现任何问题。'''),
-    ('<th scope="row">The unsafe fast path is sound</th>', '<th scope="row">unsafe 快速路径是可靠的</th>'),
-    ('''In the Rust implementation, the only <code>unsafe</code> code skips UTF-8 revalidation after <code>verify</code>. Its invariants are
-            written down, enforced by a mutation gate, and the runtime and generated code run under Miri with no
-            undefined behaviour reported.''',
-     '''在 Rust 实现中，唯一的 <code>unsafe</code> 代码是在 <code>verify</code> 之后跳过 UTF-8 重新校验。其不变量有书面说明，
-            并由变异测试强制保证；运行时和生成的代码在 Miri 下运行，未报告任何未定义行为。'''),
-    ('<th scope="row">Schema changes cannot corrupt silently</th>', '<th scope="row">Schema 修改不会悄悄破坏数据</th>'),
-    ('''The compiler compares every change against the lockfile: 15 rules reject changes that would misread
-            old data, 2 warnings require confirmation in the schema. A corpus of version chains tests each rule.''',
-     '''编译器将每次修改与 lockfile 对比：15 条规则拒绝会误读旧数据的修改，
-            2 条警告要求在 schema 中确认。一组版本链语料测试每一条规则。'''),
-    ('<th scope="row">Crashes and corruption are told apart</th>', '<th scope="row">崩溃与损坏可以区分</th>'),
-    ('''The envelope's check order is normative, so a truncated tail and a damaged record produce different,
-            predictable errors on every implementation.''',
-     '''信封的检查顺序是规范性的，因此被截断的尾部和损坏的记录在每个实现上都会产生不同且可预期的错误。'''),
-    ('<h2>Schema changes are reviewed by the compiler</h2>', '<h2>Schema 修改由编译器审查</h2>'),
-    ('''Change a type or add a required field, and <code>gravenc update</code> refuses, naming the rule and the line.
-        Add the field with a default instead, and the new lock is written. This is real output.''',
-     '''修改字段类型或添加必填字段时，<code>gravenc update</code> 会拒绝，并指出规则和行号。
-        改为添加带默认值的字段，新的 lock 就会写入。以下是真实输出。'''),
-    ('<p class="evo-label">Rejected</p>', '<p class="evo-label">被拒绝</p>'),
-    ('<p class="evo-label">Accepted</p>', '<p class="evo-label">被接受</p>'),
-    ('<h2>What it is for</h2>', '<h2>适用场景</h2>'),
-    ('Graven fits wherever records are written once, kept for a long time and read by software that changes.',
-     '凡是记录只写一次、长期保存、并由不断变化的软件读取的地方，都适合使用 Graven。'),
-    ('<dt>Ledgers and event logs</dt>', '<dt>账本与事件日志</dt>'),
-    ('''Append envelopes to a file and never rewrite them. Each record carries its schema id and checksum, a
-          crash leaves a detectably incomplete tail, and reports can scan the file without deserializing it.''',
-     '''将信封追加到文件中，永不改写。每条记录都带有自己的 schema id 和校验和，
-          崩溃只会留下可检测的不完整尾部，报表可以直接扫描文件而无需反序列化。'''),
-    ('<dt>Service and SDK protocols</dt>', '<dt>服务与 SDK 协议</dt>'),
-    ('''Route requests by schema id, verify once at the edge and pass the verified view along without copying.
-          The compatibility rules mean an older client keeps working when the server moves ahead.''',
-     '''按 schema id 路由请求，在入口处验证一次，然后无拷贝地传递已验证视图。
-          兼容性规则确保服务器升级后，旧版客户端仍能正常工作。'''),
-    ('<dt>Archives and audit trails</dt>', '<dt>归档与审计记录</dt>'),
-    ('''A frozen format with public conformance vectors is something you can still decode in ten years, with
-          a different implementation if need be.''',
-     '''一个拥有公开一致性测试向量的冻结格式，十年后依然可以解码，必要时还可以换用另一种实现。'''),
-    ('<dt>Devices and offline sync</dt>', '<dt>设备与离线同步</dt>'),
-    ('''The format needs no allocator and no alignment, and the Rust runtime is <code>no_std</code> with two
-          dependencies, so the same records can come from point-of-sale terminals and embedded devices that batch
-          them while offline.''',
-     '''该格式不需要内存分配器，也不需要对齐；Rust 运行时支持 <code>no_std</code>，只有两个依赖，
-          因此同样的记录可以来自收银终端和嵌入式设备，在离线时批量积累。'''),
-    ('<dt>Caches and storage values</dt>', '<dt>缓存与存储值</dt>'),
-    ('Store records in a key-value store and read only the field you need, straight from the stored bytes.',
-     '把记录存入键值存储，只读取需要的字段，直接从存储的字节中读取。'),
-    ('<dt>Plugin boundaries</dt>', '<dt>插件边界</dt>'),
-    ('''Exchange buffers with untrusted extensions, for example WebAssembly modules, and let <code>verify</code>
-          protect the host from whatever they send back.''',
-     '''与不可信的扩展（例如 WebAssembly 模块）交换缓冲区，由 <code>verify</code>
-          保护宿主免受它们返回的任何数据的影响。'''),
-    ('<h2>Implementations</h2>', '<h2>实现</h2>'),
-    ('''The specification is the product; implementations are measured against it. A conforming implementation
-        reads all 42 vectors with exactly the expected result (spec §10).''',
-     '''规范本身就是产品，各个实现都以它为衡量标准。一个符合规范的实现必须以完全符合预期的结果读取全部 42 个向量（规范 §10）。'''),
-    ('<th scope="col">Language</th><th scope="col">Status</th><th scope="col">What it includes</th>',
-     '<th scope="col">语言</th><th scope="col">状态</th><th scope="col">包含内容</th>'),
-    ('<td>Reference implementation. Passes all v1 and RPC frame vectors.</td>', '<td>参考实现。通过全部 v1 与 RPC 帧向量。</td>'),
-    ('''Runtime (<code>no_std</code>), the <code>gravenc</code> compiler with lockfile and compatibility
-            checks, Rust code generation (client and server edge), and the conformance interpreter.''',
-     '''运行时（<code>no_std</code>）、带 lockfile 和兼容性检查的 <code>gravenc</code> 编译器、
-            Rust 代码生成（客户端与服务端边缘），以及一致性解释器。'''),
-    ('>Rust SDK</a>', '>Rust SDK</a>'),
-    ('<td><code>gravenc gen --lang js</code>. Passes all v1 and RPC frame vectors.</td>',
-     '<td><code>gravenc gen --lang js</code>。通过全部 v1 与 RPC 帧向量。</td>'),
-    ('''Zero-dependency ES2022 <code>.js</code> modules with TypeScript <code>.d.ts</code> declarations,
-            canonical writers, validation, and RPC clients for browsers, Node, and Deno.''',
-     '''零依赖 ES2022 <code>.js</code> 模块与 TypeScript <code>.d.ts</code> 声明、规范写入器、
-            校验及适用于浏览器、Node 和 Deno 的 RPC 客户端。'''),
-    ('>JS / TS SDK</a>', '>JS / TS SDK</a>'),
-    ('>API reference</a>', '>API 参考</a>'),
-    ('<h3>Writing an implementation</h3>', '<h3>编写一个实现</h3>'),
-    ('''Start with the layout algorithm (spec §3.3), the read rules (§4–§6) and <code>verify</code> (§7), then run
-          the <a href="../docs/conformance-vectors.html">conformance vectors</a>. Each vector is a <code>.bin</code> with a
-          <code>.json</code> stating the decoded value or the exact error, and each invalid one has a single defect,
-          so a failure points at one rule.''',
-     '''从布局算法（规范 §3.3）、读取规则（§4–§6）和 <code>verify</code>（§7）开始，然后运行
-          <a href="../docs/conformance-vectors.html">一致性测试向量</a>。每个向量是一个 <code>.bin</code> 加一个
-          <code>.json</code>，后者给出解码后的值或确切的错误；每个无效向量只有一个缺陷，
-          因此一次失败只指向一条规则。'''),
-    ('<h3>Generating code for another language</h3>', '<h3>为其他语言生成代码</h3>'),
-    ('''The schema language and its compatibility rules are language-neutral. The lockfile written by
-          <code>gravenc</code> already records every table's layout, schema id and field presence, which is what a code
-          generator for another language needs to emit readers and writers.''',
-     '''schema 语言及其兼容性规则与编程语言无关。<code>gravenc</code> 写入的 lockfile
-          已经记录了每张表的布局、schema id 和字段存在性，这正是其他语言的代码生成器生成读取器和写入器所需要的。'''),
-    ('<h2>Getting started with Rust</h2>', '<h2>使用 Rust 快速上手</h2>'),
-    ('Using the reference implementation needs only the Rust toolchain.', '使用参考实现只需要 Rust 工具链。'),
-    ('<h3>Install the compiler</h3>', '<h3>安装编译器</h3>'),
-    ('<h3>Write a schema and create its lockfile</h3>', '<h3>编写 schema 并创建 lockfile</h3>'),
-    ('<h3>Generate code from <code>build.rs</code></h3>', '<h3>在 <code>build.rs</code> 中生成代码</h3>'),
-    ('<h3>Write and read</h3>', '<h3>写入与读取</h3>'),
-    ('''The <a href="../docs/getting-started.html">getting started guide</a> and the
-      <a href="../docs/graven-language.html">schema language reference</a> cover the full workflow.''',
-     '''<a href="../docs/getting-started.html">快速上手指南</a>和
-      <a href="../docs/graven-language.html">schema 语言参考</a>（英文）涵盖完整的工作流程。'''),
-    ('Graven · format v1 · MIT license', 'Graven · 格式 v1 · MIT 许可证'),
-    ('aria-label="Footer"', 'aria-label="页脚"'),
     ('aria-label="Main"', 'aria-label="主导航"'),
     ('aria-label="Language"', 'aria-label="语言"'),
+    ('aria-label="Footer"', 'aria-label="页脚"'),
+    ('<a href="#containers">How it works</a>', '<a href="#containers">工作原理</a>'),
+    ('<a href="#start">Quickstart</a>', '<a href="#start">快速开始</a>'),
+    ('>Docs</a>', '>文档</a>'),
+    ('<a href="../zh/" hreflang="zh-CN" lang="zh-CN">中文</a>',
+     '<a href="./" hreflang="zh-CN" lang="zh-CN" aria-current="page">中文</a>'),
+
+    # Hero
+    ('<p class="eyebrow">Format v1 frozen · Rust &amp; JS / TS · MIT</p>',
+     '<p class="eyebrow">格式 v1 已冻结 · Rust &amp; JS / TS · MIT</p>'),
+    ('<h1>A binary format built for data that lasts.</h1>',
+     '<h1>为长期保存的数据而设计的二进制格式。</h1>'),
+    ('<p class="lede">Read fields straight from raw bytes with no parsing or allocation. One shared schema and lockfile keep Rust and TypeScript/JavaScript compatible across stored logs and RPC streams.</p>',
+     '<p class="lede">直接从原始字节原地读取字段，无需解析或内存分配。同一份 schema 与 lockfile 让 Rust 和 TypeScript/JavaScript 在持久化日志和 RPC 流之间保持兼容。</p>'),
+    ('<a class="btn primary" href="#start">Get started</a>', '<a class="btn primary" href="#start">快速上手</a>'),
+    ('<a class="btn" href="../docs/index.html">Read the docs</a>', '<a class="btn" href="../docs/index.html">阅读文档</a>'),
+    ('<p class="hero-meta">Normative <a href="../docs/spec/graven-format-v1.html">format v1 spec</a> · Inspired by FlatBuffers and Cap&#39;n Proto (<a href="../docs/history/index.html">how we got here</a>)</p>',
+     '<p class="hero-meta"><a href="../docs/spec/graven-format-v1.html">规范性格式 v1 文档</a> · 受 FlatBuffers 与 Cap&#39;n Proto 启发（<a href="../docs/history/index.html">演进历程</a>）</p>\n      <p class="note">规范与技术文档为英文。</p>'),
+    ('One message, on disk and on the wire', '同一条消息：磁盘上与网络上'),
+    ('<span class="anatomy-hint">Hover or tap any field</span>', '<span class="anatomy-hint">悬停或点击任意字段</span>'),
+    ('aria-label="Where the message is"', 'aria-label="消息所在位置"'),
+    ('aria-label="The 59 bytes of an enveloped Entry message"', 'aria-label="一条带信封的 Entry 消息的 59 个字节"'),
+    ('aria-label="Fields"', 'aria-label="字段"'),
+
+    # Band 1: Why
+    ('<h2>Built for data that outlives the code that wrote it</h2>',
+     '<h2>为比写入它的代码活得更久的数据而生</h2>'),
+    ('<p>Write records once and keep reading them as services upgrade, storage engines change, and audits run years later.</p>',
+     '<p>记录只写一次，但在服务升级、存储引擎更替以及多年后的审计中仍可持续读取。</p>'),
+    ('<h3>Read in place</h3>', '<h3>原地读取</h3>'),
+    ('<p>Fields decode directly from byte offsets. Strings and byte slices borrow straight from the buffer, so untouched fields cost zero work.</p>',
+     '<p>字段直接从字节偏移解码。字符串和字节切片直接借用自缓冲区，未访问的字段零开销。</p>'),
+    ('<h3>One bounded verify pass</h3>', '<h3>一次有界的 verify 遍历</h3>'),
+    ('<p>Untrusted bytes pass through a single <code>verify</code> walk with fixed depth (64) and work limits, returning a trusted view without re-checking on every read.</p>',
+     '<p>不可信字节只经过一次带固定深度（64）与工作量上限的 <code>verify</code> 检查，返回可信视图，后续读取不再重复校验。</p>'),
+    ('<h3>Lockfile-guarded evolution</h3>', '<h3>由 lockfile 守护的演进</h3>'),
+    ('<p><code>gravenc</code> records every layout in a lockfile and rejects schema edits that would make old and new readers disagree.</p>',
+     '<p><code>gravenc</code> 将所有布局记录在 lockfile 中，并拒绝会让新旧读取端产生分歧的 schema 修改。</p>'),
+    ('<h3>Crash vs. corruption clarity</h3>', '<h3>明确区分崩溃与数据损坏</h3>'),
+    ('<p>Normative envelope checks distinguish a write cut short by a crash from a flipped bit (CRC32C)—they are never confused.</p>',
+     '<p>规范化的信封检查步骤可以区分因崩溃而截断的写入和比特翻转（CRC32C），两者绝不混淆。</p>'),
+    ('<p class="uses-label">Common fits</p>', '<p class="uses-label">适用场景</p>'),
+    ('<span class="chip">Ledgers &amp; event logs</span>', '<span class="chip">账本与事件日志</span>'),
+    ('<span class="chip">Browser &harr; Rust RPC</span>', '<span class="chip">浏览器 &harr; Rust RPC</span>'),
+    ('<span class="chip">Offline &amp; embedded sync</span>', '<span class="chip">离线与嵌入式同步</span>'),
+    ('<span class="chip">KV storage &amp; caches</span>', '<span class="chip">KV 存储与缓存</span>'),
+    ('<span class="chip">Long-term archives</span>', '<span class="chip">长期归档</span>'),
+    ('<span class="chip">Wasm plugin boundaries</span>', '<span class="chip">Wasm 插件边界</span>'),
+
+    # Band 2: Containers
+    ('<h2>One message, two containers</h2>', '<h2>一条消息，两种容器</h2>'),
+    ('<p>The <code>Entry</code> payload is the exact same 35 bytes everywhere. Only its outer container changes between storage and network.</p>',
+     '<p><code>Entry</code> 的负载在任何地方都是完全相同的 35 字节。磁盘存储与网络传输之间变化的只是外层容器。</p>'),
+    ('<span class="box-name">At rest: the envelope</span>', '<span class="box-name">静态存储：envelope</span>'),
+    ('<span class="box-name">In flight: the frame</span>', '<span class="box-name">网络传输：帧</span>'),
+    ('>header 20</span>', '>头部 20</span>'),
+    ('>message 35</span>', '>消息 35</span>'),
+    ('<p>Files, logs, and queues have no call context, so the envelope adds a <code>schema_id</code>, payload length, and CRC32C checksum.</p>',
+     '<p>文件、日志和队列没有调用上下文，因此 envelope 会加上 <code>schema_id</code>、负载长度和 CRC32C 校验和。</p>'),
+    ('<p>Over an ordered transport (TLS, sockets), a reply needs only 7 header bytes (kind, variant, length); a call adds method and service id (17 bytes).</p>',
+     '<p>在有序传输（TLS、socket）之上，回复只需 7 字节帧头（类型、变体、长度）；调用帧额外携带方法与 service id（共 17 字节）。</p>'),
+    ('<p class="more">Zero re-encoding: a server persists what it received simply by wrapping the same payload slice in an envelope. <a href="../docs/services.html#the-bytes">How frames work</a></p>',
+     '<p class="more">零重编码：服务端只需用 envelope 包裹收到的同一段负载字节切片即可落盘。<a href="../docs/services.html#the-bytes">帧的工作方式</a></p>'),
+
+    # Band 3: Services
+    ('<h2>Services from the same schema</h2>', '<h2>同一份 schema 定义服务</h2>'),
+    ('<p>Declare unary methods, typed errors, and streams next to your tables. <code>gravenc</code> emits typed clients for Rust and browsers/Node, plus a <code>no_std</code> Rust server edge.</p>',
+     '<p>在表定义旁边声明一元方法、带类型错误和流式方法。<code>gravenc</code> 为 Rust 与浏览器/Node 生成类型化客户端，以及 Rust 的 <code>no_std</code> 服务端边界。</p>'),
+    ('<p class="evo-label">Typed client</p>', '<p class="evo-label">类型化客户端</p>'),
+    ('<dt>Errors are part of the type</dt>', '<dt>错误是类型的一部分</dt>'),
+    ('<dd>Declared errors travel as typed unions checked by the compiler; transport and decode faults share one uniform handler.</dd>',
+     '<dd>声明的错误作为联合体由编译器强制处理；传输与解码故障由统一的故障处理器兜底。</dd>'),
+    ('<dt>Streams yield as frames arrive</dt>', '<dt>流式回复边到边交付</dt>'),
+    ('<dd>Self-delimiting frames deliver each streamed item as soon as its bytes arrive, enforcing configurable size limits.</dd>',
+     '<dd>自定界帧会在字节到达时立即交付每个流条目，并执行可配置的帧大小上限。</dd>'),
+    ('<dt>Validation speaks in codes</dt>', '<dt>校验以错误码表达</dt>'),
+    ('<dd>Broken rules return field, rule, bounds, and check reason codes—never hardcoded server text—ready for client localization.</dd>',
+     '<dd>违反校验规则时返回字段、规则、上下限和原因代码，而非服务端硬编码文本，便于前端本地化显示。</dd>'),
+
+    # Band 4: Evolution
+    ('<h2>Schema changes reviewed before they ship</h2>', '<h2>上线前由编译器审查 schema 修改</h2>'),
+    ('<p>Change a field type or add a required field and <code>gravenc update</code> refuses, citing rule and line. Add a default instead and the lockfile updates cleanly.</p>',
+     '<p>修改字段类型或新增必填字段时，<code>gravenc update</code> 会拒绝并给出规则名和行号；改为提供默认值即可顺利更新 lockfile。</p>'),
+    ('<p class="evo-label">Rejected</p>', '<p class="evo-label">被拒绝</p>'),
+    ('<p class="evo-label">Accepted</p>', '<p class="evo-label">已接受</p>'),
+
+    # Band 5: Quickstart
+    ('<h2>Get started</h2>', '<h2>快速上手</h2>'),
+    ('<p>Shared schema and lockfile on disk; native zero-copy bindings in your language.</p>',
+     '<p>磁盘上共享同一份 schema 与 lockfile；各自语言生成原生零拷贝绑定。</p>'),
+    ('Install the compiler', '安装编译器'),
+    ('Create your schema &amp; lockfile', '创建 schema 与 lockfile'),
+    ('Generate code, write, and verify in place', '生成代码、写入并原地验证'),
+    ('// Generate with `gravenc gen schemas/bank.graven -o src/gen` (or build.rs)',
+     '// 使用 `gravenc gen schemas/bank.graven -o src/gen`（或 build.rs）生成代码'),
+    ('// checks CRC32C and runs verify', '// 检查 CRC32C 并运行 verify'),
+    ('// Generate with `gravenc gen schemas/bank.graven -o src/gen --lang js`',
+     '// 使用 `gravenc gen schemas/bank.graven -o src/gen --lang js` 生成代码'),
+    ('<p class="more">Continue with the <a href="../docs/getting-started.html">getting started guide</a>, <a href="../docs/coming-from-json.html">coming from JSON</a>, or the <a href="../docs/graven-language.html">schema language reference</a>.</p>',
+     '<p class="more">继续阅读<a href="../docs/getting-started.html">快速上手指南</a>、<a href="../docs/coming-from-json.html">从 JSON 迁移</a>或 <a href="../docs/graven-language.html">schema 语言参考</a>（英文）。</p>'),
+
+    # Band 6: Implementations & Verification
+    ('<h2>Implementations &amp; verification</h2>', '<h2>实现与验证</h2>'),
+    ('<p>The specification is the product. Every claim below is pinned by frozen conformance vectors, fuzzing, and automated checks.</p>',
+     '<p>规范本身就是产品。下面每项承诺都由冻结的一致性测试向量、模糊测试和自动化检查担保。</p>'),
+    ('<span class="sdk-badge">Reference · no_std</span>', '<span class="sdk-badge">参考实现 · no_std</span>'),
+    ('<p><code>no_std</code> + <code>alloc</code> runtime with two dependencies, <code>gravenc</code> compiler and lockfile checks, typed client &amp; server edge codegen, and schema interpreter. Passes all 42 v1 + 23 RPC vectors.</p>',
+     '<p>仅含两个依赖的 <code>no_std</code> + <code>alloc</code> 运行时、带 lockfile 检查的 <code>gravenc</code> 编译器、类型化客户端与服务端边界生成，以及一致性解释器。通过全部 42 个 v1 与 23 个 RPC 向量。</p>'),
+    ('>Rust SDK</a>', '>Rust SDK</a>'),
+    ('>API reference</a>', '>API 参考</a>'),
+    ('<span class="sdk-badge">Zero dependencies</span>', '<span class="sdk-badge">零依赖</span>'),
+    ('<p>ES2022 <code>.js</code> modules + <code>.d.ts</code> types generated by <code>gravenc gen --lang js</code>. Canonical writers, validation codes, and browser/Node/Deno RPC clients. Passes all 42 v1 + 23 RPC vectors.</p>',
+     '<p>由 <code>gravenc gen --lang js</code> 生成零依赖 ES2022 <code>.js</code> 模块与 <code>.d.ts</code> 类型声明，含规范写入器、校验码与浏览器/Node/Deno RPC 客户端。通过全部 42 个 v1 与 23 个 RPC 向量。</p>'),
+    ('>JS / TS SDK</a>', '>JS / TS SDK</a>'),
+    ('>Add another language</a>', '>添加其他语言</a>'),
+    ('<th scope="col">Guarantee</th><th scope="col">How it is checked</th>', '<th scope="col">保证</th><th scope="col">检查方式</th>'),
+    ('<th scope="row">Frozen wire specification</th>', '<th scope="row">冻结的线上格式规范</th>'),
+    ('<td>Normative RFC 2119 spec with 42 format v1 vectors and 23 RPC frame vectors. The reference writer reproduces every canonical <code>.bin</code> byte for byte.</td>',
+     '<td>采用 RFC 2119 用语的规范性文档，附带 42 个格式 v1 向量与 23 个 RPC 帧向量；参考写入器逐字节复现每个规范 <code>.bin</code>。</td>'),
+    ('<th scope="row">Cross-implementation agreement</th>', '<th scope="row">跨实现一致性</th>'),
+    ('<td>An independent Rust schema interpreter and generated code decode every vector and single-byte mutation identically; the JS runtime is fuzzed against Rust across millions of mutated messages and frames.</td>',
+     '<td>独立的 Rust schema 解释器与生成代码对所有向量及单字节变异的解码结果完全一致；JS 运行时以 Rust 为基准在数百万条变异消息和帧上进行模糊测试。</td>'),
+    ('<th scope="row">Bounded verification &amp; Miri clean</th>', '<th scope="row">有界验证与 Miri 零告警</th>'),
+    ('<td><code>verify</code> caps depth at 64 and work at <code>max(len × 8, 1 MiB)</code>. Five fuzz targets ran &gt;80 million inputs with overflow checks, and the sole <code>unsafe</code> UTF-8 fast path runs clean under Miri.</td>',
+     '<td><code>verify</code> 将深度限制在 64、总工作量限制在 <code>max(len × 8, 1 MiB)</code>。五个模糊测试目标在开启溢出检查下运行了超过 8000 万个输入，且唯一的 <code>unsafe</code> UTF-8 快速路径在 Miri 下零未定义行为。</td>'),
+    ('<th scope="row">Lockfile compatibility enforcement</th>', '<th scope="row">Lockfile 兼容性强制执行</th>'),
+    ('<td>15 hard errors reject breaking layout or method edits and 2 warnings require confirmation, verified over a corpus of multi-version schema chains.</td>',
+     '<td>15 条硬性错误规则拒绝破坏布局或方法的修改，2 条警告要求显式确认，并在多版本 schema 演化链语料上逐一验证。</td>'),
+    ('<p class="more">Implementing Graven in another language? Use the compiler&#39;s lockfile layouts and verify against all <a href="../docs/conformance-vectors.html">conformance vectors</a>.</p>',
+     '<p class="more">正在为其他语言实现 Graven？直接使用编译器 lockfile 中的布局定义，并通过全套<a href="../docs/conformance-vectors.html">一致性测试向量</a>验证。</p>'),
+
+    # Footer
+    ('Graven · format v1 · MIT license', 'Graven · 格式 v1 · MIT 许可证'),
+    ('>Specification</a>', '>规范</a>'),
+    ('>Schema language</a>', '>Schema 语言</a>'),
+    ('>Services</a>', '>服务</a>'),
     ('>Conformance vectors</a>', '>一致性测试向量</a>'),
     ('>Rust API</a>', '>Rust API</a>'),
     ('>Testing</a>', '>测试</a>'),

@@ -165,6 +165,14 @@ function decodeUtf8(bytes) {
         throw new GravenError("InvalidUtf8");
     }
 }
+function checkUtf8Range(buf, start, end) {
+    for (let i = start; i < end; i++) {
+        if (buf[i] >= 0x80) {
+            decodeUtf8(buf.subarray(start, end));
+            return;
+        }
+    }
+}
 function countedAt(buf, dv, pos, elemSize) {
     const len = readU32At(buf, dv, pos);
     const data = pos + 4;
@@ -330,6 +338,45 @@ export class TableRef {
         const s = this.strs(off);
         return s === undefined ? undefined : new BytesList(s);
     }
+    /** Verifies a string slot's bounds and UTF-8 and charges `ctx` without allocating a JS string. */
+    verifyStr(off, ctx) {
+        const pos = this.ptr(off);
+        if (pos === undefined)
+            return;
+        const len = readU32At(this.buf, this.dv, pos);
+        const data = pos + 4;
+        const end = data + len;
+        if (end > this.buf.length) {
+            throw new GravenError("OutOfBounds", { needed: end });
+        }
+        checkUtf8Range(this.buf, data, end);
+        ctx.charge(4 + len);
+    }
+    /** Verifies a bytes slot's bounds and charges `ctx` without allocating a subarray. */
+    verifyBytes(off, ctx) {
+        const pos = this.ptr(off);
+        if (pos === undefined)
+            return;
+        const len = readU32At(this.buf, this.dv, pos);
+        const end = pos + 4 + len;
+        if (end > this.buf.length) {
+            throw new GravenError("OutOfBounds", { needed: end });
+        }
+        ctx.charge(4 + len);
+    }
+    /** Verifies a scalar/enum/struct list slot's bounds and charges `ctx` without allocating `ScalarList`. */
+    verifyScalars(off, elemSize, ctx) {
+        const pos = this.ptr(off);
+        if (pos === undefined)
+            return;
+        const len = readU32At(this.buf, this.dv, pos);
+        const bytes = len * elemSize;
+        const end = pos + 4 + bytes;
+        if (end > this.buf.length) {
+            throw new GravenError("OutOfBounds", { needed: end });
+        }
+        ctx.charge(4 + bytes);
+    }
 }
 /** View over a serialized `[T]` list of fixed-size scalars, bools, enums, or structs. */
 export class ScalarList {
@@ -405,6 +452,26 @@ export class StrList {
         if (pos === undefined)
             return new Uint8Array(0);
         return bytesAt(this.buf, this.dv, pos);
+    }
+    _verify(ctx, checkUtf8) {
+        ctx.charge(4 + this.length * 4);
+        for (let i = 0; i < this.length; i++) {
+            const pos = resolvePtrAt(this.buf, this.dv, this.slots + i * 4);
+            if (pos === undefined) {
+                ctx.charge(4);
+                continue;
+            }
+            const len = readU32At(this.buf, this.dv, pos);
+            const data = pos + 4;
+            const end = data + len;
+            if (end > this.buf.length) {
+                throw new GravenError("OutOfBounds", { needed: end });
+            }
+            if (checkUtf8) {
+                checkUtf8Range(this.buf, data, end);
+            }
+            ctx.charge(4 + len);
+        }
     }
     get(index) {
         return decodeUtf8(this.getBytes(index));
@@ -576,21 +643,12 @@ export class TableViewList {
 export function verifyStrs(list, ctx) {
     if (list === undefined)
         return;
-    ctx.charge(4 + list.length * 4);
-    for (let i = 0; i < list.length; i++) {
-        const s = list.getBytes(i);
-        decodeUtf8(s);
-        ctx.charge(4 + s.length);
-    }
+    list._verify(ctx, true);
 }
 export function verifyBytesList(list, ctx) {
     if (list === undefined)
         return;
-    ctx.charge(4 + list.length * 4);
-    for (let i = 0; i < list.length; i++) {
-        const b = list.getBytes(i);
-        ctx.charge(4 + b.length);
-    }
+    list._verify(ctx, false);
 }
 export function verifyTableList(list, fromRef, ctx) {
     if (list === undefined)
@@ -602,24 +660,52 @@ export function verifyTableList(list, fromRef, ctx) {
     }
 }
 // ---- CRC32C & Envelope (spec §9) ----
-const CRC32C_TABLE = (() => {
-    const table = new Uint32Array(256);
+const [CRC_T0, CRC_T1, CRC_T2, CRC_T3] = (() => {
+    const t0 = new Uint32Array(256);
+    const t1 = new Uint32Array(256);
+    const t2 = new Uint32Array(256);
+    const t3 = new Uint32Array(256);
     for (let i = 0; i < 256; i++) {
         let crc = i;
         for (let j = 0; j < 8; j++) {
             crc = (crc & 1) !== 0 ? (crc >>> 1) ^ 0x82f63b78 : crc >>> 1;
         }
-        table[i] = crc >>> 0;
+        t0[i] = crc >>> 0;
     }
-    return table;
+    for (let i = 0; i < 256; i++) {
+        const c0 = t0[i];
+        const c1 = (c0 >>> 8) ^ t0[c0 & 0xff];
+        const c2 = (c1 >>> 8) ^ t0[c1 & 0xff];
+        const c3 = (c2 >>> 8) ^ t0[c2 & 0xff];
+        t1[i] = c1 >>> 0;
+        t2[i] = c2 >>> 0;
+        t3[i] = c3 >>> 0;
+    }
+    return [t0, t1, t2, t3];
 })();
-/** Computes CRC-32C (Castagnoli) over `data` as an unsigned 32-bit integer. */
-export function crc32c(data) {
+function crc32cRange(data, start, end) {
     let crc = 0xffffffff;
-    for (let i = 0; i < data.length; i++) {
-        crc = (CRC32C_TABLE[(crc ^ data[i]) & 0xff] ^ (crc >>> 8)) >>> 0;
+    let i = start;
+    const end4 = end - 3;
+    while (i < end4) {
+        const c = crc ^
+            (data[i] | (data[i + 1] << 8) | (data[i + 2] << 16) | (data[i + 3] << 24));
+        crc =
+            CRC_T3[c & 0xff] ^
+                CRC_T2[(c >>> 8) & 0xff] ^
+                CRC_T1[(c >>> 16) & 0xff] ^
+                CRC_T0[(c >>> 24) & 0xff];
+        i += 4;
+    }
+    while (i < end) {
+        crc = CRC_T0[(crc ^ data[i]) & 0xff] ^ (crc >>> 8);
+        i++;
     }
     return (crc ^ 0xffffffff) >>> 0;
+}
+/** Computes CRC-32C (Castagnoli) over `data` as an unsigned 32-bit integer. */
+export function crc32c(data) {
+    return crc32cRange(data, 0, data.length);
 }
 const FNV_OFFSET = 0xcbf29ce484222325n;
 const FNV_PRIME = 0x100000001b3n;
@@ -639,6 +725,29 @@ export const ENVELOPE_HEADER_LEN = 20;
 export const ENVELOPE_TRAILER_LEN = 4;
 const ENVELOPE_VERSION = 1;
 const I32_MAX = 0x7fff_ffff;
+function writeU16LE(out, off, v) {
+    out[off] = v;
+    out[off + 1] = v >>> 8;
+}
+function writeU32LE(out, off, v) {
+    out[off] = v;
+    out[off + 1] = v >>> 8;
+    out[off + 2] = v >>> 16;
+    out[off + 3] = v >>> 24;
+}
+function writeU64LE(out, off, v) {
+    writeU32LE(out, off, Number(v & 0xffffffffn));
+    writeU32LE(out, off + 4, Number((v >> 32n) & 0xffffffffn));
+}
+function readU16LE(buf, off) {
+    return buf[off] | (buf[off + 1] << 8);
+}
+function readU32LE(buf, off) {
+    return (buf[off] | (buf[off + 1] << 8) | (buf[off + 2] << 16) | (buf[off + 3] << 24)) >>> 0;
+}
+function readU64LE(buf, off) {
+    return BigInt(readU32LE(buf, off)) | (BigInt(readU32LE(buf, off + 4)) << 32n);
+}
 /** Writes the 20-byte envelope header at `out[offset..offset+20]`. */
 export function writeEnvelopeHeader(out, offset, id, payloadLen) {
     out[offset] = 0x47; // 'G'
@@ -649,60 +758,64 @@ export function writeEnvelopeHeader(out, offset, id, payloadLen) {
     out[offset + 5] = 0;
     out[offset + 6] = 0;
     out[offset + 7] = 0;
-    const dv = viewOf(out);
-    dv.setBigUint64(offset + 8, id, true);
-    dv.setUint32(offset + 16, payloadLen, true);
+    writeU64LE(out, offset + 8, id);
+    writeU32LE(out, offset + 16, payloadLen);
 }
 /** Encodes `payload` inside a GRVN v1 envelope with CRC32C trailer. */
 export function encodeEnvelope(id, payload) {
     if (payload.length > I32_MAX) {
         throw new GravenError("TooLarge");
     }
-    const out = new Uint8Array(ENVELOPE_HEADER_LEN + payload.length + ENVELOPE_TRAILER_LEN);
+    const bodyEnd = ENVELOPE_HEADER_LEN + payload.length;
+    const out = new Uint8Array(bodyEnd + ENVELOPE_TRAILER_LEN);
     writeEnvelopeHeader(out, 0, id, payload.length);
     out.set(payload, ENVELOPE_HEADER_LEN);
-    const crc = crc32c(out.subarray(0, ENVELOPE_HEADER_LEN + payload.length));
-    viewOf(out).setUint32(ENVELOPE_HEADER_LEN + payload.length, crc, true);
+    writeU32LE(out, bodyEnd, crc32cRange(out, 0, bodyEnd));
     return out;
 }
-/** Decodes and verifies a GRVN v1 envelope header and CRC32C checksum. */
-export function decodeEnvelope(buf) {
-    if (buf.length < ENVELOPE_HEADER_LEN) {
+function decodeEnvelopeAt(buf, offset) {
+    const avail = buf.length - offset;
+    if (avail < ENVELOPE_HEADER_LEN) {
         throw new GravenError("Incomplete", { needed: ENVELOPE_HEADER_LEN });
     }
-    if (buf[0] !== 0x47 || buf[1] !== 0x52 || buf[2] !== 0x56 || buf[3] !== 0x4e) {
+    if (buf[offset] !== 0x47 ||
+        buf[offset + 1] !== 0x52 ||
+        buf[offset + 2] !== 0x56 ||
+        buf[offset + 3] !== 0x4e) {
         throw new GravenError("BadMagic");
     }
-    const version = buf[4];
+    const version = buf[offset + 4];
     if (version !== ENVELOPE_VERSION) {
         throw new GravenError("UnsupportedVersion", { found: version });
     }
-    const dv = viewOf(buf);
-    const flags = buf[5];
-    const reserved = dv.getUint16(6, true);
+    const flags = buf[offset + 5];
+    const reserved = readU16LE(buf, offset + 6);
     if (flags !== 0 || reserved !== 0) {
         throw new GravenError("BadHeader");
     }
-    const id = dv.getBigUint64(8, true);
-    const payloadLen = dv.getUint32(16, true);
-    if (payloadLen > I32_MAX) {
-        throw new GravenError("TooLarge");
-    }
+    const id = readU64LE(buf, offset + 8);
+    const payloadLen = readU32LE(buf, offset + 16);
+    // §8.4 step 5: a length past the input is Incomplete, however large (no overflow: the sum
+    // stays far below 2^53).
     const totalLen = ENVELOPE_HEADER_LEN + payloadLen + ENVELOPE_TRAILER_LEN;
-    if (buf.length < totalLen) {
+    if (avail < totalLen) {
         throw new GravenError("Incomplete", { needed: totalLen });
     }
-    const crcPos = ENVELOPE_HEADER_LEN + payloadLen;
-    const expectedCrc = dv.getUint32(crcPos, true);
-    const actualCrc = crc32c(buf.subarray(0, crcPos));
+    const crcPos = offset + ENVELOPE_HEADER_LEN + payloadLen;
+    const expectedCrc = readU32LE(buf, crcPos);
+    const actualCrc = crc32cRange(buf, offset, crcPos);
     if (actualCrc !== expectedCrc) {
         throw new GravenError("ChecksumMismatch", { expected: expectedCrc, found: actualCrc });
     }
     return {
         schemaId: id,
-        payload: buf.subarray(ENVELOPE_HEADER_LEN, crcPos),
+        payload: buf.subarray(offset + ENVELOPE_HEADER_LEN, crcPos),
         totalLen,
     };
+}
+/** Decodes and verifies a GRVN v1 envelope header and CRC32C checksum. */
+export function decodeEnvelope(buf) {
+    return decodeEnvelopeAt(buf, 0);
 }
 /** Iterates over concatenated GRVN v1 envelopes in `buf`. */
 export function* envelopes(buf) {
@@ -763,6 +876,33 @@ class GrowBuf {
         const pos = this.allocZero(2);
         this.dv.setUint16(pos, value, true);
     }
+    pushStrWithLen(s) {
+        const n = s.length;
+        if (n === 0) {
+            this.pushU32(0);
+            return;
+        }
+        this.ensure(4 + n * 3);
+        const lenPos = this.len;
+        const dataPos = lenPos + 4;
+        let ascii = true;
+        for (let i = 0; i < n; i++) {
+            const ch = s.charCodeAt(i);
+            if (ch >= 0x80) {
+                ascii = false;
+                break;
+            }
+            this.buf[dataPos + i] = ch;
+        }
+        if (ascii) {
+            this.dv.setUint32(lenPos, n, true);
+            this.len = dataPos + n;
+            return;
+        }
+        const { written } = UTF8_ENCODER.encodeInto(s, this.buf.subarray(dataPos));
+        this.dv.setUint32(lenPos, written, true);
+        this.len = dataPos + written;
+    }
     copySlice(start, end) {
         return this.buf.slice(start, end);
     }
@@ -792,12 +932,53 @@ export class Builder {
     root(fixedLen) {
         this.pendingClose = [];
         this.main.len = this.sealed;
-        const prefix = this.sealMode === "frame" ? 4 : ENVELOPE_HEADER_LEN;
+        const prefix = this.sealMode === "frame"
+            ? 4
+            : this.sealMode === "rpc"
+                ? CALL_HEADER_LEN
+                : ENVELOPE_HEADER_LEN;
         this.main.allocZero(prefix);
         const ms = this.main.len;
         this.msgStart = ms;
         const start = allocTableW(this.main, fixedLen);
         return new TableW(this.main, undefined, start, this.pendingClose);
+    }
+    _startRpc() {
+        this.main.clear();
+        this.sealed = 0;
+        this.msgStart = undefined;
+        this.sealMode = "rpc";
+        this.pendingClose.length = 0;
+    }
+    get _capacity() {
+        return this.main.buf.length;
+    }
+    _reset() {
+        this.main.clear();
+        this.sealed = 0;
+        this.msgStart = undefined;
+        this.sealMode = undefined;
+        this.pendingClose.length = 0;
+    }
+    _finishRpcCall(serviceIdVal, method, variant) {
+        this.flushPending();
+        const ms = this.msgStart;
+        this.msgStart = undefined;
+        this.sealMode = undefined;
+        if (ms === undefined) {
+            this.main.clear();
+            return new Uint8Array(0);
+        }
+        const payloadLen = this.main.len - ms;
+        if (payloadLen > I32_MAX) {
+            this.main.clear();
+            throw new GravenError("TooLarge");
+        }
+        const frameStart = ms - CALL_HEADER_LEN;
+        writeFrameHeaderAt(this.main.buf, frameStart, FrameKind.Call, variant, payloadLen, method, serviceIdVal);
+        const out = this.main.copySlice(frameStart, this.main.len);
+        this.main.clear();
+        return out;
     }
     flushPending() {
         while (this.pendingClose.length > 0) {
@@ -905,8 +1086,33 @@ export class Builder {
     closeEnvelope(ms, id, payloadLen) {
         const hdrStart = ms - ENVELOPE_HEADER_LEN;
         writeEnvelopeHeader(this.main.buf, hdrStart, id, payloadLen);
-        const crc = crc32c(this.main.buf.subarray(hdrStart, this.main.len));
+        const crc = crc32cRange(this.main.buf, hdrStart, this.main.len);
         this.main.pushU32(crc);
+    }
+}
+let sharedBuilder = new Builder(256);
+let sharedBuilderBusy = false;
+/** A shared builder that has grown past this is dropped after use instead of kept. */
+const SHARED_BUILDER_MAX_KEEP = 1 << 20;
+/**
+ * Runs `fn` with a builder reused across calls (used by the generated `toBytes` and by RPC
+ * calls), so writing a message does not start from an empty buffer every time. `fn` must
+ * return bytes it copied out (`finish*`). A nested call gets a fresh builder.
+ */
+export function withBuilder(fn) {
+    if (sharedBuilderBusy) {
+        return fn(new Builder());
+    }
+    const b = sharedBuilder;
+    sharedBuilderBusy = true;
+    try {
+        return fn(b);
+    }
+    finally {
+        b._reset();
+        if (b._capacity > SHARED_BUILDER_MAX_KEEP)
+            sharedBuilder = new Builder(256);
+        sharedBuilderBusy = false;
     }
 }
 /** Writer for one table's fixed and variable fields. */
@@ -965,7 +1171,10 @@ export class TableW {
         return this;
     }
     setStr(off, s) {
-        return this.setBytes(off, UTF8_ENCODER.encode(s));
+        const pos = this.main.len;
+        this.main.pushStrWithLen(s);
+        this.patch(off, pos);
+        return this;
     }
     setScalars(off, codec, values) {
         const items = Array.isArray(values) ? values : [...values];
@@ -983,8 +1192,18 @@ export class TableW {
         return this;
     }
     setStrs(off, values) {
-        const items = [...values].map((s) => UTF8_ENCODER.encode(s));
-        return this.setBytesList(off, items);
+        const items = Array.isArray(values) ? values : [...values];
+        const pos = this.main.len;
+        this.main.allocZero(4 + 4 * items.length);
+        this.main.dv.setUint32(pos, items.length, true);
+        for (let i = 0; i < items.length; i++) {
+            const slot = pos + 4 + 4 * i;
+            const target = this.main.len;
+            this.main.pushStrWithLen(items[i]);
+            this.main.dv.setInt32(slot, target - slot, true);
+        }
+        this.patch(off, pos);
+        return this;
     }
     setBytesList(off, values) {
         const items = Array.isArray(values) ? values : [...values];
@@ -1115,24 +1334,34 @@ export class StreamListW {
         this.parent.patch(this.off, header);
     }
 }
-/** Streaming scalar list writer; updates count on every `push()`. */
+/**
+ * Streaming scalar list writer; updates count on every `push()`. Its elements are appended to
+ * the message, so every `push()` must come before any other variable-size field is written.
+ */
 export class ScalarListW {
     main;
     pos;
     codec;
     count = 0;
+    /** Where the next element goes; anything else written there breaks the list. */
+    end;
     constructor(main, pos, codec) {
         this.main = main;
         this.pos = pos;
         this.codec = codec;
+        this.end = pos + 4;
     }
     push(value) {
+        if (this.main.len !== this.end) {
+            throw new Error("streaming list: another variable-size field was written after this list started; push every element before writing other fields");
+        }
         if (this.codec.size > 0) {
             const off = this.main.allocZero(this.codec.size);
             this.codec.write(this.main.dv, off, value);
         }
         this.count++;
         this.main.dv.setUint32(this.pos, this.count, true);
+        this.end = this.main.len;
         return this;
     }
     close() {
@@ -1141,7 +1370,31 @@ export class ScalarListW {
 }
 // ---- Typed generated-code wrappers & validation ----
 export function utf8Len(s) {
-    return UTF8_ENCODER.encode(s).length;
+    const n = s.length;
+    let bytes = 0;
+    for (let i = 0; i < n; i++) {
+        const c = s.charCodeAt(i);
+        if (c < 0x80) {
+            bytes += 1;
+        }
+        else if (c < 0x800) {
+            bytes += 2;
+        }
+        else if (c >= 0xd800 && c <= 0xdbff && i + 1 < n) {
+            const lo = s.charCodeAt(i + 1);
+            if (lo >= 0xdc00 && lo <= 0xdfff) {
+                bytes += 4;
+                i++;
+            }
+            else {
+                bytes += 3;
+            }
+        }
+        else {
+            bytes += 3;
+        }
+    }
+    return bytes;
 }
 export function reqPtr(val, field) {
     if (val === undefined) {
@@ -1208,9 +1461,16 @@ export class ValidationError extends Error {
         this.failure = failure;
     }
 }
-// ---- RPC v1 frames, Fault, and client transport helpers ----
+// ---- RPC frames v1, Fault, and client transport helpers ----
+//
+// A frame carries one format v1 message with no envelope (the envelope is for messages at
+// rest). Every frame starts with 7 bytes: version (high nibble) and kind (low nibble),
+// u16 variant, u32 message length. A Call adds u16 method and u64 service id (17 bytes).
 export const FRAME_VERSION = 1;
-export const FRAME_HEADER_LEN = 16;
+/** Header every frame starts with. */
+export const FRAME_HEADER_LEN = 7;
+/** Header of a `Call` frame: `FRAME_HEADER_LEN` plus method and service id. */
+export const CALL_HEADER_LEN = 17;
 export const FrameKind = {
     Call: 1,
     Ok: 2,
@@ -1236,95 +1496,101 @@ export const FaultCode = {
 export const BROKEN_RULE_SCHEMA_ID = schemaId("graven.rpc.BrokenRule");
 export const FAULT_SCHEMA_ID = schemaId("graven.rpc.Fault");
 const FAULT_FIXED_LEN = 11;
-/** `BrokenRule` up to `rule` (@3): written when `min`, `max` and `reason` are absent. */
-const BROKEN_RULE_FIXED_LEN_V0 = 17;
-/** `BrokenRule` with `min`, `max` and `reason` (@4–@6). */
 const BROKEN_RULE_FIXED_LEN = 29;
-function writeFrameHeader(out, header) {
-    const dv = new DataView(out.buffer, out.byteOffset, FRAME_HEADER_LEN);
-    out[0] = FRAME_VERSION;
-    out[1] = header.kind;
-    dv.setUint16(2, header.method, true);
-    dv.setUint16(4, header.variant, true);
-    dv.setUint16(6, 0, true);
-    dv.setBigUint64(8, header.serviceId, true);
+/** Header length of a frame of `kind`. */
+export function frameHeaderLen(kind) {
+    return kind === FrameKind.Call ? CALL_HEADER_LEN : FRAME_HEADER_LEN;
 }
-/** Encodes a single RPC v1 frame. */
-export function encodeFrame(header, schemaIdVal, payload) {
-    if (header.kind === FrameKind.End) {
-        if (header.variant !== 0 || payload.length !== 0) {
-            throw new GravenError("BadHeader");
-        }
-        const out = new Uint8Array(FRAME_HEADER_LEN);
-        writeFrameHeader(out, header);
-        return out;
+function writeFrameHeaderAt(out, offset, kind, variant, len, method, serviceIdVal) {
+    out[offset] = (FRAME_VERSION << 4) | kind;
+    writeU16LE(out, offset + 1, variant);
+    writeU32LE(out, offset + 3, len);
+    if (kind === FrameKind.Call) {
+        writeU16LE(out, offset + 7, method);
+        writeU64LE(out, offset + 9, serviceIdVal);
     }
-    const env = encodeEnvelope(schemaIdVal, payload);
-    const out = new Uint8Array(FRAME_HEADER_LEN + env.length);
-    writeFrameHeader(out, header);
-    out.set(env, FRAME_HEADER_LEN);
+}
+/** The header of a reply frame (`Ok`, `Err`, `Item`, `End`, `Fault`). */
+export function replyHeader(kind, variant = 0) {
+    return { kind, variant, method: 0, serviceId: 0n };
+}
+/** The header of a `Call` to `method` of service `serviceId`. */
+export function callHeader(serviceIdVal, method, variant = 0) {
+    return { kind: FrameKind.Call, variant, method, serviceId: serviceIdVal };
+}
+/** Encodes one RPC frame carrying `payload` (a format v1 message). */
+export function encodeFrame(header, payload) {
+    if (header.kind === FrameKind.End && (header.variant !== 0 || payload.length !== 0)) {
+        throw new GravenError("BadHeader");
+    }
+    if (payload.length > I32_MAX) {
+        throw new GravenError("TooLarge");
+    }
+    const h = frameHeaderLen(header.kind);
+    const out = new Uint8Array(h + payload.length);
+    writeFrameHeaderAt(out, 0, header.kind, header.variant, payload.length, header.method, header.serviceId);
+    out.set(payload, h);
     return out;
 }
-/** Encodes a 16-byte `End` RPC frame. */
-export function encodeEnd(serviceIdVal, method) {
-    return encodeFrame({ kind: FrameKind.End, method, variant: 0, serviceId: serviceIdVal }, 0n, EMPTY_BYTES);
+/** Encodes a 7-byte `End` RPC frame. */
+export function encodeEnd() {
+    return encodeFrame(replyHeader(FrameKind.End), EMPTY_BYTES);
 }
 /**
- * Decodes one RPC v1 frame at the start of `buf`, following the normative check order in
- * `docs/spec/graven-rpc-v1.md`:
- * 1. `buf.length < 16` -> `Incomplete { needed: 16 }`
- * 2. `buf[0] !== 1` -> `UnsupportedFrameVersion`
- * 3. `buf[1]` not in `1..=6` -> `BadKind`
- * 4. `reserved !== 0 || (kind === End && variant !== 0)` -> `BadFrameHeader`
- * 5. For `End`, returns `totalLen = 16`. Otherwise decodes `&buf[16..]` as an envelope.
+ * Decodes one RPC frame at the start of `buf`, following the normative check order of
+ * `docs/spec/graven-rpc-v1.md` §4:
+ * 1. `buf.length < 7` -> `Incomplete { needed: 7 }`
+ * 2. version (`buf[0] >> 4`) `!== 1` -> `UnsupportedFrameVersion`
+ * 3. kind (`buf[0] & 0x0f`) not in `1..=6` -> `BadKind`
+ * 4. `len > 2^31 - 1`, or `End` with a variant or a message -> `BadFrameHeader`
+ * 5. `buf.length < headerLen + len` -> `Incomplete { needed: headerLen + len }`
+ * The message is returned as is: verifying it is the caller's job.
  */
 export function decodeFrame(buf) {
-    if (buf.length < FRAME_HEADER_LEN) {
+    return decodeFrameAt(buf, 0);
+}
+function decodeFrameAt(buf, offset) {
+    const avail = buf.length - offset;
+    if (avail < FRAME_HEADER_LEN) {
         throw new GravenError("Incomplete", { needed: FRAME_HEADER_LEN });
     }
-    const version = buf[0];
+    const b0 = buf[offset];
+    const version = b0 >> 4;
     if (version !== FRAME_VERSION) {
         throw new GravenError("UnsupportedFrameVersion", { found: version });
     }
-    const kindByte = buf[1];
-    if (kindByte < 1 || kindByte > 6) {
-        throw new GravenError("BadKind", { found: kindByte });
+    const kindRaw = b0 & 0x0f;
+    if (kindRaw < 1 || kindRaw > 6) {
+        throw new GravenError("BadKind", { found: kindRaw });
     }
-    const kind = kindByte;
-    const dv = new DataView(buf.buffer, buf.byteOffset, FRAME_HEADER_LEN);
-    const method = dv.getUint16(2, true);
-    const variant = dv.getUint16(4, true);
-    const reserved = dv.getUint16(6, true);
-    const serviceIdVal = dv.getBigUint64(8, true);
-    if (reserved !== 0 || (kind === FrameKind.End && variant !== 0)) {
+    const kind = kindRaw;
+    const variant = readU16LE(buf, offset + 1);
+    const len = readU32LE(buf, offset + 3);
+    if (len > I32_MAX || (kind === FrameKind.End && (variant !== 0 || len !== 0))) {
         throw new GravenError("BadFrameHeader");
     }
-    const header = { kind, method, variant, serviceId: serviceIdVal };
-    if (kind === FrameKind.End) {
-        return { header, schemaId: 0n, payload: EMPTY_BYTES, totalLen: FRAME_HEADER_LEN };
+    const h = frameHeaderLen(kind);
+    const total = h + len;
+    if (avail < total) {
+        throw new GravenError("Incomplete", { needed: total });
     }
-    let env;
-    try {
-        env = decodeEnvelope(buf.subarray(FRAME_HEADER_LEN));
-    }
-    catch (e) {
-        if (e instanceof GravenError && e.kind === "Incomplete") {
-            throw new GravenError("Incomplete", { needed: FRAME_HEADER_LEN + (e.needed ?? 0) });
-        }
-        throw e;
-    }
+    const call = kind === FrameKind.Call;
     return {
-        header,
-        schemaId: env.schemaId,
-        payload: env.payload,
-        totalLen: FRAME_HEADER_LEN + env.totalLen,
+        header: {
+            kind,
+            variant,
+            method: call ? readU16LE(buf, offset + 7) : 0,
+            serviceId: call ? readU64LE(buf, offset + 9) : 0n,
+        },
+        payload: buf.subarray(offset + h, offset + total),
+        totalLen: total,
     };
 }
 /** Iterates over concatenated RPC frames in `buf`. */
 export function* frames(buf) {
     let off = 0;
     while (off < buf.length) {
-        const f = decodeFrame(buf.subarray(off));
+        const f = decodeFrameAt(buf, off);
         yield f;
         off += f.totalLen;
     }
@@ -1400,8 +1666,7 @@ export function encodeFaultPayload(fault) {
     }
     if (fault.broken !== undefined) {
         const br = fault.broken;
-        const extended = br.min !== undefined || br.max !== undefined || br.reason !== undefined;
-        const bw = w.table(7, extended ? BROKEN_RULE_FIXED_LEN : BROKEN_RULE_FIXED_LEN_V0);
+        const bw = w.table(7, BROKEN_RULE_FIXED_LEN);
         bw.setStr(0, fault.broken.tableName);
         if (fault.broken.field !== undefined) {
             bw.setStr(4, fault.broken.field);
@@ -1420,8 +1685,8 @@ export function encodeFaultPayload(fault) {
     return b.finish();
 }
 /** Encodes a full `Fault` RPC frame. */
-export function encodeFaultFrame(serviceIdVal, method, fault) {
-    return encodeFrame({ kind: FrameKind.Fault, method, variant: 0, serviceId: serviceIdVal }, FAULT_SCHEMA_ID, encodeFaultPayload(fault));
+export function encodeFaultFrame(fault) {
+    return encodeFrame(replyHeader(FrameKind.Fault), encodeFaultPayload(fault));
 }
 /** Error thrown when the server replies with a `Fault` frame. */
 export class RpcFault extends Error {
@@ -1475,12 +1740,6 @@ function formatRpcProtocolError(kind, d) {
             return "empty reply where a frame was expected";
         case "UnexpectedKind":
             return `unexpected frame kind ${String(d?.frameKind)}`;
-        case "ServiceMismatch":
-            return `reply service_id mismatch: expected ${String(d?.expected)}, found ${String(d?.found)}`;
-        case "MethodMismatch":
-            return `reply method mismatch: expected @${String(d?.expected)}, found @${String(d?.found)}`;
-        case "SchemaMismatch":
-            return `payload schema mismatch: expected ${String(d?.expected)}, found ${String(d?.found)}`;
         case "MissingVariant":
             return "union reply frame is missing variant tag";
         case "UnexpectedVariant":
@@ -1491,14 +1750,18 @@ function formatRpcProtocolError(kind, d) {
             return "one-way call received non-empty reply";
         case "Truncated":
             return "reply stream ended before End or Fault frame";
+        case "TooLarge":
+            return `reply frame of ${String(d?.found)} bytes exceeds maxFrameBytes (${String(d?.expected)})`;
     }
 }
-export function rpcVerifyTable(variant, foundSchemaId, payload, expectedSchemaId, verifyFn) {
+/** Default `CallOptions.maxFrameBytes`: 16 MiB. */
+export const DEFAULT_MAX_FRAME_BYTES = 16 * 1024 * 1024;
+function tooLarge(found, limit) {
+    return new RpcProtocolError("TooLarge", { expected: limit, found });
+}
+export function rpcVerifyTable(variant, payload, verifyFn) {
     if (variant !== 0) {
         throw new RpcProtocolError("UnexpectedVariant", { variant });
-    }
-    if (foundSchemaId !== expectedSchemaId) {
-        throw new RpcProtocolError("SchemaMismatch", { expected: expectedSchemaId, found: foundSchemaId });
     }
     try {
         return verifyFn(payload);
@@ -1511,8 +1774,16 @@ export function rpcVerifyTable(variant, foundSchemaId, payload, expectedSchemaId
     }
 }
 export function encodeCallFrame(codec, serviceIdVal, method, fn) {
-    const { variant, schemaId: sid, payload } = codec.encode(fn);
-    return encodeFrame({ kind: FrameKind.Call, method, variant, serviceId: serviceIdVal }, sid, payload);
+    const encodeTo = codec.encodeTo;
+    if (encodeTo !== undefined) {
+        return withBuilder((b) => {
+            b._startRpc();
+            const { variant } = encodeTo(b, fn);
+            return b._finishRpcCall(serviceIdVal, method, variant);
+        });
+    }
+    const { variant, payload } = codec.encode(fn);
+    return encodeFrame(callHeader(serviceIdVal, method, variant), payload);
 }
 function isReadableStream(v) {
     return typeof v.getReader === "function";
@@ -1587,9 +1858,12 @@ class ChunkSource {
         this.done = true;
     }
 }
-async function collectReplyBytes(input) {
-    if (input instanceof Uint8Array)
+async function collectReplyBytes(input, maxBytes) {
+    if (input instanceof Uint8Array) {
+        if (input.length > maxBytes)
+            throw tooLarge(input.length, maxBytes);
         return input;
+    }
     const src = new ChunkSource(input);
     const chunks = [];
     let total = 0;
@@ -1601,6 +1875,8 @@ async function collectReplyBytes(input) {
             if (c.length > 0) {
                 chunks.push(c);
                 total += c.length;
+                if (total > maxBytes)
+                    throw tooLarge(total, maxBytes);
             }
         }
     }
@@ -1625,8 +1901,10 @@ class FrameStreamReader {
     pos = 0;
     len = 0;
     eof = false;
-    constructor(input) {
+    maxBytes;
+    constructor(input, maxBytes) {
         this.src = new ChunkSource(input);
+        this.maxBytes = maxBytes;
     }
     trailingCount() {
         return this.len - this.pos;
@@ -1663,17 +1941,25 @@ class FrameStreamReader {
                 const view = this.buf.subarray(this.pos, this.len);
                 try {
                     const frame = decodeFrame(view);
-                    // Copy slice out of mutable scratch buffer only when payload aliases or slice is reused.
+                    if (frame.totalLen > this.maxBytes)
+                        throw tooLarge(frame.totalLen, this.maxBytes);
+                    // The scratch buffer is reused, so the frame is copied out once; the views a caller
+                    // keeps point into the copy.
                     const copy = view.slice(0, frame.totalLen);
+                    const at = frame.payload.byteOffset - view.byteOffset;
                     this.pos += frame.totalLen;
                     if (this.pos === this.len) {
                         this.pos = 0;
                         this.len = 0;
                     }
-                    return decodeFrame(copy);
+                    return { ...frame, payload: copy.subarray(at, at + frame.payload.length) };
                 }
                 catch (e) {
                     if (e instanceof GravenError && e.kind === "Incomplete") {
+                        // The header already announces the frame's size: refuse it before buffering it.
+                        if (e.needed !== undefined && e.needed > this.maxBytes) {
+                            throw tooLarge(e.needed, this.maxBytes);
+                        }
                         if (this.eof) {
                             throw new RpcProtocolError("Truncated");
                         }
@@ -1702,29 +1988,9 @@ class FrameStreamReader {
         await this.src.close();
     }
 }
-function checkFrameCall(frame, serviceIdVal, method) {
-    if (frame.header.serviceId !== serviceIdVal) {
-        throw new RpcProtocolError("ServiceMismatch", {
-            expected: serviceIdVal,
-            found: frame.header.serviceId,
-        });
-    }
-    if (frame.header.method !== method) {
-        throw new RpcProtocolError("MethodMismatch", {
-            expected: method,
-            found: frame.header.method,
-        });
-    }
-}
 function decodeFaultFrameError(frame) {
     if (frame.header.variant !== 0) {
         return new RpcProtocolError("UnexpectedVariant", { variant: frame.header.variant });
-    }
-    if (frame.schemaId !== FAULT_SCHEMA_ID) {
-        return new RpcProtocolError("SchemaMismatch", {
-            expected: FAULT_SCHEMA_ID,
-            found: frame.schemaId,
-        });
     }
     try {
         return new RpcFault(decodeFault(frame.payload));
@@ -1736,7 +2002,7 @@ function decodeFaultFrameError(frame) {
         throw e;
     }
 }
-function decodeTerminalFrame(bytes, serviceIdVal, method) {
+function decodeTerminalFrame(bytes) {
     if (bytes.length === 0) {
         throw new RpcProtocolError("EmptyReply");
     }
@@ -1753,13 +2019,13 @@ function decodeTerminalFrame(bytes, serviceIdVal, method) {
     if (frame.totalLen !== bytes.length) {
         throw new RpcProtocolError("TrailingBytes", { trailing: bytes.length - frame.totalLen });
     }
-    checkFrameCall(frame, serviceIdVal, method);
     return frame;
 }
 export async function rpcOneWay(send, inCodec, serviceIdVal, method, fn, opts) {
     const call = encodeCallFrame(inCodec, serviceIdVal, method, fn);
     const reply = await send(call, opts?.timeoutMs);
-    const bytes = await collectReplyBytes(reply);
+    const max = opts?.maxFrameBytes ?? DEFAULT_MAX_FRAME_BYTES;
+    const bytes = reply instanceof Uint8Array && reply.length <= max ? reply : await collectReplyBytes(reply, max);
     if (bytes.length !== 0) {
         throw new RpcProtocolError("UnexpectedOneWayReply");
     }
@@ -1768,11 +2034,12 @@ export async function rpcUnary(send, inCodec, outCodec, serviceIdVal, method, de
     const call = encodeCallFrame(inCodec, serviceIdVal, method, fn);
     const timeout = opts?.timeoutMs !== undefined ? opts.timeoutMs : defaultTimeoutMs;
     const reply = await send(call, timeout);
-    const bytes = await collectReplyBytes(reply);
-    const frame = decodeTerminalFrame(bytes, serviceIdVal, method);
+    const max = opts?.maxFrameBytes ?? DEFAULT_MAX_FRAME_BYTES;
+    const bytes = reply instanceof Uint8Array && reply.length <= max ? reply : await collectReplyBytes(reply, max);
+    const frame = decodeTerminalFrame(bytes);
     switch (frame.header.kind) {
         case FrameKind.Ok:
-            return outCodec.verify(frame.header.variant, frame.schemaId, frame.payload);
+            return outCodec.verify(frame.header.variant, frame.payload);
         case FrameKind.Fault:
             throw decodeFaultFrameError(frame);
         default:
@@ -1783,20 +2050,21 @@ export async function rpcUnaryResult(send, inCodec, outCodec, errCodec, serviceI
     const call = encodeCallFrame(inCodec, serviceIdVal, method, fn);
     const timeout = opts?.timeoutMs !== undefined ? opts.timeoutMs : defaultTimeoutMs;
     const reply = await send(call, timeout);
-    const bytes = await collectReplyBytes(reply);
-    const frame = decodeTerminalFrame(bytes, serviceIdVal, method);
+    const max = opts?.maxFrameBytes ?? DEFAULT_MAX_FRAME_BYTES;
+    const bytes = reply instanceof Uint8Array && reply.length <= max ? reply : await collectReplyBytes(reply, max);
+    const frame = decodeTerminalFrame(bytes);
     switch (frame.header.kind) {
         case FrameKind.Ok:
-            return { ok: true, value: outCodec.verify(frame.header.variant, frame.schemaId, frame.payload) };
+            return { ok: true, value: outCodec.verify(frame.header.variant, frame.payload) };
         case FrameKind.Err:
-            return { ok: false, error: errCodec.verify(frame.header.variant, frame.schemaId, frame.payload) };
+            return { ok: false, error: errCodec.verify(frame.header.variant, frame.payload) };
         case FrameKind.Fault:
             throw decodeFaultFrameError(frame);
         default:
             throw new RpcProtocolError("UnexpectedKind", { frameKind: frame.header.kind });
     }
 }
-async function* iterateStreamFrames(reader, first, outCodec, serviceIdVal, method) {
+async function* iterateStreamFrames(reader, first, outCodec) {
     let pending = first;
     try {
         while (true) {
@@ -1805,9 +2073,8 @@ async function* iterateStreamFrames(reader, first, outCodec, serviceIdVal, metho
             if (frame === undefined) {
                 throw new RpcProtocolError("Truncated");
             }
-            checkFrameCall(frame, serviceIdVal, method);
             if (frame.header.kind === FrameKind.Item) {
-                yield outCodec.verify(frame.header.variant, frame.schemaId, frame.payload);
+                yield outCodec.verify(frame.header.variant, frame.payload);
             }
             else if (frame.header.kind === FrameKind.End) {
                 const trailing = reader.trailingCount();
@@ -1832,14 +2099,13 @@ async function* iterateStreamFrames(reader, first, outCodec, serviceIdVal, metho
         await reader.close();
     }
 }
-async function openStreamReply(input, serviceIdVal, method) {
-    const reader = new FrameStreamReader(input);
+async function openStreamReply(input, maxFrameBytes) {
+    const reader = new FrameStreamReader(input, maxFrameBytes);
     try {
         const first = await reader.nextFrame();
         if (first === undefined) {
             throw new RpcProtocolError("EmptyReply");
         }
-        checkFrameCall(first, serviceIdVal, method);
         if (first.header.kind === FrameKind.Item || first.header.kind === FrameKind.End) {
             return { reader, first, err: false };
         }
@@ -1868,27 +2134,27 @@ export async function rpcStream(send, inCodec, outCodec, serviceIdVal, method, d
     const call = encodeCallFrame(inCodec, serviceIdVal, method, fn);
     const timeout = opts?.timeoutMs !== undefined ? opts.timeoutMs : defaultTimeoutMs;
     const reply = await send(call, timeout);
-    const { reader, first, err } = await openStreamReply(reply, serviceIdVal, method);
+    const { reader, first, err } = await openStreamReply(reply, opts?.maxFrameBytes ?? DEFAULT_MAX_FRAME_BYTES);
     if (err) {
         await reader.close();
         throw new RpcProtocolError("UnexpectedKind", { frameKind: FrameKind.Err });
     }
-    return iterateStreamFrames(reader, first, outCodec, serviceIdVal, method);
+    return iterateStreamFrames(reader, first, outCodec);
 }
 export async function rpcStreamResult(send, inCodec, outCodec, errCodec, serviceIdVal, method, defaultTimeoutMs, fn, opts) {
     const call = encodeCallFrame(inCodec, serviceIdVal, method, fn);
     const timeout = opts?.timeoutMs !== undefined ? opts.timeoutMs : defaultTimeoutMs;
     const reply = await send(call, timeout);
-    const { reader, first, err } = await openStreamReply(reply, serviceIdVal, method);
+    const { reader, first, err } = await openStreamReply(reply, opts?.maxFrameBytes ?? DEFAULT_MAX_FRAME_BYTES);
     if (err) {
         await reader.close();
         return {
             ok: false,
-            error: errCodec.verify(first.header.variant, first.schemaId, first.payload),
+            error: errCodec.verify(first.header.variant, first.payload),
         };
     }
     return {
         ok: true,
-        value: iterateStreamFrames(reader, first, outCodec, serviceIdVal, method),
+        value: iterateStreamFrames(reader, first, outCodec),
     };
 }

@@ -61,12 +61,11 @@ impl<'a> JsCx<'a> {
         out.js(&format!("export class {uw} {{"));
         out.dts(&format!("export declare class {uw} {{"));
         out.dts("  private readonly _b;");
-        out.dts("  _chosen?: { readonly tag: number; readonly schemaId: bigint };");
+        out.dts("  _chosen?: { readonly tag: number };");
         out.dts("  constructor(b: _graven.Builder);");
         out.js("  constructor(b) { this._b = b; this._chosen = undefined; }");
         for (vname, tag, tid) in &u.variants {
             let mname = escape_with(vname, &mut used);
-            let vt = self.table_path(*tid, "");
             let vtw = self.table_path(*tid, "W");
             out.method(
                 "  ",
@@ -74,7 +73,7 @@ impl<'a> JsCx<'a> {
                 &mname,
                 &[],
                 &vtw,
-                &[format!("this._chosen = {{ tag: {tag}, schemaId: {vt}.SCHEMA_ID }};"), format!("return {vtw}.root(this._b);")],
+                &[format!("this._chosen = {{ tag: {tag} }};"), format!("return {vtw}.root(this._b);")],
             );
         }
         out.both("}");
@@ -91,12 +90,14 @@ impl<'a> JsCx<'a> {
                 out.js("  encode(fn) {");
                 out.js("    const b = new _graven.Builder();");
                 out.js(&format!("    fn({tw}.root(b));"));
-                out.js(&format!("    return {{ variant: 0, schemaId: {tr}.SCHEMA_ID, payload: b.finish() }};"));
+                out.js("    return { variant: 0, payload: b.finish() };");
                 out.js("  },");
-                out.js("  verify(variant, sid, payload) {");
-                out.js(&format!(
-                    "    return _graven.rpcVerifyTable(variant, sid, payload, {tr}.SCHEMA_ID, (buf) => {tr}.verified(buf));"
-                ));
+                out.js("  encodeTo(b, fn) {");
+                out.js(&format!("    fn({tw}.root(b));"));
+                out.js("    return { variant: 0 };");
+                out.js("  },");
+                out.js("  verify(variant, payload) {");
+                out.js(&format!("    return _graven.rpcVerifyTable(variant, payload, (buf) => {tr}.verified(buf));"));
                 out.js("  },");
                 out.js("};");
                 out.js("");
@@ -112,15 +113,23 @@ impl<'a> JsCx<'a> {
                 out.js("    if (w._chosen === undefined) {");
                 out.js("      throw new Error(\"union writer function must select a variant\");");
                 out.js("    }");
-                out.js("    return { variant: w._chosen.tag, schemaId: w._chosen.schemaId, payload: b.finish() };");
+                out.js("    return { variant: w._chosen.tag, payload: b.finish() };");
                 out.js("  },");
-                out.js("  verify(variant, sid, payload) {");
+                out.js("  encodeTo(b, fn) {");
+                out.js(&format!("    const w = new {uw}(b);"));
+                out.js("    fn(w);");
+                out.js("    if (w._chosen === undefined) {");
+                out.js("      throw new Error(\"union writer function must select a variant\");");
+                out.js("    }");
+                out.js("    return { variant: w._chosen.tag };");
+                out.js("  },");
+                out.js("  verify(variant, payload) {");
                 out.js("    if (variant === 0) throw new _graven.RpcProtocolError(\"MissingVariant\");");
                 out.js("    switch (variant) {");
                 for (vname, tag, tid) in &u.variants {
                     let vt = self.table_path(*tid, "");
                     out.js(&format!(
-                        "      case {tag}: return {{ tag: {tag}, variant: {}, value: _graven.rpcVerifyTable(0, sid, payload, {vt}.SCHEMA_ID, (buf) => {vt}.verified(buf)) }};",
+                        "      case {tag}: return {{ tag: {tag}, variant: {}, value: _graven.rpcVerifyTable(0, payload, (buf) => {vt}.verified(buf)) }};",
                         js_str(vname)
                     ));
                 }

@@ -1,15 +1,46 @@
 # Changelog
 
-## Unreleased
+## 0.3.1 — one message, two containers
 
+- **RPC frames carry bare messages** ([proposal 0005](docs/proposals/0005-wire-frames.md)).
+  One message, two containers: the envelope is for messages at rest, the frame for messages
+  in flight, and a frame no longer contains an envelope. Every frame starts with 7 bytes
+  (version and kind in one byte, union variant, message length); a `Call` adds method and
+  service id. Replies no longer repeat service and method, and frames carry no checksum
+  (the transport must deliver bytes intact). A stream item of 15 bytes travels in 22
+  instead of 55, and transport compression works again. The RPC spec and vectors were
+  rewritten (23 vectors); the generated client and server keep their API. In the runtimes:
+  `encode_frame` / `encodeFrame` take no schema id, `FrameHeader::call` / `reply`
+  (`callHeader` / `replyHeader` in JavaScript), `encode_end` / `encodeEnd` and the fault frame
+  helpers take no service or method, and the `ServiceMismatch`, `MethodMismatch` and
+  `SchemaMismatch` protocol errors are gone.
+- **JavaScript: a `Sender` over `fetch` type-checks.** The call passed to a `Sender` is typed
+  `OwnedBytes` (a `Uint8Array` on its own `ArrayBuffer`), so `fetch(url, { body: call })`
+  compiles under TypeScript 5.7 and later.
+- **JavaScript: reply size limit.** `CallOptions.maxFrameBytes` (default 16 MiB) bounds each
+  reply frame; a frame whose header announces more fails with `RpcProtocolError("TooLarge")`
+  before it is buffered, so a broken or hostile server cannot make the client hold unbounded
+  memory.
+- **JavaScript: streamed scalar lists.** `push()` on a `<field>_streaming()` list now throws
+  when another variable-size field was written since the list started, instead of writing a
+  corrupt list (Rust rejects this at compile time).
+- **JavaScript: faster runtime.** CRC32C four bytes at a time, integers read and written
+  without `DataView`, strings verified without decoding them and written without an
+  intermediate copy, and calls encoded in one buffer. On a 50-entry `bank.Transaction`
+  (Node 24): `fromBytes` 12.2 → 2.9 µs, reading every field 13.3 → 6.0 µs, writing
+  13.5 → 3.8 µs (`toBytes` reuses its builder), streams decode each frame once. Same bytes;
+  checked by the test suite and the fuzzer against Rust.
+- **JavaScript: envelope check order.** An envelope whose `payload_len` goes past the input
+  now fails with `Incomplete`, as format v1 §8.4 requires, instead of `TooLarge` for lengths
+  over 2³¹ − 1. Found by the new JavaScript fuzzer (`scripts/fuzz-js.sh`), which checks the
+  generated code against the Rust reference.
 - **Validation failures carry codes for translation.** A `range` or `len` failure carries the
   bounds declared in the schema (`Rule::Range { min, max }`, `Rule::Len { min, max }`; `min`
   and `max` in JavaScript), and a check returns a reason code instead of a boolean (Rust
   `Result<(), &'static str>`, JavaScript `true | string`), reported as `reason`. Messages are
   never written by the schema or the server: the program that shows a failure translates the
   codes. `graven.rpc.BrokenRule` gains the optional fields `min`, `max` and `reason`, and an
-  `Invalid` fault no longer carries an English `message`. A new RPC frame vector,
-  `frame_fault_invalid_codes`, pins the new fields (the 17 earlier vectors are unchanged).
+  `Invalid` fault no longer carries an English `message`. The RPC vectors pin the new fields.
   Breaking for code that implements `Checks` or matches on `Rule`.
 
 ## 0.3.0 — services and JavaScript

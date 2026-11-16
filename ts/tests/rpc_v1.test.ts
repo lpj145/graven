@@ -4,9 +4,9 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
+  Builder,
   FaultCode,
   FrameKind,
-  GravenError,
   RpcFault,
   RpcProtocolError,
   decodeFault,
@@ -15,64 +15,17 @@ import {
   encodeFaultFrame,
   encodeFaultPayload,
   encodeFrame,
-  frames,
-  schemaId,
+  replyHeader,
 } from "./gen/graven.js";
+import { decodeRpcExpect, type RpcExpect } from "./rpc_json.js";
 import {
-  Event,
   EventW,
-  INVENTORY_SERVICE_ID,
   InventoryClient,
-  Item,
   ItemW,
 } from "./gen/inventory.js";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const RPC_VECTORS_DIR = path.resolve(HERE, "../../../testvectors/rpc-v1");
-
-interface ExpectedRpcFrame {
-  kind: number;
-  method: number;
-  variant: number;
-  service_id: string;
-  schema_id: string;
-  payload_len: number;
-  fault_code?: number;
-  fault_message?: string;
-  fault_broken?: {
-    table_name: string;
-    field?: string;
-    index?: number;
-    rule: string;
-    min?: string;
-    max?: string;
-    reason?: string;
-  };
-}
-
-interface RpcVectorSpec {
-  frames?: ExpectedRpcFrame[];
-  error?: string;
-}
-
-function hexU64(v: bigint): string {
-  return `0x${v.toString(16).padStart(16, "0")}`;
-}
-
-function formatFrameErrorString(e: GravenError): string {
-  switch (e.kind) {
-    case "Incomplete":
-      return `Incomplete(${String(e.needed)})`;
-    case "UnsupportedFrameVersion":
-      return `UnsupportedFrameVersion(${String(e.found)})`;
-    case "BadKind":
-      return `BadKind(${String(e.found)})`;
-    case "BadFrameHeader":
-      return "BadFrameHeader";
-    default:
-      return `Envelope(${e.kind})`;
-  }
-}
 
 describe("testvectors/rpc-v1 conformance", () => {
   const jsonFiles = fs
@@ -80,55 +33,23 @@ describe("testvectors/rpc-v1 conformance", () => {
     .filter((f) => f.endsWith(".json"))
     .sort();
 
-  it("finds all 18 rpc-v1 vector pairs (36 files)", () => {
-    assert.equal(jsonFiles.length, 18);
+  it("finds all 23 rpc-v1 vector pairs (46 files)", () => {
+    assert.equal(jsonFiles.length, 23);
   });
 
   for (const file of jsonFiles) {
     const name = file.slice(0, -5);
     it(name, () => {
-      const spec = JSON.parse(fs.readFileSync(path.join(RPC_VECTORS_DIR, file), "utf8")) as RpcVectorSpec;
+      const spec = JSON.parse(fs.readFileSync(path.join(RPC_VECTORS_DIR, file), "utf8")) as RpcExpect;
       const bin = fs.readFileSync(path.join(RPC_VECTORS_DIR, `${name}.bin`));
-      if (spec.error !== undefined) {
-        assert.throws(
-          () => decodeFrame(bin),
-          (err: unknown) => {
-            if (!(err instanceof GravenError)) return false;
-            return formatFrameErrorString(err) === spec.error;
-          },
-        );
-      } else {
-        const expected = spec.frames ?? [];
-        const decoded = [...frames(bin)];
-        assert.equal(decoded.length, expected.length);
-        for (let i = 0; i < decoded.length; i++) {
-          const f = decoded[i]!;
-          const exp = expected[i]!;
-          assert.equal(f.header.kind, exp.kind);
-          assert.equal(f.header.method, exp.method);
-          assert.equal(f.header.variant, exp.variant);
-          assert.equal(hexU64(f.header.serviceId), exp.service_id);
-          assert.equal(hexU64(f.schemaId), exp.schema_id);
-          assert.equal(f.payload.length, exp.payload_len);
-          if (f.header.kind === FrameKind.Fault) {
-            const fault = decodeFault(f.payload);
-            assert.equal(fault.code, exp.fault_code);
-            assert.equal(fault.message, exp.fault_message);
-            if (exp.fault_broken !== undefined) {
-              const { table_name, ...rest } = exp.fault_broken;
-              assert.deepEqual(fault.broken, { tableName: table_name, ...rest });
-            }
-          }
-        }
-      }
+      assert.deepEqual(decodeRpcExpect(bin), spec);
     });
   }
 });
 
 describe("rpc fault encode/decode & unknown codes", () => {
   it("round-trips Fault with BrokenRule and optional fields", () => {
-    const sid = schemaId("test.svc.v1.Svc");
-    const frameBytes = encodeFaultFrame(sid, 4, {
+    const frameBytes = encodeFaultFrame({
       code: FaultCode.Invalid,
       message: "bad field",
       broken: {
@@ -139,10 +60,7 @@ describe("rpc fault encode/decode & unknown codes", () => {
       },
     });
     const f = decodeFrame(frameBytes);
-    assert.equal(f.header.kind, FrameKind.Fault);
-    assert.equal(f.header.method, 4);
-    assert.equal(f.header.variant, 0);
-    assert.equal(f.header.serviceId, sid);
+    assert.deepEqual(f.header, replyHeader(FrameKind.Fault));
     const decoded = decodeFault(f.payload);
     assert.equal(decoded.code, FaultCode.Invalid);
     assert.equal(decoded.message, "bad field");
@@ -159,8 +77,6 @@ describe("rpc fault encode/decode & unknown codes", () => {
     const short = encodeFaultPayload({ code: FaultCode.Invalid, broken: base });
     const withCodes = { ...base, reason: "missing_at" };
     const long = encodeFaultPayload({ code: FaultCode.Invalid, broken: withCodes });
-    // Without codes the first-release layout is kept, so those bytes do not change.
-    assert.equal(long.length > short.length, true);
     assert.deepEqual(decodeFault(short).broken, base);
     assert.deepEqual(decodeFault(long).broken, withCodes);
     const bounds = { tableName: "Signup", field: "age", rule: "range", min: "18", max: "120" };
@@ -184,20 +100,14 @@ describe("chunked stream & protocol checks on InventoryClient", () => {
   }
 
   it("decodes streamed frames across 1-byte chunks and ReadableStream", async () => {
-    const p1 = EventW.toBytes((w) => w.seq(1n).stock(5));
-    const p2 = EventW.toBytes((w) => w.seq(2n).stock(4));
-    // Extract raw payload from envelopes cleanly by decoding frame or stripping envelope;
-    // even simpler: use b.finish / Item encoding via encodeFrame with Event payload.
-    const env1 = decodeFrame(
-      encodeFrame({ kind: FrameKind.Item, method: 3, variant: 0, serviceId: INVENTORY_SERVICE_ID }, Event.SCHEMA_ID, Event.fromBytes(p1)._ref.buf),
-    );
-    const f1 = encodeFrame(env1.header, Event.SCHEMA_ID, env1.payload);
-    const f2 = encodeFrame(
-      { kind: FrameKind.Item, method: 3, variant: 0, serviceId: INVENTORY_SERVICE_ID },
-      Event.SCHEMA_ID,
-      Event.fromBytes(p2)._ref.buf,
-    );
-    const end = encodeEnd(INVENTORY_SERVICE_ID, 3);
+    const ev = (seq: bigint, stock: number) => {
+      const b = new Builder();
+      EventW.root(b).seq(seq).stock(stock);
+      return encodeFrame(replyHeader(FrameKind.Item), b.finish());
+    };
+    const f1 = ev(1n, 5);
+    const f2 = ev(2n, 4);
+    const end = encodeEnd();
     const all = new Uint8Array(f1.length + f2.length + end.length);
     all.set(f1, 0);
     all.set(f2, f1.length);
@@ -233,13 +143,9 @@ describe("chunked stream & protocol checks on InventoryClient", () => {
 
   it("reports declared default timeout vs override", async () => {
     const observed: Array<number | undefined> = [];
-    const itemBytes = ItemW.toBytes((w) => w.sku("abc").stock(3));
-    const itemPayload = Item.fromBytes(itemBytes)._ref.buf;
-    const reply = encodeFrame(
-      { kind: FrameKind.Ok, method: 1, variant: 0, serviceId: INVENTORY_SERVICE_ID },
-      Item.SCHEMA_ID,
-      itemPayload,
-    );
+    const ib = new Builder();
+    ItemW.root(ib).sku("abc").stock(3);
+    const reply = encodeFrame(replyHeader(FrameKind.Ok), ib.finish());
     const client = new InventoryClient(async (_call, timeoutMs) => {
       observed.push(timeoutMs);
       return reply;
@@ -253,7 +159,7 @@ describe("chunked stream & protocol checks on InventoryClient", () => {
 
   it("throws RpcFault and RpcProtocolError variants on bad replies", async () => {
     const faultClient = new InventoryClient(async () =>
-      encodeFaultFrame(INVENTORY_SERVICE_ID, 1, { code: FaultCode.Unavailable, message: "busy" }),
+      encodeFaultFrame({ code: FaultCode.Unavailable, message: "busy" }),
     );
     await assert.rejects(
       faultClient.get_item((w) => w.sku("a")),
@@ -266,18 +172,18 @@ describe("chunked stream & protocol checks on InventoryClient", () => {
       (err: unknown) => err instanceof RpcProtocolError && err.kind === "EmptyReply",
     );
 
-    const truncClient = new InventoryClient(async () => new Uint8Array([1, 2, 3, 4]));
+    const truncClient = new InventoryClient(async () => new Uint8Array([0x14, 0, 0, 9]));
     await assert.rejects(
       truncClient.watch((w) => w.sku("a")),
       (err: unknown) => err instanceof RpcProtocolError && err.kind === "Truncated",
     );
 
-    const mismatchClient = new InventoryClient(async () =>
-      encodeEnd(INVENTORY_SERVICE_ID + 1n, 3),
-    );
+    // A reply in an older frame layout (first byte 0x01) is refused by its version.
+    const oldClient = new InventoryClient(async () => new Uint8Array([1, 2, 1, 0, 0, 0, 0, 0]));
     await assert.rejects(
-      mismatchClient.watch((w) => w.sku("a")),
-      (err: unknown) => err instanceof RpcProtocolError && err.kind === "ServiceMismatch",
+      oldClient.get_item((w) => w.sku("a")),
+      (err: unknown) =>
+        err instanceof RpcProtocolError && err.kind === "Frame" && err.causeError?.kind === "UnsupportedFrameVersion",
     );
 
     const badOneWay = new InventoryClient(async () => new Uint8Array([1]));
@@ -285,5 +191,64 @@ describe("chunked stream & protocol checks on InventoryClient", () => {
       badOneWay.audit((w) => w.actor("op").note("hi")),
       (err: unknown) => err instanceof RpcProtocolError && err.kind === "UnexpectedOneWayReply",
     );
+  });
+});
+
+describe("reply size limit (CallOptions.maxFrameBytes)", () => {
+  const bigItem = () => {
+    const b = new Builder();
+    ItemW.root(b).sku("x".repeat(2000)).stock(1);
+    return encodeFrame(replyHeader(FrameKind.Ok), b.finish());
+  };
+  const isTooLarge = (e: unknown) => e instanceof RpcProtocolError && e.kind === "TooLarge";
+
+  it("rejects a unary reply larger than the limit, whole or in chunks", async () => {
+    const reply = bigItem();
+    const whole = new InventoryClient(async () => reply);
+    await assert.rejects(whole.get_item((w) => w.sku("x"), { maxFrameBytes: 1024 }), isTooLarge);
+    async function* chunked() {
+      for (let i = 0; i < reply.length; i += 100) yield reply.slice(i, i + 100);
+    }
+    const parts = new InventoryClient(async () => chunked());
+    await assert.rejects(parts.get_item((w) => w.sku("x"), { maxFrameBytes: 1024 }), isTooLarge);
+    // Within the limit it reads normally.
+    const ok = await whole.get_item((w) => w.sku("x"), { maxFrameBytes: 4096 });
+    assert.equal(ok.stock(), 1);
+  });
+
+  it("stops at a header that declares a frame past the limit, without waiting for the bytes", async () => {
+    // A frame header announcing a ~1 GiB message, then a source that never ends.
+    const head = bigItem().slice(0, 7);
+    new DataView(head.buffer).setUint32(3, 1 << 30, true);
+    let pulled = 0;
+    const endless: AsyncIterable<Uint8Array> = {
+      [Symbol.asyncIterator]() {
+        return {
+          async next() {
+            pulled++;
+            return { done: false, value: pulled === 1 ? head : new Uint8Array(1024) };
+          },
+        };
+      },
+    };
+    const client = new InventoryClient(async () => endless);
+    await assert.rejects(client.watch((w) => w.sku("x"), { maxFrameBytes: 1 << 20 }), isTooLarge);
+    assert.equal(pulled < 10, true);
+  });
+
+  it("limits each frame of a stream, not the whole stream", async () => {
+    const ev = (n: bigint) => {
+      const b = new Builder();
+      EventW.root(b).seq(n).stock(1);
+      return encodeFrame(replyHeader(FrameKind.Item), b.finish());
+    };
+    async function* many() {
+      for (let i = 0n; i < 200n; i++) yield ev(i);
+      yield encodeEnd();
+    }
+    const client = new InventoryClient(async () => many());
+    let n = 0;
+    for await (const _ of await client.watch((w) => w.sku("x"), { maxFrameBytes: 256 })) n++;
+    assert.equal(n, 200);
   });
 });

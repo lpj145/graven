@@ -21,6 +21,7 @@ declare module "node:fs" {
   export function mkdirSync(path: string, options?: { recursive?: boolean }): void;
   export function rmSync(path: string, options?: { recursive?: boolean; force?: boolean }): void;
   export function mkdtempSync(prefix: string): string;
+  export function existsSync(path: string): boolean;
 }
 
 declare module "node:path" {
@@ -49,9 +50,19 @@ declare module "node:child_process" {
     args?: readonly string[],
     options?: { stdio?: readonly string[]; cwd?: string },
   ): ChildProcessWithoutNullStreams;
+  export function spawnSync(
+    command: string,
+    options: { input: string; maxBuffer?: number },
+  ): { readonly status: number | null; readonly stdout: Uint8Array; readonly stderr: Uint8Array };
+}
+
+declare module "node:util" {
+  export function isDeepStrictEqual(a: unknown, b: unknown): boolean;
 }
 
 declare const process: {
   readonly env: Record<string, string | undefined>;
+  readonly argv: readonly string[];
   cwd(): string;
+  exit(code?: number): never;
 };

@@ -1,11 +1,10 @@
-//! RPC frame format v1 conformance vectors in `testvectors/rpc-v1/`.
+//! RPC frames v1 conformance vectors in `testvectors/rpc-v1/`.
 
 use std::collections::BTreeSet;
 use std::fs;
 use std::path::PathBuf;
 
-use graven::rpc::{decode_fault, decode_frame, frames, FrameKind};
-use graven_conformance::rpc_vectors::{ExpectedBroken, ExpectedFrame, RpcExpect, format_frame_error, rpc_cases};
+use graven_conformance::rpc_vectors::{RpcExpect, decode_expect, rpc_cases};
 
 fn dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../testvectors/rpc-v1")
@@ -36,48 +35,7 @@ fn rpc_vectors_match_spec_and_disk() {
             .unwrap_or_else(|e| panic!("invalid json in {json_name}: {e}"));
         assert_eq!(expect, case.expect, "{json_name} differs from generator");
 
-        match expect {
-            RpcExpect::Frames(expected) => {
-                let decoded: Vec<_> = frames(&disk_bytes)
-                    .collect::<Result<Vec<_>, _>>()
-                    .unwrap_or_else(|e| panic!("{}: unexpected error {e}", case.name));
-                let actual: Vec<ExpectedFrame> = decoded
-                    .iter()
-                    .zip(&expected)
-                    .map(|(f, exp)| {
-                        let (fault_code, fault_message, fault_broken) = if f.header.kind == FrameKind::Fault {
-                            let fault = decode_fault(f.payload).expect("valid fault payload");
-                            (
-                                Some(fault.code.as_u16()),
-                                fault.message.map(str::to_string),
-                                // Checked only when the vector declares it.
-                                fault.broken.as_ref().map(ExpectedBroken::from).filter(|_| exp.fault_broken.is_some()),
-                            )
-                        } else {
-                            (None, None, None)
-                        };
-                        ExpectedFrame {
-                            kind: f.header.kind.as_u8(),
-                            method: f.header.method,
-                            variant: f.header.variant,
-                            service_id: format!("{:#018x}", f.header.service_id),
-                            schema_id: format!("{:#018x}", f.schema_id),
-                            payload_len: f.payload.len(),
-                            fault_code,
-                            fault_message,
-                            fault_broken,
-                        }
-                    })
-                    .collect();
-                assert_eq!(decoded.len(), expected.len(), "frame count for {}", case.name);
-                assert_eq!(actual, expected, "mismatch for {}", case.name);
-            }
-            RpcExpect::Error(expected_err) => {
-                let err = decode_frame(&disk_bytes)
-                    .expect_err(&format!("{}: expected error `{expected_err}`", case.name));
-                assert_eq!(format_frame_error(&err), expected_err, "mismatch for {}", case.name);
-            }
-        }
+        assert_eq!(decode_expect(&disk_bytes), expect, "{} decodes differently", case.name);
     }
 
     let on_disk: BTreeSet<String> = fs::read_dir(&dir)

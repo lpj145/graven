@@ -20,7 +20,7 @@ import {
   leU8,
   schemaId,
 } from "./gen/graven.js";
-import { type LeafW, RootW, RootV2W } from "./gen/conformance.js";
+import { type LeafW, Root, RootW, RootV2W } from "./gen/conformance.js";
 
 interface Point {
   readonly x: number;
@@ -278,5 +278,32 @@ describe("generated writers produce the canonical vectors byte for byte", () => 
       l.close();
     });
     assert.deepEqual(bytes, vectorBytes("streaming_leaves"));
+  });
+});
+
+describe("streaming scalar list writer", () => {
+  it("refuses a push after another variable-size field was written in between", () => {
+    assert.throws(
+      () =>
+        RootW.toBytes((r) => {
+          const nums = r.nums_streaming();
+          nums.push(1);
+          r.name("hello");
+          nums.push(2);
+        }),
+      /streaming list/,
+    );
+  });
+
+  it("allows other fields before the list and after its last push", () => {
+    const bytes = RootW.toBytes((r) => {
+      r.a_u8(1).a_u32(2).flag(true).flag2(false).name("before");
+      const nums = r.nums_streaming();
+      nums.push(1).push(2);
+      r.blob(new Uint8Array([9]));
+    });
+    const v = Root.fromBytes(bytes);
+    assert.deepEqual([...v.nums()!], [1, 2]);
+    assert.equal(v.name(), "before");
   });
 });

@@ -398,7 +398,7 @@ dependencies = [
 
 [[package]]
 name = "graven"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "bytes",
  "crc32c",
@@ -407,7 +407,7 @@ dependencies = [
 
 [[package]]
 name = "graven-bench"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "bytes",
  "capnp",
@@ -420,7 +420,7 @@ dependencies = [
 
 [[package]]
 name = "graven-codegen-tests"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "graven",
  "graven-compiler",
@@ -428,7 +428,7 @@ dependencies = [
 
 [[package]]
 name = "graven-compiler"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "bytes",
  "graven",
@@ -448,7 +448,7 @@ dependencies = [
 
 [[package]]
 name = "graven-conformance"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "bytes",
  "graven",
@@ -463,7 +463,7 @@ dependencies = [
 
 [[package]]
 name = "graven-dynamic"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "graven",
  "graven-layout",
@@ -472,11 +472,11 @@ dependencies = [
 
 [[package]]
 name = "graven-layout"
-version = "0.3.0"
+version = "0.3.1"
 
 [[package]]
 name = "graven-schemas"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "bytes",
  "graven",

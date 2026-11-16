@@ -135,7 +135,7 @@ For runtime schemas loaded without generated code, `graven_dynamic::Validator::n
 
 Enable client and server code generation with `Build::client().server()` or `gravenc gen --side client,server`:
 
-- **Server edge (`no_std` compatible, transport-agnostic):** `<Service>Call::decode(frame)` checks frame header, service id, method id, `schema_id`, and `verify()` (`decode_validated(frame, &checks)` also validates input rules, rejecting with an `Invalid` fault frame). Each arm receives a typed `Reply<O, E>` or `StreamReply` builder (`ok`, `err`, `item`, `end`, `fault`), and `Rejected::to_frame()` builds protocol `Fault` frames (`None` for one-way calls).
+- **Server edge (`no_std` compatible, transport-agnostic):** `<Service>Call::decode(frame)` checks the frame header, service id and method id, and runs `verify()` on the input (`decode_validated(frame, &checks)` also validates input rules, rejecting with an `Invalid` fault frame). Each arm receives a typed `Reply<O, E>` or `StreamReply` builder (`ok`, `err`, `item`, `end`, `fault`), and `Rejected::to_frame()` builds protocol `Fault` frames (`None` for one-way calls).
 - **Client:** Implement `graven::rpc::Sender` (`async fn send(&self, call: Vec<u8>, timeout_ms: Option<u32>)`) — and optionally `send_stream` to stream frames incrementally via `ReplyStream`. Wrap it in `<Service>Client::new(sender)`.
 - **Errors & timeouts:** `<SERVICE>_SERVICE_ID` and `<service>_timeouts::<METHOD>_MS` expose schema ids and declared timeouts; each method also gets `<method>_with_timeout(f, Some(ms))`. Call errors arrive as `CallError` (`Err`, `Fault(OwnedFault)`, `Protocol(ProtocolError)`, or `Send(T::Error)`).
 

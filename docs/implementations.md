@@ -23,7 +23,7 @@ compatibility rules for every language in common:
 2. **Canonical writer:** follow spec §10.2 so encoded payloads match the reference writer byte
    for byte.
 3. **RPC frames (for services):** implement frame encoding/decoding and `graven.rpc.Fault`
-   and pass all 18 vector pairs in `testvectors/rpc-v1/`.
+   and pass all 23 vectors in `testvectors/rpc-v1/`.
 4. **Add a code generator:** place `codegen/<lang>/` next to `codegen/rust` and `codegen/js`
    in `crates/graven-compiler`, reading only the checked IR + Lock.
 5. **Document once:** add `docs/sdk/<lang>.md`, register it in `site/docs.py`, and add a tab

@@ -165,11 +165,9 @@ impl<'a> JsCx<'a> {
             "toBytes",
             &[p("fn", wfn.clone())],
             "Uint8Array",
-            &[
-                "const b = new _graven.Builder();".into(),
-                format!("fn({name_w}.root(b));"),
-                format!("return b.finishEnvelope({name}.SCHEMA_ID);"),
-            ],
+            &[format!(
+                "return _graven.withBuilder((b) => {{ fn({name_w}.root(b)); return b.finishEnvelope({name}.SCHEMA_ID); }});"
+            )],
         );
         out.method(
             "  ",
@@ -406,8 +404,8 @@ impl<'a> JsCx<'a> {
         let Some(off) = slot else { return Vec::new() };
         match &f.ty {
             Ty::Bool | Ty::Scalar(_) | Ty::Enum(_) | Ty::Struct(_) => Vec::new(),
-            Ty::Str => vec![format!("{{ const s = this._ref.str({off}); if (s !== undefined) ctx.charge(4 + _graven.utf8Len(s)); }}")],
-            Ty::Bytes => vec![format!("{{ const b = this._ref.bytes({off}); if (b !== undefined) ctx.charge(4 + b.length); }}")],
+            Ty::Str => vec![format!("this._ref.verifyStr({off}, ctx);")],
+            Ty::Bytes => vec![format!("this._ref.verifyBytes({off}, ctx);")],
             Ty::List(elem) => match &**elem {
                 Ty::Str => vec![format!("_graven.verifyStrs(this._ref.strs({off}), ctx);")],
                 Ty::Bytes => vec![format!("_graven.verifyBytesList(this._ref.strs({off}), ctx);")],
@@ -415,9 +413,8 @@ impl<'a> JsCx<'a> {
                     vec![format!("_graven.verifyTableList(this._ref.tables({off}), {}.fromRef, ctx);", self.table_path(*ctid, ""))]
                 }
                 inline => {
-                    let codec = self.codec(inline);
                     let per = self.ir.inline_size(inline).unwrap().max(1);
-                    vec![format!("{{ const l = this._ref.scalars({off}, {codec}); if (l !== undefined) ctx.charge(4 + l.length * {per}); }}")]
+                    vec![format!("this._ref.verifyScalars({off}, {per}, ctx);")]
                 }
             },
             Ty::Table(ctid) => {

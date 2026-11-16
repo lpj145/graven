@@ -2,19 +2,13 @@
   "frames": [
     {
       "kind": 6,
-      "method": 3,
       "variant": 0,
-      "service_id": "0x7708675a6f01f170",
-      "schema_id": "0x39962d24665d62db",
-      "payload_len": 105,
+      "message": "0b0001030000000000040000001d001d00000023000000000000000023000000000000000000000027000000060000005369676e757005000000656d61696c0c000000636865636b28656d61696c290a0000006d697373696e675f6174",
       "fault_code": 3,
       "fault_broken": {
         "table_name": "Signup",
         "field": "email",
-        "index": 2,
         "rule": "check(email)",
-        "min": "3",
-        "max": "254",
         "reason": "missing_at"
       }
     }
