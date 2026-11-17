@@ -282,6 +282,22 @@ pub trait FromVerified<'a>: Sized {
     unsafe fn from_verified(t: TableRef<'a>) -> Self;
 }
 
+/// Unwraps a read of data that `verify` already checked, for the accessors of verified views.
+///
+/// It cannot fail: `verify` checked the same bytes, at the same offsets, and they cannot change
+/// (`&[u8]`). An error here means an `unsafe` [`FromVerified::from_verified`] contract was
+/// broken, which is a bug, so it panics instead of handing the caller an error it can do
+/// nothing about.
+#[doc(hidden)]
+#[inline]
+#[track_caller]
+pub fn trusted<T>(r: Result<T, Error>) -> T {
+    match r {
+        Ok(v) => v,
+        Err(e) => panic!("graven: reading verified data failed ({e}); a `from_verified` contract was broken"),
+    }
+}
+
 /// Typed list of verified views; an absent list reads as empty. Only obtainable from a
 /// verified view, so its elements are verified too.
 #[derive(Clone, Copy)]
@@ -312,23 +328,26 @@ impl<'a, T: FromVerified<'a>> VListR<'a, T> {
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
+    /// Element `i`, or `None` past the end.
     #[allow(unsafe_code)]
     #[inline]
-    pub fn get(&self, i: usize) -> Result<T, Error> {
-        match self.inner {
-            // SAFETY: `VListR::new`'s contract says this list was verified, along this
-            // edge, with elements of `T`'s checked type; `verify()` visits every element,
-            // so element `i` satisfies `from_verified`'s contract for `T`.
-            Some(l) => Ok(unsafe { T::from_verified(l.get(i)?) }),
-            None => Err(Error::OutOfBounds),
+    pub fn get(&self, i: usize) -> Option<T> {
+        let l = self.inner?;
+        if i >= l.len() {
+            return None;
         }
+        // SAFETY: `VListR::new`'s contract says this list was verified, along this
+        // edge, with elements of `T`'s checked type; `verify()` visits every element,
+        // so element `i` satisfies `from_verified`'s contract for `T`.
+        Some(unsafe { T::from_verified(trusted(l.get(i))) })
     }
-    pub fn iter(&self) -> impl ExactSizeIterator<Item = Result<T, Error>> + 'a
+    /// Every element, in order.
+    pub fn iter(&self) -> impl ExactSizeIterator<Item = T> + 'a
     where
         T: 'a,
     {
         let s = VListR::<'a, T> { inner: self.inner, _t: PhantomData };
-        (0..s.len()).map(move |i| s.get(i))
+        (0..s.len()).map(move |i| s.get(i).expect("index below len"))
     }
 }
 
@@ -360,26 +379,28 @@ impl<'a> VStrList<'a> {
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
-    /// Raw bytes of element `i`.
+    /// Raw bytes of element `i`, or `None` past the end.
     #[inline]
-    pub fn get_bytes(&self, i: usize) -> Result<&'a [u8], Error> {
-        match self.inner {
-            Some(l) => l.get_bytes(i),
-            None => Err(Error::OutOfBounds),
+    pub fn get_bytes(&self, i: usize) -> Option<&'a [u8]> {
+        let l = self.inner?;
+        if i >= l.len() {
+            return None;
         }
+        Some(trusted(l.get_bytes(i)))
     }
-    /// Element `i`, without re-validating UTF-8.
+    /// Element `i`, without re-validating UTF-8, or `None` past the end.
     #[allow(unsafe_code)]
     #[inline]
-    pub fn get(&self, i: usize) -> Result<&'a str, Error> {
+    pub fn get(&self, i: usize) -> Option<&'a str> {
         let b = self.get_bytes(i)?;
         // SAFETY: `VStrList::new`'s contract says verify passed this very list (same edge,
         // same immutable buffer) to `verify_strs`, which validated every element as UTF-8.
-        Ok(unsafe { core::str::from_utf8_unchecked(b) })
+        Some(unsafe { core::str::from_utf8_unchecked(b) })
     }
-    pub fn iter(&self) -> impl ExactSizeIterator<Item = Result<&'a str, Error>> + 'a {
+    /// Every element, in order.
+    pub fn iter(&self) -> impl ExactSizeIterator<Item = &'a str> + 'a {
         let s = *self;
-        (0..s.len()).map(move |i| s.get(i))
+        (0..s.len()).map(move |i| s.get(i).expect("index below len"))
     }
 }
 

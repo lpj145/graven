@@ -1,0 +1,24 @@
+[package]
+name = "graven-axum-example"
+version = "0.0.0"
+edition = "2024"
+publish = false
+description = "A Graven service served by Axum, called from the browser"
+license = "MIT"
+
+# Outside the repository's workspace, so `cargo test --workspace` does not build Axum.
+# In your own project, use the published crates: `graven = "0.3"`, `graven-compiler = "0.3"`.
+[dependencies]
+graven = { path = "../../crates/graven" }
+axum = "0.8"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "net"] }
+futures-util = { version = "0.3", default-features = false }
+
+[build-dependencies]
+graven-compiler = { path = "../../crates/graven-compiler" }
+
+[workspace]
+
+[dev-dependencies]
+tower = { version = "0.5", features = ["util"] }
+http-body-util = "0.1"

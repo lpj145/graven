@@ -3,16 +3,20 @@
 // same module could break the safety of the verified views (by constructing `XVerified(...)`
 // without `verify()`).
 /// Schema id of `game.Entity` (envelope header); same as [`Entity::SCHEMA_ID`].
+#[allow(dead_code)]
 pub const ENTITY_SCHEMA_ID: u64 = Entity::SCHEMA_ID;
 /// Schema id of `game.Frame` (envelope header); same as [`Frame::SCHEMA_ID`].
+#[allow(dead_code)]
 pub const FRAME_SCHEMA_ID: u64 = Frame::SCHEMA_ID;
 /// Frozen struct `Vec3`: 12 bytes, never evolves.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
+#[allow(dead_code)]
 pub struct Vec3 {
     pub x: f32,
     pub y: f32,
     pub z: f32,
 }
+#[allow(dead_code)]
 impl ::graven::Le for Vec3 {
     const SIZE: usize = 12;
     #[inline(always)]
@@ -32,6 +36,7 @@ impl ::graven::Le for Vec3 {
 }
 /// Layout of the fixed part of `Entity` (spec §3.3).
 #[allow(clippy::module_inception)]
+#[allow(dead_code)]
 pub mod entity {
     pub const FIXED_LEN: u16 = 31;
     pub const ID: u16 = 1;
@@ -48,8 +53,10 @@ pub mod entity {
 }
 /// Checked reader of `game.Entity`: accessors validate on demand. [`Entity::verified`] / [`Entity::from_bytes`] verify the whole message and return the view [`EntityVerified`].
 #[derive(Clone, Copy)]
+#[allow(dead_code)]
 pub struct Entity<'a>(::graven::TableRef<'a>);
 /// Required fields of `Entity` (and optional scalar slots), in ID order.
+#[allow(dead_code)]
 pub const ENTITY_REQ: &[::graven::rt::Req] = &[
     ::graven::rt::Req::Scalar {
         name: "id",
@@ -80,12 +87,14 @@ pub const ENTITY_REQ: &[::graven::rt::Req] = &[
         bit: entity::ALIVE_BIT,
     },
 ];
+#[allow(dead_code)]
 const ENTITY_MASK: ::graven::rt::ReqMask = ::graven::rt::ReqMask {
     len: entity::FIXED_LEN,
     bits: &[(0, ::graven::rt::mask_for(ENTITY_REQ, 0))],
     ptrs: &[],
     unions: &[],
 };
+#[allow(dead_code)]
 impl<'a> ::graven::rt::FromTable<'a> for Entity<'a> {
     #[inline]
     fn from_ref(
@@ -108,6 +117,7 @@ impl<'a> ::graven::rt::FromTable<'a> for Entity<'a> {
     }
 }
 #[allow(clippy::should_implement_trait)]
+#[allow(dead_code)]
 impl<'a> Entity<'a> {
     /// Schema id of `game.Entity` (envelope header), read from the lock.
     pub const SCHEMA_ID: u64 = 0x4ddb860c7ed5e274;
@@ -176,7 +186,9 @@ impl<'a> Entity<'a> {
 }
 /// A [`Entity`] whose `verify()` passed. Only constructed by [`Entity::verified`] / [`Entity::from_bytes`] (or as a field/element of a verified view); strings are read without revalidating UTF-8.
 #[derive(Clone, Copy)]
+#[allow(dead_code)]
 pub struct EntityVerified<'a>(Entity<'a>);
+#[allow(dead_code)]
 impl<'a> ::graven::rt::FromVerified<'a> for EntityVerified<'a> {
     /// The required fields were checked by `Entity::from_ref` when the root's `verify()` reached `t` as a `Entity` along this edge (this fn's contract, condition 1).
     #[allow(unsafe_code)]
@@ -186,6 +198,7 @@ impl<'a> ::graven::rt::FromVerified<'a> for EntityVerified<'a> {
     }
 }
 #[allow(clippy::should_implement_trait)]
+#[allow(dead_code)]
 impl<'a> EntityVerified<'a> {
     /// The checked reader over the same table.
     #[inline]
@@ -214,8 +227,10 @@ impl<'a> EntityVerified<'a> {
     }
 }
 /// Writer of `Entity` (scalars only): writes through a `FixedW` whose size is known at compile time.
+#[allow(dead_code)]
 pub struct EntityW<'b>(pub(crate) ::graven::FixedW<'b, { entity::FIXED_LEN as usize }>);
 #[allow(clippy::should_implement_trait)]
+#[allow(dead_code)]
 impl<'b> EntityW<'b> {
     #[inline]
     pub fn root(b: &'b mut ::graven::Builder<'_>) -> Self {
@@ -274,7 +289,9 @@ impl<'b> EntityW<'b> {
     }
 }
 /// List element descriptor of `Entity`.
+#[allow(dead_code)]
 pub struct EntityE;
+#[allow(dead_code)]
 impl ::graven::rt::Elem for EntityE {
     const FIXED_LEN: u16 = entity::FIXED_LEN;
     const PTR_SLOTS: &'static [u16] = entity::PTR_SLOTS;
@@ -289,9 +306,11 @@ impl ::graven::rt::Elem for EntityE {
     }
 }
 /// List of `Entity` with a known count (scalar-only element: `FixedListW`).
+#[allow(dead_code)]
 pub struct EntityListW<'a>(
     pub(crate) ::graven::FixedListW<'a, { entity::FIXED_LEN as usize }>,
 );
+#[allow(dead_code)]
 impl EntityListW<'_> {
     #[inline(always)]
     pub fn push(&mut self) -> EntityW<'_> {
@@ -300,6 +319,7 @@ impl EntityListW<'_> {
 }
 /// Layout of the fixed part of `Frame` (spec §3.3).
 #[allow(clippy::module_inception)]
+#[allow(dead_code)]
 pub mod frame {
     pub const FIXED_LEN: u16 = 13;
     pub const TICK: u16 = 1;
@@ -310,8 +330,10 @@ pub mod frame {
 }
 /// Checked reader of `game.Frame`: accessors validate on demand. [`Frame::verified`] / [`Frame::from_bytes`] verify the whole message and return the view [`FrameVerified`].
 #[derive(Clone, Copy)]
+#[allow(dead_code)]
 pub struct Frame<'a>(::graven::TableRef<'a>);
 /// Required fields of `Frame` (and optional scalar slots), in ID order.
+#[allow(dead_code)]
 pub const FRAME_REQ: &[::graven::rt::Req] = &[
     ::graven::rt::Req::Scalar {
         name: "tick",
@@ -324,12 +346,14 @@ pub const FRAME_REQ: &[::graven::rt::Req] = &[
         off: frame::ENTITIES,
     },
 ];
+#[allow(dead_code)]
 const FRAME_MASK: ::graven::rt::ReqMask = ::graven::rt::ReqMask {
     len: frame::FIXED_LEN,
     bits: &[(0, ::graven::rt::mask_for(FRAME_REQ, 0))],
     ptrs: &[frame::ENTITIES],
     unions: &[],
 };
+#[allow(dead_code)]
 impl<'a> ::graven::rt::FromTable<'a> for Frame<'a> {
     #[inline]
     fn from_ref(
@@ -354,6 +378,7 @@ impl<'a> ::graven::rt::FromTable<'a> for Frame<'a> {
     }
 }
 #[allow(clippy::should_implement_trait)]
+#[allow(dead_code)]
 impl<'a> Frame<'a> {
     /// Schema id of `game.Frame` (envelope header), read from the lock.
     pub const SCHEMA_ID: u64 = 0xac596b31e2571a70;
@@ -414,7 +439,9 @@ impl<'a> Frame<'a> {
 }
 /// A [`Frame`] whose `verify()` passed. Only constructed by [`Frame::verified`] / [`Frame::from_bytes`] (or as a field/element of a verified view); strings are read without revalidating UTF-8.
 #[derive(Clone, Copy)]
+#[allow(dead_code)]
 pub struct FrameVerified<'a>(Frame<'a>);
+#[allow(dead_code)]
 impl<'a> ::graven::rt::FromVerified<'a> for FrameVerified<'a> {
     /// The required fields were checked by `Frame::from_ref` when the root's `verify()` reached `t` as a `Frame` along this edge (this fn's contract, condition 1).
     #[allow(unsafe_code)]
@@ -424,6 +451,7 @@ impl<'a> ::graven::rt::FromVerified<'a> for FrameVerified<'a> {
     }
 }
 #[allow(clippy::should_implement_trait)]
+#[allow(dead_code)]
 impl<'a> FrameVerified<'a> {
     /// The checked reader over the same table.
     #[inline]
@@ -436,23 +464,19 @@ impl<'a> FrameVerified<'a> {
     }
     #[allow(unsafe_code)]
     #[inline]
-    pub fn entities(
-        &self,
-    ) -> ::core::result::Result<
-        ::graven::rt::VListR<'a, EntityVerified<'a>>,
-        ::graven::Error,
-    > {
-        let l = self.0.0.tables(frame::ENTITIES)?;
+    pub fn entities(&self) -> ::graven::rt::VListR<'a, EntityVerified<'a>> {
+        let l = ::graven::rt::trusted(self.0.0.tables(frame::ENTITIES));
         // SAFETY: `Frame::verify` followed this same edge (`frame::ENTITIES`) and verified it as
         // `ListR<Entity>`, i.e. every element as `Entity`; `EntityVerified` wraps exactly `Entity`, so
         // `T` matches what verify used for this list (`VListR::new` contract).
-        let v = unsafe { ::graven::rt::VListR::new(l) };
-        ::core::result::Result::Ok(v)
+        unsafe { ::graven::rt::VListR::new(l) }
     }
 }
 /// Writer of `Frame`.
+#[allow(dead_code)]
 pub struct FrameW<'b>(pub(crate) ::graven::TableW<'b>);
 #[allow(clippy::should_implement_trait)]
+#[allow(dead_code)]
 impl<'b> FrameW<'b> {
     #[inline]
     pub fn root(b: &'b mut ::graven::Builder<'_>) -> Self {
@@ -505,7 +529,9 @@ impl<'b> FrameW<'b> {
     }
 }
 /// List element descriptor of `Frame`.
+#[allow(dead_code)]
 pub struct FrameE;
+#[allow(dead_code)]
 impl ::graven::rt::Elem for FrameE {
     const FIXED_LEN: u16 = frame::FIXED_LEN;
     const PTR_SLOTS: &'static [u16] = frame::PTR_SLOTS;

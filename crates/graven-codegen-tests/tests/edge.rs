@@ -50,36 +50,36 @@ fn defaults_and_required_roundtrip() {
     assert_eq!((v.d_i8(), v.d_mode()), (-128, Mode::Auto));
     // Required fields.
     assert_eq!(v.r#type(), 3);
-    assert_eq!(v.req_str().unwrap(), "req");
+    assert_eq!(v.req_str(), "req");
     assert_eq!(r.req_str().unwrap(), "req");
-    assert_eq!(v.req_bytes().unwrap(), &[1, 2]);
-    assert_eq!(v.req_nums().unwrap().iter().collect::<Vec<_>>(), [-1, i64::MAX]);
-    let names = v.req_names().unwrap();
+    assert_eq!(v.req_bytes(), &[1, 2]);
+    assert_eq!(v.req_nums().iter().collect::<Vec<_>>(), [-1, i64::MAX]);
+    let names = v.req_names();
     assert_eq!((0..names.len()).map(|i| names.get(i).unwrap()).collect::<Vec<_>>(), ["a", "", "ç"]);
     let names = r.req_names().unwrap();
     assert_eq!(names.get(2).unwrap(), "ç");
-    let blobs = v.req_blobs().unwrap();
+    let blobs = v.req_blobs();
     assert_eq!((blobs.get_bytes(0).unwrap(), blobs.get_bytes(1).unwrap()), (&[0u8][..], &[][..]));
-    let small: Vec<(u32, Option<bool>)> = v.req_small().unwrap().iter().map(|e| e.unwrap()).map(|e| (e.v(), e.ok())).collect();
+    let small: Vec<(u32, Option<bool>)> = v.req_small().iter().map(|e| (e.v(), e.ok())).collect();
     assert_eq!(small, [(10, Some(true)), (11, None)]);
-    let big = v.req_big().unwrap().get(0).unwrap();
-    assert_eq!((big.s().unwrap(), big.b().unwrap()), ("big", &[9u8][..]));
-    let t = v.req_tab().unwrap();
+    let big = v.req_big().get(0).unwrap();
+    assert_eq!((big.s(), big.b()), ("big", &[9u8][..]));
+    let t = v.req_tab();
     assert_eq!((t.v(), t.ok()), (77, Some(false)));
     assert_eq!(r.req_tab().unwrap().v(), 77);
-    assert!(matches!(v.req_pick().unwrap(), PickVerified::Small(s) if s.v() == 5));
+    assert!(matches!(v.req_pick(), PickVerified::Small(s) if s.v() == 5));
     assert!(matches!(r.req_pick().unwrap(), Pick::Small(s) if s.v() == 5));
     assert_eq!(v.pair(), Pair { a: px(1), w: -0.25 });
     // Optional pointers absent.
-    assert!(v.opt_tab().unwrap().is_none());
-    assert!(v.opt_pick().unwrap().is_none());
-    assert!(v.bools().unwrap().is_none());
+    assert!(v.opt_tab().is_none());
+    assert!(v.opt_pick().is_none());
+    assert!(v.bools().is_none());
     assert_eq!(v.pixel(), None);
     assert_eq!(v.last(), None);
 
     let buf = finish(|w| required(w, true));
     let v = Edge::verified(&buf).unwrap();
-    assert!(matches!(v.req_pick().unwrap(), PickVerified::Big(b) if b.s().unwrap() == "bb"));
+    assert!(matches!(v.req_pick(), PickVerified::Big(b) if b.s() == "bb"));
 }
 
 #[test]
@@ -103,11 +103,11 @@ fn optional_and_lists_roundtrip() {
     assert_eq!((v.d_i8(), v.d_i64(), v.d_f32(), v.d_bool(), v.d_mode()), (5, -7, 0.5, false, Mode::Unknown(300)));
     assert_eq!(v.d_f64().to_bits(), (-0.0f64).to_bits());
     assert_eq!(v.pixel(), Some(px(2)));
-    assert_eq!(v.bools().unwrap().unwrap().iter().collect::<Vec<_>>(), [true, false, true]);
-    assert_eq!(v.modes().unwrap().unwrap().iter().collect::<Vec<_>>(), [Mode::Off, Mode::On, Mode::Unknown(9)]);
-    assert_eq!(v.pixels().unwrap().unwrap().iter().collect::<Vec<_>>(), [px(3), px(4)]);
-    assert_eq!(v.opt_tab().unwrap().unwrap().s().unwrap(), "opt");
-    assert!(matches!(v.opt_pick().unwrap(), Some(PickVerified::Big(b)) if b.b().unwrap() == [2]));
+    assert_eq!(v.bools().unwrap().iter().collect::<Vec<_>>(), [true, false, true]);
+    assert_eq!(v.modes().unwrap().iter().collect::<Vec<_>>(), [Mode::Off, Mode::On, Mode::Unknown(9)]);
+    assert_eq!(v.pixels().unwrap().iter().collect::<Vec<_>>(), [px(3), px(4)]);
+    assert_eq!(v.opt_tab().unwrap().s(), "opt");
+    assert!(matches!(v.opt_pick(), Some(PickVerified::Big(b)) if b.b() == [2]));
     assert_eq!(v.last(), Some(250));
 }
 

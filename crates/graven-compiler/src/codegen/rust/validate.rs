@@ -168,24 +168,20 @@ impl Cx<'_> {
                 ::core::result::Result::Ok(())
             }
 
-            /// Checks the schema's validation rules on this message, collecting every failure.
-            pub fn validate_all(&self, checks: &impl Checks) -> ::core::result::Result<::graven::rt::Vec<::graven::Invalid>, ::graven::Error> {
+            /// Checks the schema's validation rules on this message, collecting every failure
+            /// (empty when the message follows every rule).
+            pub fn validate_all(&self, checks: &impl Checks) -> ::graven::rt::Vec<::graven::Invalid> {
                 let mut out = ::graven::rt::Vec::new();
-                self.validate_all_into(checks, &mut out)?;
-                ::core::result::Result::Ok(out)
+                self.validate_all_into(checks, &mut out);
+                out
             }
 
             #[doc(hidden)]
             #[allow(clippy::collapsible_if, clippy::neg_cmp_op_on_partial_ord, clippy::manual_range_contains)]
-            pub fn validate_all_into(
-                &self,
-                checks: &impl Checks,
-                out: &mut ::graven::rt::Vec<::graven::Invalid>,
-            ) -> ::core::result::Result<(), ::graven::Error> {
+            pub fn validate_all_into(&self, checks: &impl Checks, out: &mut ::graven::rt::Vec<::graven::Invalid>) {
                 // A table with only built-in rules does not call any check.
                 let _ = (checks, &*out);
                 #collect_all
-                ::core::result::Result::Ok(())
             }
         }
     }
@@ -227,10 +223,9 @@ impl Cx<'_> {
             }
             let id = &f.id;
             let fname = Literal::string(f.name);
-            let is_inline = matches!(f.ty, Ty::Bool | Ty::Scalar(_) | Ty::Enum(_) | Ty::Struct(_));
             let is_opt = matches!(f.presence, Presence::Optional);
 
-            let read_expr = if is_inline { quote!(self.#id()) } else { quote!(self.#id()?) };
+            let read_expr = quote!(self.#id());
             let inner = self.validate_field_value(&tname, &fname, f, collect_all);
 
             if is_opt {
@@ -395,7 +390,7 @@ impl Cx<'_> {
         match f.ty {
             Ty::Table(tid) if table_needs_validate(self.ir, *tid) => {
                 if collect_all {
-                    stmts.push(quote!(v.validate_all_into(checks, out)?;));
+                    stmts.push(quote!(v.validate_all_into(checks, out);));
                 } else {
                     stmts.push(quote!(v.validate(checks)?;));
                 }
@@ -408,7 +403,7 @@ impl Cx<'_> {
                         stmts.push(quote! {
                             for (i, elem) in v.iter().enumerate() {
                                 let start = out.len();
-                                elem?.validate_all_into(checks, out)?;
+                                elem.validate_all_into(checks, out);
                                 for inv in &mut out[start..] {
                                     if inv.index.is_none() {
                                         inv.index = ::core::option::Option::Some(i as u32);
@@ -419,7 +414,7 @@ impl Cx<'_> {
                     } else {
                         stmts.push(quote! {
                             for (i, elem) in v.iter().enumerate() {
-                                elem?.validate(checks).map_err(|e| e.at(i))?;
+                                elem.validate(checks).map_err(|e| e.at(i))?;
                             }
                         });
                     }
@@ -435,7 +430,7 @@ impl Cx<'_> {
                         let vid = ident(vname);
                         if table_needs_validate(self.ir, *vtid) {
                             if collect_all {
-                                quote!(#uv::#vid(inner) => inner.validate_all_into(checks, out)?,)
+                                quote!(#uv::#vid(inner) => inner.validate_all_into(checks, out),)
                             } else {
                                 quote!(#uv::#vid(inner) => inner.validate(checks)?,)
                             }

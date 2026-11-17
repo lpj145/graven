@@ -50,19 +50,19 @@ fn vstrlist_reads_without_validation_after_verify() {
     assert_eq!(v.len(), words.len());
     assert!(!v.is_empty());
     for (i, w) in words.iter().enumerate() {
-        assert_eq!(v.get(i), checked.get(i));
-        assert_eq!(v.get(i), Ok(*w));
-        assert_eq!(v.get_bytes(i), checked.get_bytes(i));
+        assert_eq!(v.get(i), checked.get(i).ok());
+        assert_eq!(v.get(i), Some(*w));
+        assert_eq!(v.get_bytes(i), checked.get_bytes(i).ok());
     }
     assert_eq!(v.iter().len(), words.len());
-    assert_eq!(v.iter().collect::<Result<Vec<_>, _>>().unwrap(), words);
-    assert_eq!(v.get(words.len()), Err(Error::OutOfBounds));
+    assert_eq!(v.iter().collect::<Vec<_>>(), words);
+    assert_eq!(v.get(words.len()), None);
 
     // SAFETY: an absent list has no strings.
     let none = unsafe { VStrList::new(None) };
     assert_eq!(none.len(), 0);
     assert!(none.is_empty());
-    assert_eq!(none.get(0), Err(Error::OutOfBounds));
+    assert_eq!(none.get(0), None);
     assert_eq!(none.iter().count(), 0);
 }
 
@@ -137,8 +137,8 @@ fn verify_strs_charges_spec_and_rejects_bad_utf8() {
     let v = unsafe { VStrList::new(Some(l)) };
     assert_eq!(l.len(), words.len());
     for (i, w) in words.iter().enumerate() {
-        assert_eq!(v.get(i), l.get(i));
-        assert_eq!(v.get(i), Ok(*w));
+        assert_eq!(v.get(i), l.get(i).ok());
+        assert_eq!(v.get(i), Some(*w));
     }
 
     // One element with invalid UTF-8 ⇒ InvalidUtf8 (bytes list still accepts it).

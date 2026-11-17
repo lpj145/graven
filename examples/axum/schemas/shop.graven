@@ -1,0 +1,28 @@
+// The schema of the Axum example: products, a lookup with a typed error, a streamed list
+// and a validated stock adjustment.
+namespace shop;
+
+table GetProduct   { sku @0: string; }
+table ListProducts { prefix @0: string?; limit @1: u32 = 100; }
+table Product      { sku @0: string; name @1: string; stock @2: u32; }
+
+table AdjustStock {
+  #[len(min = 1, max = 32)]
+  sku   @0: string;
+  #[range(min = -1000, max = 1000)]
+  delta @1: i32;
+}
+
+table NotFound   { sku @0: string; }
+table OutOfStock { sku @0: string; available @1: u32; }
+
+union LookupError { NotFound @1: NotFound }
+union StockError  { NotFound @1: NotFound, OutOfStock @2: OutOfStock }
+
+/// Products and stock.
+#[timeout(ms = 5000)]
+service Shop {
+  get    @1: (GetProduct)   -> Result<Product, LookupError>;
+  list   @2: (ListProducts) -> stream Product;
+  adjust @3: (AdjustStock)  -> Result<Product, StockError>;
+}

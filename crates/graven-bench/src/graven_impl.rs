@@ -138,12 +138,11 @@ pub fn read_all_bank_trusted(t: &TransactionVerified<'_>) -> u64 {
     s.u(t.currency().to_raw() as u64);
     s.u(t.from_shard() as u64);
     s.u(t.to_shard() as u64);
-    s.s(t.note().unwrap().map(str::as_bytes));
-    for e in t.entries().unwrap().iter() {
-        let e = e.unwrap();
+    s.s(t.note().map(str::as_bytes));
+    for e in t.entries().iter() {
         s.u(e.account());
         s.u(e.amount() as u64);
-        s.s(e.memo().unwrap().map(str::as_bytes));
+        s.s(e.memo().map(str::as_bytes));
     }
     s.0
 }

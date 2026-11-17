@@ -96,6 +96,15 @@ transport that delivers bytes intact (TLS, a local socket, a queue that checks i
 Moving a message between a frame and an envelope never re-encodes it. The full rules, with
 their check order, are in [RPC frames v1](spec/graven-rpc-v1.md).
 
+### Over HTTP
+
+One `POST` endpoint per service is enough: the frame says which method a call is for. Send
+`application/octet-stream`, and answer every call that reached the service with `200 OK`:
+a reply, a declared error and a fault are all in the body. The
+[Axum example](https://github.com/lpj145/graven/tree/main/examples/axum) serves this
+document's kind of service and calls it from Rust and JavaScript;
+[Rust SDK: serving over HTTP](sdk/rust.md#serving-over-http-axum) walks through it.
+
 ## How services evolve
 
 The lockfile records every service and method, and `gravenc update` checks each change:
@@ -132,7 +141,7 @@ let inv = InventoryClient::new(http_sender);
 match inv.get(|w| { w.sku("cafe-500g"); }).await {
     Ok(p) => println!("{} in stock", p.view().stock()),
     Err(CallError::Err(e)) => match e.view() {
-        LookupErrorVerified::NotFound(nf) => println!("no product {}", nf.sku()?),
+        LookupErrorVerified::NotFound(nf) => println!("no product {}", nf.sku()),
         LookupErrorVerified::Unknown(_) => println!("lookup failed"),
     },
     Err(other) => return Err(other.into()),

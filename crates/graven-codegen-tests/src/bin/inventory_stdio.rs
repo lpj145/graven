@@ -14,13 +14,13 @@ fn handle_call(call: &[u8]) -> Vec<u8> {
     match InventoryCall::decode_validated(call, &NoChecks) {
         Ok(c) => match c {
             InventoryCall::GetItem(input, reply) => {
-                let sku = input.sku().unwrap().to_owned();
+                let sku = input.sku().to_owned();
                 reply.ok(|w| {
                     w.sku(&sku).stock(42);
                 })
             }
             InventoryCall::Reserve(input, reply) => {
-                let sku = input.sku().unwrap();
+                let sku = input.sku();
                 let qty = input.qty();
                 if sku == "unknown" {
                     reply.err(|e| {
@@ -37,7 +37,7 @@ fn handle_call(call: &[u8]) -> Vec<u8> {
                 }
             }
             InventoryCall::Watch(input, mut reply) => {
-                let sku = input.sku().unwrap();
+                let sku = input.sku();
                 if sku == "fault-mid-stream" {
                     let mut buf = reply.item(|w| {
                         w.seq(1).stock(50);

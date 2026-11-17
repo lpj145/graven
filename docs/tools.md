@@ -215,12 +215,19 @@ incomplete record and a corrupt one can never be confused.
 
 ## Editor support
 
-The repository includes a Visual Studio Code extension in `editors/vscode` with syntax
-highlighting for `.graven` schemas and `.graven.lock` files, comment toggling and bracket
-matching. To install it:
+The repository includes a Visual Studio Code extension in `editors/vscode`:
+
+- highlighting for `.graven` schemas (services, methods and validation attributes included)
+  and `.graven.lock` files;
+- go to definition and find all references for types, local or imported, across the
+  workspace;
+- hover with a type's kind, qualified name and `///` comment;
+- outline, breadcrumbs and workspace symbol search.
+
+To install it:
 
 ```sh
 cd editors/vscode
 npx @vscode/vsce package
-code --install-extension graven-0.1.0.vsix
+code --install-extension graven-0.1.0.vsix --force
 ```

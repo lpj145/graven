@@ -16,7 +16,7 @@ Generate bindings from a checked schema and lockfile:
 gravenc gen schemas/bank.graven -o src/gen --lang js
 ```
 
-Pass `--side client` to also emit typed RPC clients for `service` declarations (`--lang js --side server` is refused: *"the TypeScript server edge is not available yet"* / JS server edge is not available yet).
+Pass `--side client` to also emit typed RPC clients for `service` declarations. There is no JavaScript server edge yet: `--lang js --side server` is refused with *"the JavaScript server edge is not available yet"*.
 
 `gravenc` writes `graven.js` and `graven.d.ts` (the matching runtime) into the same output directory next to `<schema>.js` / `<schema>.d.ts` and any imported schemas:
 
@@ -162,8 +162,9 @@ await inv.get((w) => w.sku("cafe-500g"), { maxFrameBytes: 1 << 20 });
 | `encodeEnvelope`, `decodeEnvelope`, `openEnvelope`, `envelopes` | Envelope v1 encoding, validation, and iteration. |
 | `crc32c`, `schemaId` | Table-driven CRC-32C and 64-bit FNV-1a `schemaId` (`bigint`). |
 | `ValidationError`, `ValidationFailure` | Rule failure details. |
-| `encodeFrame`, `decodeFrame`, `frames`, `FrameKind`, `FaultCode` | RPC v1 frame & fault encoding/decoding. |
-| `RpcFault`, `RpcProtocolError`, `Sender`, `CallOptions`, `RpcResult` | Client transport contracts and error types. |
+| `encodeFrame`, `decodeFrame`, `frames`, `callHeader`, `replyHeader`, `encodeEnd`, `FrameKind` | RPC frames v1: the 7-byte header (17 for a call) and the bare message. |
+| `encodeFaultFrame`, `decodeFault`, `FaultCode` | Protocol faults (`graven.rpc.Fault`). |
+| `RpcFault`, `RpcProtocolError`, `Sender`, `CallOptions`, `RpcResult`, `DEFAULT_MAX_FRAME_BYTES` | Client transport contracts, limits and error types. |
 
 ### Verification suite (`scripts/ts.sh`)
 

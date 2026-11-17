@@ -104,7 +104,7 @@ let bytes = PromoW::to_bytes_validated(&mut builder, &AppChecks, |p| {
 
 let view = Promo::from_bytes(&bytes)?;
 view.validate(&AppChecks)?;               // stops at first failure
-let all = view.validate_all(&AppChecks)?; // collects every failure
+let all = view.validate_all(&AppChecks);  // collects every failure
 ```
 
 *(Details: [Rust SDK validation](sdk/rust.md#validation).)*

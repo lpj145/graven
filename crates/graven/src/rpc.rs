@@ -844,6 +844,30 @@ impl<O, E> StreamReply<O, E> {
         reply_frame::<O>(FrameKind::Item, f)
     }
 
+    /// The whole stream, lazily: one `Item` frame per element of `items`, written by `f`,
+    /// then the `End` frame. Each frame is encoded when the iterator reaches it, so a
+    /// transport can send items as they are produced (an HTTP body stream, a socket).
+    ///
+    /// ```ignore
+    /// let frames = reply.frames(rows, |w, row| { w.sku(&row.sku).stock(row.stock); });
+    /// ```
+    pub fn frames<I, F>(self, items: I, mut f: F) -> impl Iterator<Item = Vec<u8>>
+    where
+        O: RpcPayload,
+        I: IntoIterator,
+        F: FnMut(&mut O::Writer<'_>, I::Item),
+    {
+        let mut reply = Some(self);
+        let mut items = items.into_iter();
+        core::iter::from_fn(move || {
+            let r = reply.as_mut()?;
+            match items.next() {
+                Some(item) => Some(r.item(|w| f(w, item))),
+                None => reply.take().map(StreamReply::end),
+            }
+        })
+    }
+
     /// Encodes the terminating `End` frame (7 bytes).
     pub fn end(self) -> Vec<u8> {
         let mut out = BytesMut::with_capacity(HEADER_LEN);

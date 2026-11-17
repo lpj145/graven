@@ -3,9 +3,11 @@
 // same module could break the safety of the verified views (by constructing `XVerified(...)`
 // without `verify()`).
 /// Schema id of `stream.Chunk` (envelope header); same as [`Chunk::SCHEMA_ID`].
+#[allow(dead_code)]
 pub const CHUNK_SCHEMA_ID: u64 = Chunk::SCHEMA_ID;
 /// Layout of the fixed part of `Chunk` (spec §3.3).
 #[allow(clippy::module_inception)]
+#[allow(dead_code)]
 pub mod chunk {
     pub const FIXED_LEN: u16 = 17;
     pub const STREAM_ID: u16 = 1;
@@ -18,8 +20,10 @@ pub mod chunk {
 }
 /// Checked reader of `stream.Chunk`: accessors validate on demand. [`Chunk::verified`] / [`Chunk::from_bytes`] verify the whole message and return the view [`ChunkVerified`].
 #[derive(Clone, Copy)]
+#[allow(dead_code)]
 pub struct Chunk<'a>(::graven::TableRef<'a>);
 /// Required fields of `Chunk` (and optional scalar slots), in ID order.
+#[allow(dead_code)]
 pub const CHUNK_REQ: &[::graven::rt::Req] = &[
     ::graven::rt::Req::Scalar {
         name: "stream_id",
@@ -38,12 +42,14 @@ pub const CHUNK_REQ: &[::graven::rt::Req] = &[
         off: chunk::DATA,
     },
 ];
+#[allow(dead_code)]
 const CHUNK_MASK: ::graven::rt::ReqMask = ::graven::rt::ReqMask {
     len: chunk::FIXED_LEN,
     bits: &[(0, ::graven::rt::mask_for(CHUNK_REQ, 0))],
     ptrs: &[chunk::DATA],
     unions: &[],
 };
+#[allow(dead_code)]
 impl<'a> ::graven::rt::FromTable<'a> for Chunk<'a> {
     #[inline]
     fn from_ref(
@@ -67,6 +73,7 @@ impl<'a> ::graven::rt::FromTable<'a> for Chunk<'a> {
     }
 }
 #[allow(clippy::should_implement_trait)]
+#[allow(dead_code)]
 impl<'a> Chunk<'a> {
     /// Schema id of `stream.Chunk` (envelope header), read from the lock.
     pub const SCHEMA_ID: u64 = 0x24647b3847efcda6;
@@ -127,7 +134,9 @@ impl<'a> Chunk<'a> {
 }
 /// A [`Chunk`] whose `verify()` passed. Only constructed by [`Chunk::verified`] / [`Chunk::from_bytes`] (or as a field/element of a verified view); strings are read without revalidating UTF-8.
 #[derive(Clone, Copy)]
+#[allow(dead_code)]
 pub struct ChunkVerified<'a>(Chunk<'a>);
+#[allow(dead_code)]
 impl<'a> ::graven::rt::FromVerified<'a> for ChunkVerified<'a> {
     /// The required fields were checked by `Chunk::from_ref` when the root's `verify()` reached `t` as a `Chunk` along this edge (this fn's contract, condition 1).
     #[allow(unsafe_code)]
@@ -137,6 +146,7 @@ impl<'a> ::graven::rt::FromVerified<'a> for ChunkVerified<'a> {
     }
 }
 #[allow(clippy::should_implement_trait)]
+#[allow(dead_code)]
 impl<'a> ChunkVerified<'a> {
     /// The checked reader over the same table.
     #[inline]
@@ -152,13 +162,15 @@ impl<'a> ChunkVerified<'a> {
         self.0.seq()
     }
     #[inline]
-    pub fn data(&self) -> ::core::result::Result<&'a [u8], ::graven::Error> {
-        self.0.data()
+    pub fn data(&self) -> &'a [u8] {
+        ::graven::rt::trusted(self.0.data())
     }
 }
 /// Writer of `Chunk`.
+#[allow(dead_code)]
 pub struct ChunkW<'b>(pub(crate) ::graven::TableW<'b>);
 #[allow(clippy::should_implement_trait)]
+#[allow(dead_code)]
 impl<'b> ChunkW<'b> {
     #[inline]
     pub fn root(b: &'b mut ::graven::Builder<'_>) -> Self {
@@ -207,7 +219,9 @@ impl<'b> ChunkW<'b> {
     }
 }
 /// List element descriptor of `Chunk`.
+#[allow(dead_code)]
 pub struct ChunkE;
+#[allow(dead_code)]
 impl ::graven::rt::Elem for ChunkE {
     const FIXED_LEN: u16 = chunk::FIXED_LEN;
     const PTR_SLOTS: &'static [u16] = chunk::PTR_SLOTS;

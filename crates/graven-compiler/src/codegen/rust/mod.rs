@@ -73,8 +73,31 @@ pub fn generate_with_source(ir: &Ir, lock: &Lock, source: &str) -> String {
 /// Like [`generate_with_source`], with explicit codegen options (`--side`).
 pub fn generate_with_options(ir: &Ir, lock: &Lock, source: &str, opts: GenOptions) -> String {
     let tokens = items(ir, lock, opts);
-    let file: syn::File = syn::parse2(tokens).unwrap_or_else(|e| panic!("codegen produced invalid Rust: {e}"));
+    let mut file: syn::File = syn::parse2(tokens).unwrap_or_else(|e| panic!("codegen produced invalid Rust: {e}"));
+    allow_unused(&mut file.items);
     finish(&prettyplease::unparse(&file), source)
+}
+
+/// Marks every top-level item `#[allow(dead_code)]`: a binary rarely uses all the generated
+/// API, and the file is `include!`d, so it cannot carry an inner `#![allow]` itself. Lint
+/// levels apply to nested items too (the methods of an `impl`, the items of a `mod`).
+fn allow_unused(items: &mut [syn::Item]) {
+    let attr: syn::Attribute = syn::parse_quote!(#[allow(dead_code)]);
+    for item in items {
+        let attrs = match item {
+            syn::Item::Struct(i) => &mut i.attrs,
+            syn::Item::Enum(i) => &mut i.attrs,
+            syn::Item::Impl(i) => &mut i.attrs,
+            syn::Item::Const(i) => &mut i.attrs,
+            syn::Item::Fn(i) => &mut i.attrs,
+            syn::Item::Mod(i) => &mut i.attrs,
+            syn::Item::Trait(i) => &mut i.attrs,
+            syn::Item::Type(i) => &mut i.attrs,
+            syn::Item::Static(i) => &mut i.attrs,
+            _ => continue,
+        };
+        attrs.push(attr.clone());
+    }
 }
 
 /// Header lines after `@generated`: the own-module requirement.

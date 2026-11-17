@@ -44,6 +44,52 @@ fn vectors() -> Vec<(String, Vec<u8>, CaseJson)> {
 
 // --------------------------------------------------------- views ⇒ Value
 
+/// Reads an accessor's result the same way for both readers: a checked reader returns a
+/// `Result` (unwrapped here), a verified view returns the value itself.
+trait Got {
+    type Out;
+    fn got(self) -> Self::Out;
+}
+impl<T, E: std::fmt::Debug> Got for Result<T, E> {
+    type Out = T;
+    fn got(self) -> T {
+        self.unwrap()
+    }
+}
+impl<T> Got for Option<T> {
+    type Out = Option<T>;
+    fn got(self) -> Option<T> {
+        self
+    }
+}
+impl Got for g::LeafVerified<'_> {
+    type Out = Self;
+    fn got(self) -> Self {
+        self
+    }
+}
+impl Got for g::ChoiceVerified<'_> {
+    type Out = Self;
+    fn got(self) -> Self {
+        self
+    }
+}
+
+/// Past the end of a list: `Err` from a checked reader, `None` from a verified view.
+trait PastEnd {
+    fn past_end(&self) -> bool;
+}
+impl<T, E> PastEnd for Result<T, E> {
+    fn past_end(&self) -> bool {
+        self.is_err()
+    }
+}
+impl<T> PastEnd for Option<T> {
+    fn past_end(&self) -> bool {
+        self.is_none()
+    }
+}
+
 fn tbl(m: Vec<(&str, Value)>) -> Value {
     Value::Table(m.into_iter().map(|(k, v)| (k.to_string(), v)).collect::<BTreeMap<_, _>>())
 }
@@ -54,10 +100,10 @@ fn point(p: g::Point) -> Value {
 
 fn leaf_verified(l: g::LeafVerified<'_>) -> Value {
     let mut m = vec![("n", Value::UInt(l.n() as u128))];
-    if let Some(s) = l.s().unwrap() {
+    if let Some(s) = l.s().got() {
         m.push(("s", Value::Str(s.to_string())));
     }
-    if let Some(next) = l.next().unwrap() {
+    if let Some(next) = l.next().got() {
         m.push(("next", leaf_verified(next)));
     }
     tbl(m)
@@ -65,10 +111,10 @@ fn leaf_verified(l: g::LeafVerified<'_>) -> Value {
 
 fn leaf_checked(l: g::Leaf<'_>) -> Value {
     let mut m = vec![("n", Value::UInt(l.n() as u128))];
-    if let Some(s) = l.s().unwrap() {
+    if let Some(s) = l.s().got() {
         m.push(("s", Value::Str(s.to_string())));
     }
-    if let Some(next) = l.next().unwrap() {
+    if let Some(next) = l.next().got() {
         m.push(("next", leaf_checked(next)));
     }
     tbl(m)
@@ -110,34 +156,34 @@ macro_rules! root_value {
         if let Some(p) = r.point() {
             m.push(("point", point(p)));
         }
-        if let Some(s) = r.name().unwrap() {
+        if let Some(s) = r.name().got() {
             m.push(("name", Value::Str(s.to_string())));
         }
-        if let Some(b) = r.blob().unwrap() {
+        if let Some(b) = r.blob().got() {
             m.push(("blob", Value::Bytes(b.to_vec())));
         }
-        if let Some(l) = r.nums().unwrap() {
+        if let Some(l) = r.nums().got() {
             m.push(("nums", Value::List(l.iter().map(|x| Value::UInt(x as u128)).collect())));
         }
-        if let Some(l) = r.points().unwrap() {
+        if let Some(l) = r.points().got() {
             m.push(("points", Value::List(l.iter().map(point).collect())));
         }
-        if let Some(l) = r.leaves().unwrap() {
+        if let Some(l) = r.leaves().got() {
             assert_eq!(l.iter().len(), l.len());
-            assert!(l.get(l.len()).is_err());
-            m.push(("leaves", Value::List(l.iter().map(|e| $leaf(e.unwrap())).collect())));
+            assert!(l.get(l.len()).past_end());
+            m.push(("leaves", Value::List(l.iter().map(|e| $leaf(e.got())).collect())));
         }
-        if let Some(l) = r.names().unwrap() {
-            assert!(l.get(l.len()).is_err());
+        if let Some(l) = r.names().got() {
+            assert!(l.get(l.len()).past_end());
             m.push(("names", Value::List((0..l.len()).map(|i| Value::Str(l.get(i).unwrap().to_string())).collect())));
         }
-        if let Some(l) = r.blobs().unwrap() {
+        if let Some(l) = r.blobs().got() {
             m.push(("blobs", Value::List((0..l.len()).map(|i| Value::Bytes(l.get_bytes(i).unwrap().to_vec())).collect())));
         }
-        if let Some(c) = r.child().unwrap() {
+        if let Some(c) = r.child().got() {
             m.push(("child", $leaf(c)));
         }
-        if let Some(u) = r.choice().unwrap() {
+        if let Some(u) = r.choice().got() {
             let v = match u {
                 g::$u::Leaf(l) => Value::Union { tag: 1, value: Box::new($leaf(l)) },
                 g::$u::Unknown(tag) => Value::Union { tag, value: Box::new(tbl(vec![])) },
@@ -173,30 +219,30 @@ macro_rules! extra_value {
         if let Some(f) = r.flags() {
             m.push(("flags", tbl(vec![("on", Value::Bool(f.on)), ("c", Value::UInt(f.c.to_raw() as u128))])));
         }
-        if let Some(l) = r.bools().unwrap() {
+        if let Some(l) = r.bools().got() {
             m.push(("bools", Value::List(l.iter().map(Value::Bool).collect())));
         }
-        if let Some(l) = r.colors().unwrap() {
+        if let Some(l) = r.colors().got() {
             m.push(("colors", Value::List(l.iter().map(|c| Value::UInt(c.to_raw() as u128)).collect())));
         }
-        if let Some(l) = r.names().unwrap() {
+        if let Some(l) = r.names().got() {
             m.push(("names", Value::List((0..l.len()).map(|i| Value::Str(l.get(i).unwrap().to_string())).collect())));
         }
-        if let Some(l) = r.blobs().unwrap() {
+        if let Some(l) = r.blobs().got() {
             m.push(("blobs", Value::List((0..l.len()).map(|i| Value::Bytes(l.get_bytes(i).unwrap().to_vec())).collect())));
         }
-        let pick = match r.pick().unwrap() {
+        let pick = match r.pick().got() {
             g::$u::Leaf(l) => Value::Union { tag: 1, value: Box::new($leaf(l)) },
             g::$u::Unknown(tag) => Value::Union { tag, value: Box::new(tbl(vec![])) },
         };
         m.push(("pick", pick));
-        if let Some(l) = r.leaves().unwrap() {
-            m.push(("leaves", Value::List(l.iter().map(|e| $leaf(e.unwrap())).collect())));
+        if let Some(l) = r.leaves().got() {
+            m.push(("leaves", Value::List(l.iter().map(|e| $leaf(e.got())).collect())));
         }
         if r.e().is_some() {
             m.push(("e", tbl(vec![])));
         }
-        if let Some(s) = r.tail().unwrap() {
+        if let Some(s) = r.tail().got() {
             m.push(("tail", Value::Str(s.to_string())));
         }
         tbl(m)
@@ -212,12 +258,12 @@ fn extra_checked(r: &g::Extra<'_>) -> Value {
 }
 
 fn holder_verified(r: &g::HolderVerified<'_>) -> Value {
-    let l = r.items().unwrap();
-    tbl(vec![("items", Value::List(l.iter().map(|e| leaf_verified(e.unwrap())).collect()))])
+    let l = r.items();
+    tbl(vec![("items", Value::List(l.iter().map(|e| leaf_verified(e)).collect()))])
 }
 
 fn holder_checked(r: &g::Holder<'_>) -> Value {
-    let l = r.items().unwrap();
+    let l = r.items().got();
     tbl(vec![("items", Value::List(l.iter().map(|e| leaf_checked(e.unwrap())).collect()))])
 }
 
@@ -268,7 +314,7 @@ fn self_cycle_and_unknown_union_tag() {
     assert_eq!(g::Root::verified(&b).err(), Some(Error::DepthExceeded));
     let b = fs::read(dir().join("unknown_union_tag.bin")).unwrap();
     let v = g::Root::verified(&b).unwrap();
-    assert!(matches!(v.choice().unwrap(), Some(g::ChoiceVerified::Unknown(5))));
+    assert!(matches!(v.choice(), Some(g::ChoiceVerified::Unknown(5))));
     assert!(matches!(v.reader().choice().unwrap(), Some(g::Choice::Unknown(5))));
 }
 
@@ -480,7 +526,7 @@ fn root_v2_writer_roundtrip() {
     let got = b.finished().unwrap().to_vec();
     assert_eq!(got, want, "RootV2W reproduz v2_read_by_v1.bin");
     assert_eq!(g::RootV2::verified(&got).unwrap().extra(), Some(0x1122_3344_5566_7788));
-    assert_eq!(g::Root::verified(&got).unwrap().name().unwrap(), Some("v1"));
+    assert_eq!(g::Root::verified(&got).unwrap().name(), Some("v1"));
 }
 
 // ------------------------------------------------------------- mutation gate

@@ -3,9 +3,11 @@
 // same module could break the safety of the verified views (by constructing `XVerified(...)`
 // without `verify()`).
 /// Schema id of `iot.Telemetry` (envelope header); same as [`Telemetry::SCHEMA_ID`].
+#[allow(dead_code)]
 pub const TELEMETRY_SCHEMA_ID: u64 = Telemetry::SCHEMA_ID;
 /// Layout of the fixed part of `Telemetry` (spec §3.3).
 #[allow(clippy::module_inception)]
+#[allow(dead_code)]
 pub mod telemetry {
     pub const FIXED_LEN: u16 = 22;
     pub const DEVICE: u16 = 1;
@@ -23,8 +25,10 @@ pub mod telemetry {
 }
 /// Checked reader of `iot.Telemetry`: accessors validate on demand. [`Telemetry::verified`] / [`Telemetry::from_bytes`] verify the whole message and return the view [`TelemetryVerified`].
 #[derive(Clone, Copy)]
+#[allow(dead_code)]
 pub struct Telemetry<'a>(::graven::TableRef<'a>);
 /// Required fields of `Telemetry` (and optional scalar slots), in ID order.
+#[allow(dead_code)]
 pub const TELEMETRY_REQ: &[::graven::rt::Req] = &[
     ::graven::rt::Req::Scalar {
         name: "device",
@@ -55,12 +59,14 @@ pub const TELEMETRY_REQ: &[::graven::rt::Req] = &[
         bit: telemetry::BATTERY_BIT,
     },
 ];
+#[allow(dead_code)]
 const TELEMETRY_MASK: ::graven::rt::ReqMask = ::graven::rt::ReqMask {
     len: telemetry::FIXED_LEN,
     bits: &[(0, ::graven::rt::mask_for(TELEMETRY_REQ, 0))],
     ptrs: &[],
     unions: &[],
 };
+#[allow(dead_code)]
 impl<'a> ::graven::rt::FromTable<'a> for Telemetry<'a> {
     #[inline]
     fn from_ref(
@@ -83,6 +89,7 @@ impl<'a> ::graven::rt::FromTable<'a> for Telemetry<'a> {
     }
 }
 #[allow(clippy::should_implement_trait)]
+#[allow(dead_code)]
 impl<'a> Telemetry<'a> {
     /// Schema id of `iot.Telemetry` (envelope header), read from the lock.
     pub const SCHEMA_ID: u64 = 0x54a032ef496b8346;
@@ -151,7 +158,9 @@ impl<'a> Telemetry<'a> {
 }
 /// A [`Telemetry`] whose `verify()` passed. Only constructed by [`Telemetry::verified`] / [`Telemetry::from_bytes`] (or as a field/element of a verified view); strings are read without revalidating UTF-8.
 #[derive(Clone, Copy)]
+#[allow(dead_code)]
 pub struct TelemetryVerified<'a>(Telemetry<'a>);
+#[allow(dead_code)]
 impl<'a> ::graven::rt::FromVerified<'a> for TelemetryVerified<'a> {
     /// The required fields were checked by `Telemetry::from_ref` when the root's `verify()` reached `t` as a `Telemetry` along this edge (this fn's contract, condition 1).
     #[allow(unsafe_code)]
@@ -161,6 +170,7 @@ impl<'a> ::graven::rt::FromVerified<'a> for TelemetryVerified<'a> {
     }
 }
 #[allow(clippy::should_implement_trait)]
+#[allow(dead_code)]
 impl<'a> TelemetryVerified<'a> {
     /// The checked reader over the same table.
     #[inline]
@@ -189,10 +199,12 @@ impl<'a> TelemetryVerified<'a> {
     }
 }
 /// Writer of `Telemetry` (scalars only): writes through a `FixedW` whose size is known at compile time.
+#[allow(dead_code)]
 pub struct TelemetryW<'b>(
     pub(crate) ::graven::FixedW<'b, { telemetry::FIXED_LEN as usize }>,
 );
 #[allow(clippy::should_implement_trait)]
+#[allow(dead_code)]
 impl<'b> TelemetryW<'b> {
     #[inline]
     pub fn root(b: &'b mut ::graven::Builder<'_>) -> Self {
@@ -251,7 +263,9 @@ impl<'b> TelemetryW<'b> {
     }
 }
 /// List element descriptor of `Telemetry`.
+#[allow(dead_code)]
 pub struct TelemetryE;
+#[allow(dead_code)]
 impl ::graven::rt::Elem for TelemetryE {
     const FIXED_LEN: u16 = telemetry::FIXED_LEN;
     const PTR_SLOTS: &'static [u16] = telemetry::PTR_SLOTS;
@@ -266,9 +280,11 @@ impl ::graven::rt::Elem for TelemetryE {
     }
 }
 /// List of `Telemetry` with a known count (scalar-only element: `FixedListW`).
+#[allow(dead_code)]
 pub struct TelemetryListW<'a>(
     pub(crate) ::graven::FixedListW<'a, { telemetry::FIXED_LEN as usize }>,
 );
+#[allow(dead_code)]
 impl TelemetryListW<'_> {
     #[inline(always)]
     pub fn push(&mut self) -> TelemetryW<'_> {

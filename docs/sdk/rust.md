@@ -32,7 +32,7 @@ fn main() {
 ```
 
 > [!NOTE]
-> `Build::compile()` reads `<schema>.lock` and **never writes it**. It emits `cargo:rerun-if-changed` for both files and fails if the lock is missing, out of date, or has an error/unconfirmed warning. Add `.client()` and `.server()` to emit `service` code. Without `build.rs`, `gravenc gen schemas/bank.graven -o src/gen` writes the same files.
+> `Build::compile()` reads the lockfile (`schemas/bank.graven.lock`) and **never writes it**. It emits `cargo:rerun-if-changed` for both files and fails if the lock is missing, out of date, or has an error/unconfirmed warning. Add `.client()` and `.server()` to emit `service` code. Without `build.rs`, `gravenc gen schemas/bank.graven -o src/gen` writes the same files.
 
 Include each generated file inside its own empty module:
 
@@ -76,10 +76,9 @@ fn main() -> Result<(), graven::Error> {
     })?;
 
     let tx = Transaction::from_bytes(&bytes)?;
-    println!("tx {} in {:?}, note {:?}", tx.id(), tx.currency(), tx.note()?);
-    for e in tx.entries()?.iter() {
-        let e = e?;
-        println!("  account {} amount {} memo {:?}", e.account(), e.amount(), e.memo()?);
+    println!("tx {} in {:?}, note {:?}", tx.id(), tx.currency(), tx.note());
+    for e in tx.entries().iter() {
+        println!("  account {} amount {} memo {:?}", e.account(), e.amount(), e.memo());
     }
     Ok(())
 }
@@ -87,7 +86,7 @@ fn main() -> Result<(), graven::Error> {
 
 - **Untrusted input:** `X::from_bytes(env)` checks envelope magic, `schema_id`, and CRC32C, runs `verify()`, and returns `XVerified<'a>`. `X::verified(buf)` / `X::verified_with(buf, ctx)` do the same for bare payloads.
 - **Lazy checked reads:** `X::read(buf)` returns a checked reader without upfront traversal (cheaper when reading 1–2 fields).
-- **Return types:** required scalars return `T`; optional fields return `Option<T>`; strings, bytes, lists, and nested tables return `Result<_, graven::Error>`. Enums decode to `E::Variant` or `E::Unknown(raw)`; unions decode to `U::Variant(view)` or `U::Unknown(tag)`.
+- **Return types:** on a verified view (`from_bytes`, `verified`), every accessor returns the value itself: `T` for a required field, `Option<T>` for an optional one, `&str`, `&[u8]`, lists and nested views included. The message was verified once, so reading it cannot fail. On a checked reader (`read`), strings, bytes, lists and nested tables return `Result<_, graven::Error>`, because nothing was verified yet. Enums decode to `E::Variant` or `E::Unknown(raw)`; unions decode to `U::Variant(view)` or `U::Unknown(tag)`. Lists of a verified view iterate over their elements directly, and `get(i)` returns `None` past the end.
 - **Writing:** `XW::to_bytes(&mut builder, |w| ...)` emits a single enveloped message; `XW::seal(&mut builder, |w| ...)` appends into a batch collected by `builder.take_frames()`. Use `w.entries(n)` for known-length lists or `w.entries_streaming()` when streaming elements without knowing the count upfront, and `SimplePool` to amortize allocations to zero in steady state.
 
 ## Validation
@@ -120,7 +119,7 @@ let bytes = PromoW::to_bytes_validated(&mut builder, &AppChecks, |p| {
 // Validate after opening:
 let view = Promo::from_bytes(&bytes)?;
 view.validate(&AppChecks)?;               // stops at first failure (no allocation)
-let all = view.validate_all(&AppChecks)?; // collects Vec<graven::Invalid>
+let all = view.validate_all(&AppChecks);  // every failure: Vec<graven::Invalid>
 ```
 
 A `graven::Invalid` has `table`, `field`, `index` and `rule`. The `Rule` carries codes for
@@ -135,11 +134,54 @@ For runtime schemas loaded without generated code, `graven_dynamic::Validator::n
 
 Enable client and server code generation with `Build::client().server()` or `gravenc gen --side client,server`:
 
-- **Server edge (`no_std` compatible, transport-agnostic):** `<Service>Call::decode(frame)` checks the frame header, service id and method id, and runs `verify()` on the input (`decode_validated(frame, &checks)` also validates input rules, rejecting with an `Invalid` fault frame). Each arm receives a typed `Reply<O, E>` or `StreamReply` builder (`ok`, `err`, `item`, `end`, `fault`), and `Rejected::to_frame()` builds protocol `Fault` frames (`None` for one-way calls).
+- **Server edge (`no_std` compatible, transport-agnostic):** `<Service>Call::decode(frame)` checks the frame header, service id and method id, and runs `verify()` on the input (`decode_validated(frame, &checks)` also validates input rules, rejecting with an `Invalid` fault frame). Each arm receives the verified input and a typed `Reply<O, E>` (`ok`, `err`, `fault`) or `StreamReply<O, E>` (`item`, `end`, `err`, `fault`, and `frames(items, |w, item| …)`, the whole stream as a lazy iterator of frames). `Rejected::to_frame()` builds the protocol `Fault` frame (`None` for one-way calls).
 - **Client:** Implement `graven::rpc::Sender` (`async fn send(&self, call: Vec<u8>, timeout_ms: Option<u32>)`) — and optionally `send_stream` to stream frames incrementally via `ReplyStream`. Wrap it in `<Service>Client::new(sender)`.
-- **Errors & timeouts:** `<SERVICE>_SERVICE_ID` and `<service>_timeouts::<METHOD>_MS` expose schema ids and declared timeouts; each method also gets `<method>_with_timeout(f, Some(ms))`. Call errors arrive as `CallError` (`Err`, `Fault(OwnedFault)`, `Protocol(ProtocolError)`, or `Send(T::Error)`).
+- **Errors & timeouts:** `<SERVICE>_SERVICE_ID` and `<service>_timeouts::<METHOD>_MS` expose the service id and the declared timeouts; each method also gets `<method>_with_timeout(f, Some(ms))`. Call errors arrive as `CallError` (`Err`, `Fault(OwnedFault)`, `Protocol(ProtocolError)`, or `Send(T::Error)`).
 
-See [Services](../services.md) for runnable server & client examples.
+### Serving over HTTP (Axum)
+
+One endpoint per service; the frame says which method a call is for. A complete, tested
+example (schema, server, Rust and JavaScript clients) is in
+[`examples/axum`](https://github.com/lpj145/graven/tree/main/examples/axum).
+
+```rust
+async fn rpc(State(db): State<Db>, body: Bytes) -> Response {
+    let call = match ShopCall::decode_validated(&body, &()) {
+        Ok(call) => call,
+        Err(rejected) => return frames(rejected.to_frame().unwrap_or_default()),
+    };
+    match call {
+        ShopCall::Get(req, reply) => {
+            let sku = req.sku(); // verified input: no `?`
+            frames(match db.read().unwrap().get(sku) {
+                Some(p) => reply.ok(|w| { w.sku(sku).name(&p.name).stock(p.stock); }),
+                None => reply.err(|e| { e.not_found().sku(sku); }),
+            })
+        }
+        ShopCall::List(req, reply) => {
+            let rows = /* read what the stream needs; `req` borrows the body */;
+            let items = reply.frames(rows, |w, (sku, p)| { w.sku(&sku).name(&p.name).stock(p.stock); });
+            frames(Body::from_stream(stream::iter(items.map(|f| Ok::<_, Infallible>(Bytes::from(f))))))
+        }
+        // …one arm per method: the match does not compile until every method is handled.
+    }
+}
+
+fn frames(body: impl Into<Body>) -> Response {
+    ([(header::CONTENT_TYPE, "application/octet-stream")], body.into()).into_response()
+}
+
+// Router::new().route("/shop", post(rpc)).layer(DefaultBodyLimit::max(64 * 1024))
+```
+
+- **Always `200 OK`.** A reply, a declared error and a fault all travel in the body. Keep
+  HTTP statuses for what happens before the call is read (authentication, limits, routing),
+  so logs and metrics read correctly.
+- **Limits.** `DefaultBodyLimit` bounds a call; clients bound a reply frame
+  (`maxFrameBytes` in JavaScript).
+- **TLS** is required: frames carry no checksum. Authentication is a middleware before
+  the handler; timeouts a timeout middleware, with the schema's values in
+  `<service>_timeouts`.
 
 ## API reference
 

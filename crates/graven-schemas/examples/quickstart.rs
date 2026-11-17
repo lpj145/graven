@@ -19,10 +19,9 @@ fn main() -> Result<(), graven::Error> {
     // Read: check the envelope and schema id, verify the whole message once,
     // then read fields straight from the buffer, without copying or decoding.
     let tx = Transaction::from_bytes(&bytes)?;
-    println!("tx {} in {:?}, note {:?}", tx.id(), tx.currency(), tx.note()?);
-    for e in tx.entries()?.iter() {
-        let e = e?;
-        println!("  account {} amount {} memo {:?}", e.account(), e.amount(), e.memo()?);
+    println!("tx {} in {:?}, note {:?}", tx.id(), tx.currency(), tx.note());
+    for e in tx.entries().iter() {
+        println!("  account {} amount {} memo {:?}", e.account(), e.amount(), e.memo());
     }
     Ok(())
 }

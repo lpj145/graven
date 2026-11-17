@@ -57,15 +57,15 @@ impl Cx<'_> {
     }
 
     fn view_accessor(&self, t: &T<'_>, f: &F<'_>) -> TokenStream {
+        // Every read below re-reads what `verify` already checked, so it cannot fail:
+        // `::graven::rt::trusted` unwraps it, and the accessor returns the value itself.
         let (n, m) = (&t.def.name, &t.m);
         let id = &f.id;
-        let name = f.name;
         let req = matches!(f.presence, Presence::Required);
-        let missing = quote!(::graven::Error::Missing { field: #name });
-        let res = |ty: TokenStream| quote!(::core::result::Result<#ty, ::graven::Error>);
         let opt = |ty: TokenStream| quote!(::core::option::Option<#ty>);
         let off = f.off.as_ref();
         let off_s = off.map(|o| format!("{m}::{o}")).unwrap_or_default();
+        let tr = quote!(::graven::rt::trusted);
         match f.ty {
             Ty::Str => {
                 let s = safety(&format!(
@@ -74,20 +74,19 @@ impl Cx<'_> {
                 if req {
                     unsafe_accessor(
                         id,
-                        res(quote!(&'a str)),
+                        quote!(&'a str),
                         quote! {
                             #s
-                            let v = unsafe { self.0.0.str_unchecked(#m::#off) }?;
-                            ::core::result::Result::Ok(v.unwrap_or(""))
+                            #tr(unsafe { self.0.0.str_unchecked(#m::#off) }).unwrap_or("")
                         },
                     )
                 } else {
                     unsafe_accessor(
                         id,
-                        res(opt(quote!(&'a str))),
+                        opt(quote!(&'a str)),
                         quote! {
                             #s
-                            unsafe { self.0.0.str_unchecked(#m::#off) }
+                            #tr(unsafe { self.0.0.str_unchecked(#m::#off) })
                         },
                     )
                 }
@@ -99,25 +98,21 @@ impl Cx<'_> {
                 if req {
                     unsafe_accessor(
                         id,
-                        res(quote!(::graven::rt::VStrList<'a>)),
+                        quote!(::graven::rt::VStrList<'a>),
                         quote! {
-                            let l = self.0.0.strs(#m::#off)?;
+                            let l = #tr(self.0.0.strs(#m::#off));
                             #s
-                            let v = unsafe { ::graven::rt::VStrList::new(l) };
-                            ::core::result::Result::Ok(v)
+                            unsafe { ::graven::rt::VStrList::new(l) }
                         },
                     )
                 } else {
                     unsafe_accessor(
                         id,
-                        res(opt(quote!(::graven::rt::VStrList<'a>))),
+                        opt(quote!(::graven::rt::VStrList<'a>)),
                         quote! {
-                            let ::core::option::Option::Some(l) = self.0.0.strs(#m::#off)? else {
-                                return ::core::result::Result::Ok(::core::option::Option::None);
-                            };
+                            let l = #tr(self.0.0.strs(#m::#off))?;
                             #s
-                            let v = unsafe { ::graven::rt::VStrList::new(::core::option::Option::Some(l)) };
-                            ::core::result::Result::Ok(::core::option::Option::Some(v))
+                            ::core::option::Option::Some(unsafe { ::graven::rt::VStrList::new(::core::option::Option::Some(l)) })
                         },
                     )
                 }
@@ -132,25 +127,21 @@ impl Cx<'_> {
                 if req {
                     unsafe_accessor(
                         id,
-                        res(quote!(::graven::rt::VListR<'a, #ev<'a>>)),
+                        quote!(::graven::rt::VListR<'a, #ev<'a>>),
                         quote! {
-                            let l = self.0.0.tables(#m::#off)?;
+                            let l = #tr(self.0.0.tables(#m::#off));
                             #s
-                            let v = unsafe { ::graven::rt::VListR::new(l) };
-                            ::core::result::Result::Ok(v)
+                            unsafe { ::graven::rt::VListR::new(l) }
                         },
                     )
                 } else {
                     unsafe_accessor(
                         id,
-                        res(opt(quote!(::graven::rt::VListR<'a, #ev<'a>>))),
+                        opt(quote!(::graven::rt::VListR<'a, #ev<'a>>)),
                         quote! {
-                            let ::core::option::Option::Some(l) = self.0.0.tables(#m::#off)? else {
-                                return ::core::result::Result::Ok(::core::option::Option::None);
-                            };
+                            let l = #tr(self.0.0.tables(#m::#off))?;
                             #s
-                            let v = unsafe { ::graven::rt::VListR::new(::core::option::Option::Some(l)) };
-                            ::core::result::Result::Ok(::core::option::Option::Some(v))
+                            ::core::option::Option::Some(unsafe { ::graven::rt::VListR::new(::core::option::Option::Some(l)) })
                         },
                     )
                 }
@@ -162,27 +153,24 @@ impl Cx<'_> {
                     "`{n}::verify` followed this same edge (`{off_s}`), ran `{cn}::from_ref` on the target and verified it as `{cn}`; `{cn}Verified` wraps exactly `{cn}` (`from_verified` contract, condition 1)."
                 ));
                 if req {
+                    let name = f.name;
                     unsafe_accessor(
                         id,
-                        res(quote!(#cv<'a>)),
+                        quote!(#cv<'a>),
                         quote! {
-                            let t = self.0.0.table(#m::#off)?.ok_or(#missing)?;
+                            let t = #tr(self.0.0.table(#m::#off).and_then(|t| t.ok_or(::graven::Error::Missing { field: #name })));
                             #s
-                            let v = unsafe { <#cv<'a> as ::graven::rt::FromVerified<'a>>::from_verified(t) };
-                            ::core::result::Result::Ok(v)
+                            unsafe { <#cv<'a> as ::graven::rt::FromVerified<'a>>::from_verified(t) }
                         },
                     )
                 } else {
                     unsafe_accessor(
                         id,
-                        res(opt(quote!(#cv<'a>))),
+                        opt(quote!(#cv<'a>)),
                         quote! {
-                            let ::core::option::Option::Some(t) = self.0.0.table(#m::#off)? else {
-                                return ::core::result::Result::Ok(::core::option::Option::None);
-                            };
+                            let t = #tr(self.0.0.table(#m::#off))?;
                             #s
-                            let v = unsafe { <#cv<'a> as ::graven::rt::FromVerified<'a>>::from_verified(t) };
-                            ::core::result::Result::Ok(::core::option::Option::Some(v))
+                            ::core::option::Option::Some(unsafe { <#cv<'a> as ::graven::rt::FromVerified<'a>>::from_verified(t) })
                         },
                     )
                 }
@@ -211,35 +199,28 @@ impl Cx<'_> {
                     })
                     .collect();
                 let body = quote! {
-                    let v = match self.0.0.union(#m::#off)? {
+                    match #tr(self.0.0.union(#m::#off)) {
                         #(#arms)*
                         ::core::option::Option::Some((tag, _)) => ::core::option::Option::Some(#uv::Unknown(tag)),
                         ::core::option::Option::None => ::core::option::Option::None,
-                    };
+                    }
                 };
                 if req {
+                    let name = f.name;
                     unsafe_accessor(
                         id,
-                        res(quote!(#uv<'a>)),
+                        quote!(#uv<'a>),
                         quote! {
-                            #body
-                            v.ok_or(#missing)
+                            let v = #body;
+                            #tr(v.ok_or(::graven::Error::Missing { field: #name }))
                         },
                     )
                 } else {
-                    unsafe_accessor(
-                        id,
-                        res(opt(quote!(#uv<'a>))),
-                        quote! {
-                            #body
-                            ::core::result::Result::Ok(v)
-                        },
-                    )
+                    unsafe_accessor(id, opt(quote!(#uv<'a>)), body)
                 }
             }
-            // Inline values, bytes, `[bytes]` and scalar lists: the checked accessor reads
-            // the same thing without any validation to skip.
-            _ => {
+            // Inline values: the checked accessor already returns the value.
+            Ty::Bool | Ty::Scalar(_) | Ty::Enum(_) | Ty::Struct(_) => {
                 let ret = self.reader_ret(f);
                 quote! {
                     #[inline]
@@ -248,13 +229,25 @@ impl Cx<'_> {
                     }
                 }
             }
+            // `bytes`, `[bytes]` and scalar lists: the checked accessor reads the same bytes,
+            // with nothing to skip, and here cannot fail.
+            _ => {
+                let ret = self.reader_ret(f);
+                quote! {
+                    #[inline]
+                    pub fn #id(&self) -> #ret {
+                        #tr(self.0.#id())
+                    }
+                }
+            }
         }
     }
 
-    /// Return type of the checked accessor for the fields the view delegates.
+    /// Return type of the view's accessor for the fields it delegates to the checked reader
+    /// (without the reader's `Result`, which a verified view never returns).
     fn reader_ret(&self, f: &F<'_>) -> TokenStream {
         let req = matches!(f.presence, Presence::Required);
-        let res = |ty: TokenStream| quote!(::core::result::Result<#ty, ::graven::Error>);
+        let res = |ty: TokenStream| ty;
         let opt = |ty: TokenStream| quote!(::core::option::Option<#ty>);
         match f.ty {
             Ty::Bool => match f.presence {

@@ -90,10 +90,9 @@ fn main() -> Result<(), graven::Error> {
     // Read: check the envelope and schema id, verify the whole message once,
     // then read fields straight from the buffer, without copying or decoding.
     let tx = Transaction::from_bytes(&bytes)?;
-    println!("tx {} in {:?}, note {:?}", tx.id(), tx.currency(), tx.note()?);
-    for e in tx.entries()?.iter() {
-        let e = e?;
-        println!("  account {} amount {} memo {:?}", e.account(), e.amount(), e.memo()?);
+    println!("tx {} in {:?}, note {:?}", tx.id(), tx.currency(), tx.note());
+    for e in tx.entries().iter() {
+        println!("  account {} amount {} memo {:?}", e.account(), e.amount(), e.memo());
     }
     Ok(())
 }
@@ -167,7 +166,7 @@ The [language guide](docs/graven-language.md) covers the full workflow.
 | [Format specification v1](docs/spec/graven-format-v1.md) | The normative wire format: layout, presence, variable-size data, verification, envelope, compatibility rules, conformance. |
 | [RPC frames v1](docs/spec/graven-rpc-v1.md) | The normative bytes of service calls and replies. |
 | [Binary layout](docs/binary-layout.md) | Every kind of value on the wire, byte by byte. |
-| [Conformance vectors](docs/conformance-vectors.md) | The frozen format and RPC frame vectors, and how to check an implementation against them. |
+| [Conformance vectors](docs/conformance-vectors.md) | The frozen format vectors and the RPC frame vectors, and how to check an implementation against them. |
 | [Implementations](docs/implementations.md) | The languages Graven runs in: [Rust](docs/sdk/rust.md) and [JavaScript / TypeScript](docs/sdk/js.md). |
 | [Coming from JSON](docs/coming-from-json.md) | Translating JSON data into a schema, piece by piece, with a worked example. |
 | [Good practice](docs/good-practice.md) | Advice for designing schemas and storing collections, with the reason behind each tip. |
@@ -198,15 +197,18 @@ npx wrangler pages deploy target/site --project-name graven   # Cloudflare Pages
 |---|---|
 | `crates/graven` | Runtime: builder, readers, `verify`, envelope. |
 | `crates/graven-layout` | The layout algorithm (spec §3.3). |
-| `crates/graven-compiler` | `gravenc`: parser, checker, lockfile, compatibility, Rust code generator, data tools. |
+| `crates/graven-compiler` | `gravenc`: parser, checker, lockfile, compatibility, Rust and JavaScript code generators, data tools. Its `runtime/` holds the JavaScript runtime that `gen --lang js` writes. |
 | `crates/graven-dynamic` | Schema-driven reader and writer (schemas as data, no generated code). |
 | `crates/graven-conformance` | Conformance schemas, frozen vectors and their generator. |
 | `crates/graven-schemas` | Example schemas (`bank`, `game`, `iot`, `stream`) and evolution fixtures. |
 | `crates/graven-codegen-tests` | Edge-case schemas for the code generator. |
 | `crates/graven-bench` | Benchmarks. |
-| `testvectors/v1` | Frozen conformance vectors. |
+| `testvectors/v1` | Frozen format conformance vectors. |
+| `testvectors/rpc-v1` | RPC frame conformance vectors. |
+| `ts` | JavaScript test suite and its fuzzer (`scripts/ts.sh`, `scripts/fuzz-js.sh`). |
+| `examples/axum` | A service served by Axum and called from Rust and JavaScript. |
 | `fuzz` | `cargo-fuzz` targets. |
-| `editors/vscode` | VS Code extension: syntax highlighting for `.graven` and lockfiles. |
+| `editors/vscode` | VS Code extension: highlighting, go to definition, references, hover and outline for `.graven`. |
 | `site` | Website sources: landing page, translations, documentation renderer. |
 | `docs/history` | How we got here: the original designs, plans and benchmark reports (not normative). |
 
@@ -214,7 +216,8 @@ npx wrangler pages deploy target/site --project-name graven   # Cloudflare Pages
 
 Format v1 is frozen: the specification and vectors will not change. Any change to the
 wire format will be format v2, announced by a new `format_version` in the envelope.
-The Rust API is at 0.2 and may still change.
+Services and their RPC frames are in alpha: the frame layout and the generated APIs may
+still change between 0.x releases, as they did in 0.3.1.
 
 ## License
 

@@ -73,13 +73,13 @@ fn dispatch_inventory_validated(bytes: &[u8]) -> Result<Vec<u8>, &'static str> {
     match InventoryCall::decode_validated(bytes, &NoChecks) {
         Ok(call) => match call {
             InventoryCall::GetItem(input, reply) => {
-                let sku = input.sku().unwrap().to_owned();
+                let sku = input.sku().to_owned();
                 Ok(reply.ok(|w| {
                     w.sku(&sku).stock(42);
                 }))
             }
             InventoryCall::Reserve(input, reply) => {
-                let sku = input.sku().unwrap();
+                let sku = input.sku();
                 let qty = input.qty();
                 if sku == "unknown" {
                     Ok(reply.err(|e| {
@@ -96,7 +96,7 @@ fn dispatch_inventory_validated(bytes: &[u8]) -> Result<Vec<u8>, &'static str> {
                 }
             }
             InventoryCall::Watch(input, mut reply) => {
-                let sku = input.sku().unwrap();
+                let sku = input.sku();
                 if sku == "fault-mid-stream" {
                     let mut buf = reply.item(|w| {
                         w.seq(1).stock(50);
@@ -173,7 +173,7 @@ fn roundtrips_all_five_shapes_and_unions() {
         w.sku("widget-1");
     }))
     .unwrap();
-    assert_eq!(resp.view().sku().unwrap(), "widget-1");
+    assert_eq!(resp.view().sku(), "widget-1");
     assert_eq!(resp.view().stock(), 42);
     assert_eq!(t.take_timeouts(), vec![Some(2500)]);
 
@@ -184,7 +184,7 @@ fn roundtrips_all_five_shapes_and_unions() {
         Some(999),
     ))
     .unwrap();
-    assert_eq!(resp.view().sku().unwrap(), "widget-2");
+    assert_eq!(resp.view().sku(), "widget-2");
     assert_eq!(t.take_timeouts(), vec![Some(999)]);
 
     // 2. Unary Result: Ok & Err union variants
@@ -621,4 +621,33 @@ fn broken_frame_for_a_one_way_method_gets_no_reply() {
         Err(r) => assert!(r.to_frame().is_some()),
         Ok(_) => panic!("expected rejection"),
     }
+}
+
+#[test]
+fn stream_reply_frames_encodes_items_then_end_lazily() {
+    use graven::rpc::{FrameKind, StreamReply, frames};
+    use graven_codegen_tests::inventory::Event;
+    let mut made = 0;
+    let it = StreamReply::<EventW<'static>, ()>::new().frames(1..=3u64, |w, seq| {
+        made += 1;
+        w.seq(seq).stock(1);
+    });
+    let all: Vec<u8> = it.flatten().collect();
+    assert_eq!(made, 3);
+    let decoded: Vec<_> = frames(&all).collect::<Result<_, _>>().unwrap();
+    let kinds: Vec<FrameKind> = decoded.iter().map(|f| f.header.kind).collect();
+    assert_eq!(kinds, [FrameKind::Item, FrameKind::Item, FrameKind::Item, FrameKind::End]);
+    let seqs: Vec<u64> = decoded[..3].iter().map(|f| Event::verified(f.payload).unwrap().seq()).collect();
+    assert_eq!(seqs, [1, 2, 3]);
+
+    // Lazy: nothing is encoded before the iterator is pulled.
+    let mut pulled = 0;
+    let mut lazy = StreamReply::<EventW<'static>, ()>::new().frames(0..2u64, |w, seq| {
+        pulled += 1;
+        w.seq(seq).stock(0);
+    });
+    let first = lazy.next().unwrap();
+    assert!(!first.is_empty());
+    drop(lazy);
+    assert_eq!(pulled, 1);
 }

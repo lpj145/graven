@@ -26,7 +26,7 @@ fn validate_and_to_bytes_validated_roundtrip() {
 
     let view = Promo::from_bytes(&bytes).unwrap();
     view.validate(&AppChecks).unwrap();
-    assert_eq!(view.validate_all(&AppChecks).unwrap(), vec![]);
+    assert_eq!(view.validate_all(&AppChecks), vec![]);
 }
 
 #[test]
@@ -91,7 +91,7 @@ fn validate_reports_field_index_and_table_checks() {
     })
     .unwrap();
     let view = Promo::from_bytes(&bytes).unwrap();
-    let all = view.validate_all(&AppChecks).unwrap();
+    let all = view.validate_all(&AppChecks);
     assert_eq!(
         all,
         vec![

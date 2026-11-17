@@ -1,8 +1,8 @@
 # Conformance vectors
 
-Two sets of frozen vectors define conformance: one for the format, one for the frames of
-services. Each is a directory of `.bin` files, each with a `.json` describing the expected
-result.
+Two sets of vectors define conformance: one for the format, frozen like format v1, and one
+for the frames of services, which may still change while services are in alpha. Each is a
+directory of `.bin` files, each with a `.json` describing the expected result.
 
 | Set | Pins | Download | In the repository |
 |---|---|---|---|

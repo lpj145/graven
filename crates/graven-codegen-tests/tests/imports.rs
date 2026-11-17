@@ -30,20 +30,20 @@ fn imported_types_are_the_owners_types() {
     assert_eq!((id.hi, id.lo, total.cents, total.currency), (1, 2, 1990, Currency::BRL));
     assert_eq!(o.currency(), Currency::USD, "imported enum default");
 
-    let ship: common::AddressVerified<'_> = o.ship_to().unwrap().unwrap();
-    assert_eq!((ship.street().unwrap(), ship.city().unwrap(), ship.country()), ("Rua A", "Recife", Currency::BRL));
+    let ship: common::AddressVerified<'_> = o.ship_to().unwrap();
+    assert_eq!((ship.street(), ship.city(), ship.country()), ("Rua A", "Recife", Currency::BRL));
 
-    let line = o.lines().unwrap().get(0).unwrap();
-    assert_eq!((line.sku().unwrap(), line.qty(), line.unit().cents), ("CF-01", 1, 1990));
+    let line = o.lines().get(0).unwrap();
+    assert_eq!((line.sku(), line.qty(), line.unit().cents), ("CF-01", 1, 1990));
 
-    match o.contact().unwrap() {
-        Some(ContactVerified::Email(e)) => assert_eq!(e.address().unwrap(), "a@b.c"),
+    match o.contact() {
+        Some(ContactVerified::Email(e)) => assert_eq!(e.address(), "a@b.c"),
         _ => panic!("expected the Email variant"),
     }
-    let hist = o.history().unwrap().unwrap();
+    let hist = o.history().unwrap();
     assert_eq!(hist.get(0).unwrap().country(), Currency::USD);
-    match o.delivery().unwrap() {
-        Some(DeliveryVerified::Address(a)) => assert_eq!(a.city().unwrap(), "Natal"),
+    match o.delivery() {
+        Some(DeliveryVerified::Address(a)) => assert_eq!(a.city(), "Natal"),
         _ => panic!("expected the Address variant"),
     }
 

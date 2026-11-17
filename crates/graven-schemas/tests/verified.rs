@@ -67,22 +67,22 @@ proptest! {
         prop_assert_eq!(v.currency(), safe.currency());
         prop_assert_eq!(v.from_shard(), safe.from_shard());
         prop_assert_eq!(v.to_shard(), safe.to_shard());
-        prop_assert_eq!(v.note().unwrap(), safe.note().unwrap());
-        prop_assert_eq!(v.note().unwrap(), note.as_deref());
-        let (ve, se) = (v.entries().unwrap(), safe.entries().unwrap());
+        prop_assert_eq!(v.note(), safe.note().unwrap());
+        prop_assert_eq!(v.note(), note.as_deref());
+        let (ve, se) = (v.entries(), safe.entries().unwrap());
         prop_assert_eq!(ve.len(), se.len());
         prop_assert_eq!(ve.is_empty(), se.is_empty());
         prop_assert_eq!(ve.iter().len(), entries.len());
         for (i, (a, b)) in ve.iter().zip(se.iter()).enumerate() {
-            let (a, b) = (a.unwrap(), b.unwrap());
+            let (a, b) = (a, b.unwrap());
             let g = ve.get(i).unwrap();
             prop_assert_eq!(a.account(), b.account());
             prop_assert_eq!(g.account(), b.account());
             prop_assert_eq!(a.amount(), b.amount());
-            prop_assert_eq!(a.memo().unwrap(), b.memo().unwrap());
-            prop_assert_eq!(a.memo().unwrap(), entries[i].2.as_deref());
+            prop_assert_eq!(a.memo(), b.memo().unwrap());
+            prop_assert_eq!(a.memo(), entries[i].2.as_deref());
         }
-        prop_assert!(ve.get(entries.len()).is_err());
+        prop_assert!(ve.get(entries.len()).is_none());
     }
 }
 
@@ -121,8 +121,8 @@ fn from_bytes_roundtrip() {
     let env = wrap(bank::Transaction::SCHEMA_ID, &payload);
     let v = Transaction::from_bytes(&env).unwrap();
     assert_eq!(v.id(), 4242);
-    assert_eq!(v.note().unwrap(), Some("pix"));
-    assert_eq!(v.entries().unwrap().get(0).unwrap().memo().unwrap(), Some("débito"));
+    assert_eq!(v.note(), Some("pix"));
+    assert_eq!(v.entries().get(0).unwrap().memo(), Some("débito"));
 }
 
 #[test]
@@ -173,7 +173,7 @@ fn other_roots_verified_and_from_bytes() {
     let fv = Frame::from_bytes(&wrap(game::Frame::SCHEMA_ID, &buf)).map(|f| f.tick()).unwrap();
     assert_eq!(fv, 9);
     let f = Frame::verified(&buf).unwrap();
-    assert_eq!(f.entities().unwrap().get(0).unwrap().id(), 5);
+    assert_eq!(f.entities().get(0).unwrap().id(), 5);
     assert!(matches!(Frame::from_bytes(&wrap(iot::Telemetry::SCHEMA_ID, &buf)), Err(Error::SchemaMismatch { .. })));
 
     let mut b = Builder::new(&pool);
@@ -186,7 +186,7 @@ fn other_roots_verified_and_from_bytes() {
     let mut b = Builder::new(&pool);
     ChunkW::root(&mut b).stream_id(7).seq(1).data(b"abc");
     let buf = b.finish().unwrap().to_vec();
-    assert_eq!(Chunk::verified(&buf).unwrap().data().unwrap(), b"abc");
+    assert_eq!(Chunk::verified(&buf).unwrap().data(), b"abc");
     assert_eq!(Chunk::from_bytes(&wrap(stream::Chunk::SCHEMA_ID, &buf)).unwrap().seq(), 1);
     assert!(matches!(Chunk::from_bytes(&wrap(bank::Transaction::SCHEMA_ID, &buf)), Err(Error::SchemaMismatch { .. })));
 }
@@ -227,14 +227,13 @@ fn assert_view_matches_checked(buf: &[u8], case: usize) {
     assert_eq!(v.from_shard(), safe.from_shard(), "case {case}");
     assert_eq!(v.to_shard(), safe.to_shard(), "case {case}");
     let note = safe.note().expect("verified Ok ⇒ checked note Ok");
-    assert_eq!(v.note(), Ok(note), "case {case}");
+    assert_eq!(v.note(), note, "case {case}");
     let se = safe.entries().expect("verified Ok ⇒ checked entries Ok");
-    let ve = v.entries().expect("verified Ok ⇒ verified entries Ok");
+    let ve = v.entries();
     assert_eq!(ve.len(), se.len(), "case {case}");
     assert_eq!(ve.is_empty(), se.is_empty(), "case {case}");
     assert_eq!(ve.iter().len(), se.len(), "case {case}");
     for (i, a) in ve.iter().enumerate() {
-        let a = a.expect("verified Ok ⇒ verified entry Ok");
         let g = ve.get(i).expect("verified Ok ⇒ verified entry Ok");
         let b = se.get(i).expect("verified Ok ⇒ checked entry Ok");
         assert_eq!(a.account(), b.account(), "case {case} entry {i}");
@@ -242,10 +241,10 @@ fn assert_view_matches_checked(buf: &[u8], case: usize) {
         assert_eq!(a.amount(), b.amount(), "case {case} entry {i}");
         assert_eq!(g.amount(), b.amount(), "case {case} entry {i}");
         let memo = b.memo().expect("verified Ok ⇒ checked memo Ok");
-        assert_eq!(a.memo(), Ok(memo), "case {case} entry {i}");
-        assert_eq!(g.memo(), Ok(memo), "case {case} entry {i}");
+        assert_eq!(a.memo(), memo, "case {case} entry {i}");
+        assert_eq!(g.memo(), memo, "case {case} entry {i}");
     }
-    assert!(ve.get(se.len()).is_err(), "case {case}");
+    assert!(ve.get(se.len()).is_none(), "case {case}");
 }
 
 /// Acceptance gate for the codegen invariants (crate docs, "Invariants for the code
@@ -328,7 +327,7 @@ fn frame_verified_entities_are_views() {
     let checked = Frame::read(&buf).unwrap();
     let fv = Frame::verified(&buf).unwrap();
     assert_eq!(fv.tick(), checked.tick());
-    let ve = fv.entities().unwrap();
+    let ve = fv.entities();
     let ce = checked.entities().unwrap();
     assert_eq!(ve.len(), ce.len());
     for i in 0..ve.len() {
@@ -355,8 +354,8 @@ fn to_bytes_roundtrip_typed() {
     .unwrap();
     let v = Transaction::from_bytes(&env).unwrap();
     assert_eq!(v.id(), 9);
-    assert_eq!(v.note().unwrap(), Some("typed"));
-    assert_eq!(v.entries().unwrap().get(0).unwrap().memo().unwrap(), Some("m"));
+    assert_eq!(v.note(), Some("typed"));
+    assert_eq!(v.entries().get(0).unwrap().memo(), Some("m"));
     assert_eq!(graven::envelope::decode(&env).unwrap().schema_id, Transaction::SCHEMA_ID);
     assert_eq!(Transaction::SCHEMA_ID, bank::Transaction::SCHEMA_ID);
 
@@ -402,7 +401,7 @@ fn every_table_is_root_capable() {
     })
     .unwrap();
     let e = Entry::from_bytes(&env).unwrap();
-    assert_eq!((e.account(), e.amount(), e.memo().unwrap()), (1, 2, Some("só")));
+    assert_eq!((e.account(), e.amount(), e.memo()), (1, 2, Some("só")));
     assert!(matches!(Transaction::from_bytes(&env), Err(Error::SchemaMismatch { .. })));
 
     let v = Vec3 { x: 1.0, y: 2.0, z: 3.0 };
@@ -429,7 +428,7 @@ fn every_table_is_root_capable() {
         c.stream_id(1).seq(2).data(b"xy");
     })
     .unwrap();
-    assert_eq!(Chunk::from_bytes(&env).unwrap().data().unwrap(), b"xy");
+    assert_eq!(Chunk::from_bytes(&env).unwrap().data(), b"xy");
 
     let env = bank_v2::TransactionW::to_bytes(&mut b, |t| {
         t.id(1).ts(2).currency(bank_v2::Currency::EUR).to_shard(3).fee(-4);
@@ -438,10 +437,10 @@ fn every_table_is_root_capable() {
     .unwrap();
     let t2 = bank_v2::Transaction::from_bytes(&env).unwrap();
     assert_eq!((t2.id(), t2.ts(), t2.fee(), t2.from_shard()), (1, 2, Some(-4), None));
-    assert_eq!(t2.entries().unwrap().get(0).unwrap().memo().unwrap(), Some("v2"));
+    assert_eq!(t2.entries().get(0).unwrap().memo(), Some("v2"));
     let t3 = bank_v3::Transaction::from_bytes(&env).unwrap();
     assert_eq!((t3.id(), t3.fee()), (1, Some(-4)));
-    assert_eq!(t3.entries().unwrap().get(0).unwrap().memo().unwrap(), Some("v2"));
+    assert_eq!(t3.entries().get(0).unwrap().memo(), Some("v2"));
     assert_eq!(t3.reader().currency(), bank_v3::Currency::EUR);
 
     bank_v3::TransactionW::seal(&mut b, |t| {

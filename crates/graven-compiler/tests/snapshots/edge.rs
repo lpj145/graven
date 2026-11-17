@@ -3,19 +3,24 @@
 // same module could break the safety of the verified views (by constructing `XVerified(...)`
 // without `verify()`).
 /// Schema id of `edge.Small` (envelope header); same as [`Small::SCHEMA_ID`].
+#[allow(dead_code)]
 pub const SMALL_SCHEMA_ID: u64 = Small::SCHEMA_ID;
 /// Schema id of `edge.Big` (envelope header); same as [`Big::SCHEMA_ID`].
+#[allow(dead_code)]
 pub const BIG_SCHEMA_ID: u64 = Big::SCHEMA_ID;
 /// Schema id of `edge.Edge` (envelope header); same as [`Edge::SCHEMA_ID`].
+#[allow(dead_code)]
 pub const EDGE_SCHEMA_ID: u64 = Edge::SCHEMA_ID;
 /// Enum `Mode` (base `u16`); a value outside the variants ⇒ `Unknown(raw)`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[allow(dead_code)]
 pub enum Mode {
     Off,
     On,
     Auto,
     Unknown(u16),
 }
+#[allow(dead_code)]
 impl Mode {
     #[inline]
     pub fn from_raw(v: u16) -> Self {
@@ -36,6 +41,7 @@ impl Mode {
         }
     }
 }
+#[allow(dead_code)]
 impl ::core::default::Default for Mode {
     /// The raw value 0.
     #[inline]
@@ -43,6 +49,7 @@ impl ::core::default::Default for Mode {
         Mode::from_raw(0)
     }
 }
+#[allow(dead_code)]
 impl ::graven::Le for Mode {
     const SIZE: usize = 2;
     #[inline(always)]
@@ -56,11 +63,13 @@ impl ::graven::Le for Mode {
 }
 /// Enum `Tiny` (base `u8`); a value outside the variants ⇒ `Unknown(raw)`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[allow(dead_code)]
 pub enum Tiny {
     A,
     B,
     Unknown(u8),
 }
+#[allow(dead_code)]
 impl Tiny {
     #[inline]
     pub fn from_raw(v: u8) -> Self {
@@ -79,6 +88,7 @@ impl Tiny {
         }
     }
 }
+#[allow(dead_code)]
 impl ::core::default::Default for Tiny {
     /// The raw value 0.
     #[inline]
@@ -86,6 +96,7 @@ impl ::core::default::Default for Tiny {
         Tiny::from_raw(0)
     }
 }
+#[allow(dead_code)]
 impl ::graven::Le for Tiny {
     const SIZE: usize = 1;
     #[inline(always)]
@@ -99,12 +110,14 @@ impl ::graven::Le for Tiny {
 }
 /// Frozen struct `Pixel`: 5 bytes, never evolves.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[allow(dead_code)]
 pub struct Pixel {
     pub r: u8,
     pub on: bool,
     pub mode: Mode,
     pub tiny: Tiny,
 }
+#[allow(dead_code)]
 impl ::graven::Le for Pixel {
     const SIZE: usize = 5;
     #[inline(always)]
@@ -126,10 +139,12 @@ impl ::graven::Le for Pixel {
 }
 /// Frozen struct `Pair`: 13 bytes, never evolves.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
+#[allow(dead_code)]
 pub struct Pair {
     pub a: Pixel,
     pub w: f64,
 }
+#[allow(dead_code)]
 impl ::graven::Le for Pair {
     const SIZE: usize = 13;
     #[inline(always)]
@@ -147,6 +162,7 @@ impl ::graven::Le for Pair {
 }
 /// Union `Pick` as read by the checked reader. Unknown tag ⇒ `Unknown(tag)` (the target is not visited).
 #[derive(Clone, Copy)]
+#[allow(dead_code)]
 pub enum Pick<'a> {
     Small(Small<'a>),
     Big(Big<'a>),
@@ -154,6 +170,7 @@ pub enum Pick<'a> {
 }
 /// Union `Pick` in a verified message. Unknown tag ⇒ `Unknown(tag)`: `verify` did not descend into it, so the view does not either.
 #[derive(Clone, Copy)]
+#[allow(dead_code)]
 pub enum PickVerified<'a> {
     Small(SmallVerified<'a>),
     Big(BigVerified<'a>),
@@ -161,6 +178,7 @@ pub enum PickVerified<'a> {
 }
 /// Layout of the fixed part of `Small` (spec §3.3).
 #[allow(clippy::module_inception)]
+#[allow(dead_code)]
 pub mod small {
     pub const FIXED_LEN: u16 = 5;
     pub const V: u16 = 1;
@@ -171,8 +189,10 @@ pub mod small {
 }
 /// Checked reader of `edge.Small`: accessors validate on demand. [`Small::verified`] / [`Small::from_bytes`] verify the whole message and return the view [`SmallVerified`].
 #[derive(Clone, Copy)]
+#[allow(dead_code)]
 pub struct Small<'a>(::graven::TableRef<'a>);
 /// Required fields of `Small` (and optional scalar slots), in ID order.
+#[allow(dead_code)]
 pub const SMALL_REQ: &[::graven::rt::Req] = &[
     ::graven::rt::Req::Scalar {
         name: "v",
@@ -181,12 +201,14 @@ pub const SMALL_REQ: &[::graven::rt::Req] = &[
         bit: small::V_BIT,
     },
 ];
+#[allow(dead_code)]
 const SMALL_MASK: ::graven::rt::ReqMask = ::graven::rt::ReqMask {
     len: small::FIXED_LEN,
     bits: &[(0, ::graven::rt::mask_for(SMALL_REQ, 0))],
     ptrs: &[],
     unions: &[],
 };
+#[allow(dead_code)]
 impl<'a> ::graven::rt::FromTable<'a> for Small<'a> {
     #[inline]
     fn from_ref(
@@ -209,6 +231,7 @@ impl<'a> ::graven::rt::FromTable<'a> for Small<'a> {
     }
 }
 #[allow(clippy::should_implement_trait)]
+#[allow(dead_code)]
 impl<'a> Small<'a> {
     /// Schema id of `edge.Small` (envelope header), read from the lock.
     pub const SCHEMA_ID: u64 = 0xebf7e46fca212b55;
@@ -265,7 +288,9 @@ impl<'a> Small<'a> {
 }
 /// A [`Small`] whose `verify()` passed. Only constructed by [`Small::verified`] / [`Small::from_bytes`] (or as a field/element of a verified view); strings are read without revalidating UTF-8.
 #[derive(Clone, Copy)]
+#[allow(dead_code)]
 pub struct SmallVerified<'a>(Small<'a>);
+#[allow(dead_code)]
 impl<'a> ::graven::rt::FromVerified<'a> for SmallVerified<'a> {
     /// The required fields were checked by `Small::from_ref` when the root's `verify()` reached `t` as a `Small` along this edge (this fn's contract, condition 1).
     #[allow(unsafe_code)]
@@ -275,6 +300,7 @@ impl<'a> ::graven::rt::FromVerified<'a> for SmallVerified<'a> {
     }
 }
 #[allow(clippy::should_implement_trait)]
+#[allow(dead_code)]
 impl<'a> SmallVerified<'a> {
     /// The checked reader over the same table.
     #[inline]
@@ -291,8 +317,10 @@ impl<'a> SmallVerified<'a> {
     }
 }
 /// Writer of `Small` (scalars only): writes through a `FixedW` whose size is known at compile time.
+#[allow(dead_code)]
 pub struct SmallW<'b>(pub(crate) ::graven::FixedW<'b, { small::FIXED_LEN as usize }>);
 #[allow(clippy::should_implement_trait)]
+#[allow(dead_code)]
 impl<'b> SmallW<'b> {
     #[inline]
     pub fn root(b: &'b mut ::graven::Builder<'_>) -> Self {
@@ -336,7 +364,9 @@ impl<'b> SmallW<'b> {
     }
 }
 /// List element descriptor of `Small`.
+#[allow(dead_code)]
 pub struct SmallE;
+#[allow(dead_code)]
 impl ::graven::rt::Elem for SmallE {
     const FIXED_LEN: u16 = small::FIXED_LEN;
     const PTR_SLOTS: &'static [u16] = small::PTR_SLOTS;
@@ -351,9 +381,11 @@ impl ::graven::rt::Elem for SmallE {
     }
 }
 /// List of `Small` with a known count (scalar-only element: `FixedListW`).
+#[allow(dead_code)]
 pub struct SmallListW<'a>(
     pub(crate) ::graven::FixedListW<'a, { small::FIXED_LEN as usize }>,
 );
+#[allow(dead_code)]
 impl SmallListW<'_> {
     #[inline(always)]
     pub fn push(&mut self) -> SmallW<'_> {
@@ -362,6 +394,7 @@ impl SmallListW<'_> {
 }
 /// Layout of the fixed part of `Big` (spec §3.3).
 #[allow(clippy::module_inception)]
+#[allow(dead_code)]
 pub mod big {
     pub const FIXED_LEN: u16 = 8;
     pub const S: u16 = 0;
@@ -371,8 +404,10 @@ pub mod big {
 }
 /// Checked reader of `edge.Big`: accessors validate on demand. [`Big::verified`] / [`Big::from_bytes`] verify the whole message and return the view [`BigVerified`].
 #[derive(Clone, Copy)]
+#[allow(dead_code)]
 pub struct Big<'a>(::graven::TableRef<'a>);
 /// Required fields of `Big` (and optional scalar slots), in ID order.
+#[allow(dead_code)]
 pub const BIG_REQ: &[::graven::rt::Req] = &[
     ::graven::rt::Req::Ptr {
         name: "s",
@@ -383,12 +418,14 @@ pub const BIG_REQ: &[::graven::rt::Req] = &[
         off: big::B,
     },
 ];
+#[allow(dead_code)]
 const BIG_MASK: ::graven::rt::ReqMask = ::graven::rt::ReqMask {
     len: big::FIXED_LEN,
     bits: &[],
     ptrs: &[big::S, big::B],
     unions: &[],
 };
+#[allow(dead_code)]
 impl<'a> ::graven::rt::FromTable<'a> for Big<'a> {
     #[inline]
     fn from_ref(
@@ -413,6 +450,7 @@ impl<'a> ::graven::rt::FromTable<'a> for Big<'a> {
     }
 }
 #[allow(clippy::should_implement_trait)]
+#[allow(dead_code)]
 impl<'a> Big<'a> {
     /// Schema id of `edge.Big` (envelope header), read from the lock.
     pub const SCHEMA_ID: u64 = 0xf6b32e613ccf8358;
@@ -469,7 +507,9 @@ impl<'a> Big<'a> {
 }
 /// A [`Big`] whose `verify()` passed. Only constructed by [`Big::verified`] / [`Big::from_bytes`] (or as a field/element of a verified view); strings are read without revalidating UTF-8.
 #[derive(Clone, Copy)]
+#[allow(dead_code)]
 pub struct BigVerified<'a>(Big<'a>);
+#[allow(dead_code)]
 impl<'a> ::graven::rt::FromVerified<'a> for BigVerified<'a> {
     /// The required fields were checked by `Big::from_ref` when the root's `verify()` reached `t` as a `Big` along this edge (this fn's contract, condition 1).
     #[allow(unsafe_code)]
@@ -479,6 +519,7 @@ impl<'a> ::graven::rt::FromVerified<'a> for BigVerified<'a> {
     }
 }
 #[allow(clippy::should_implement_trait)]
+#[allow(dead_code)]
 impl<'a> BigVerified<'a> {
     /// The checked reader over the same table.
     #[inline]
@@ -487,22 +528,23 @@ impl<'a> BigVerified<'a> {
     }
     #[allow(unsafe_code)]
     #[inline]
-    pub fn s(&self) -> ::core::result::Result<&'a str, ::graven::Error> {
+    pub fn s(&self) -> &'a str {
         // SAFETY: a `BigVerified` is only built after `Big::verify()` succeeded on this very table (by
         // `verified`, or `from_verified` under its contract: reached as a `Big` along the same edge,
         // condition 1); `Big::verify` calls the validating `str(big::S)` at this same offset
         // (condition 2).
-        let v = unsafe { self.0.0.str_unchecked(big::S) }?;
-        ::core::result::Result::Ok(v.unwrap_or(""))
+        ::graven::rt::trusted(unsafe { self.0.0.str_unchecked(big::S) }).unwrap_or("")
     }
     #[inline]
-    pub fn b(&self) -> ::core::result::Result<&'a [u8], ::graven::Error> {
-        self.0.b()
+    pub fn b(&self) -> &'a [u8] {
+        ::graven::rt::trusted(self.0.b())
     }
 }
 /// Writer of `Big`.
+#[allow(dead_code)]
 pub struct BigW<'b>(pub(crate) ::graven::TableW<'b>);
 #[allow(clippy::should_implement_trait)]
+#[allow(dead_code)]
 impl<'b> BigW<'b> {
     #[inline]
     pub fn root(b: &'b mut ::graven::Builder<'_>) -> Self {
@@ -546,7 +588,9 @@ impl<'b> BigW<'b> {
     }
 }
 /// List element descriptor of `Big`.
+#[allow(dead_code)]
 pub struct BigE;
+#[allow(dead_code)]
 impl ::graven::rt::Elem for BigE {
     const FIXED_LEN: u16 = big::FIXED_LEN;
     const PTR_SLOTS: &'static [u16] = big::PTR_SLOTS;
@@ -562,6 +606,7 @@ impl ::graven::rt::Elem for BigE {
 }
 /// Layout of the fixed part of `Edge` (spec §3.3).
 #[allow(clippy::module_inception)]
+#[allow(dead_code)]
 pub mod edge {
     pub const FIXED_LEN: u16 = 117;
     pub const TYPE: u16 = 1;
@@ -626,8 +671,10 @@ pub mod edge {
 }
 /// Checked reader of `edge.Edge`: accessors validate on demand. [`Edge::verified`] / [`Edge::from_bytes`] verify the whole message and return the view [`EdgeVerified`].
 #[derive(Clone, Copy)]
+#[allow(dead_code)]
 pub struct Edge<'a>(::graven::TableRef<'a>);
 /// Required fields of `Edge` (and optional scalar slots), in ID order.
+#[allow(dead_code)]
 pub const EDGE_REQ: &[::graven::rt::Req] = &[
     ::graven::rt::Req::Scalar {
         name: "type",
@@ -706,6 +753,7 @@ pub const EDGE_REQ: &[::graven::rt::Req] = &[
         size: 1,
     },
 ];
+#[allow(dead_code)]
 const EDGE_MASK: ::graven::rt::ReqMask = ::graven::rt::ReqMask {
     len: edge::FIXED_LEN,
     bits: &[
@@ -724,6 +772,7 @@ const EDGE_MASK: ::graven::rt::ReqMask = ::graven::rt::ReqMask {
     ],
     unions: &[edge::REQ_PICK],
 };
+#[allow(dead_code)]
 impl<'a> ::graven::rt::FromTable<'a> for Edge<'a> {
     #[inline]
     fn from_ref(
@@ -790,6 +839,7 @@ impl<'a> ::graven::rt::FromTable<'a> for Edge<'a> {
     }
 }
 #[allow(clippy::should_implement_trait)]
+#[allow(dead_code)]
 impl<'a> Edge<'a> {
     /// Schema id of `edge.Edge` (envelope header), read from the lock.
     pub const SCHEMA_ID: u64 = 0xe9f4a9336cecb86f;
@@ -1036,7 +1086,9 @@ impl<'a> Edge<'a> {
 }
 /// A [`Edge`] whose `verify()` passed. Only constructed by [`Edge::verified`] / [`Edge::from_bytes`] (or as a field/element of a verified view); strings are read without revalidating UTF-8.
 #[derive(Clone, Copy)]
+#[allow(dead_code)]
 pub struct EdgeVerified<'a>(Edge<'a>);
+#[allow(dead_code)]
 impl<'a> ::graven::rt::FromVerified<'a> for EdgeVerified<'a> {
     /// The required fields were checked by `Edge::from_ref` when the root's `verify()` reached `t` as a `Edge` along this edge (this fn's contract, condition 1).
     #[allow(unsafe_code)]
@@ -1046,6 +1098,7 @@ impl<'a> ::graven::rt::FromVerified<'a> for EdgeVerified<'a> {
     }
 }
 #[allow(clippy::should_implement_trait)]
+#[allow(dead_code)]
 impl<'a> EdgeVerified<'a> {
     /// The checked reader over the same table.
     #[inline]
@@ -1058,94 +1111,79 @@ impl<'a> EdgeVerified<'a> {
     }
     #[allow(unsafe_code)]
     #[inline]
-    pub fn req_str(&self) -> ::core::result::Result<&'a str, ::graven::Error> {
+    pub fn req_str(&self) -> &'a str {
         // SAFETY: a `EdgeVerified` is only built after `Edge::verify()` succeeded on this very table (by
         // `verified`, or `from_verified` under its contract: reached as a `Edge` along the same edge,
         // condition 1); `Edge::verify` calls the validating `str(edge::REQ_STR)` at this same offset
         // (condition 2).
-        let v = unsafe { self.0.0.str_unchecked(edge::REQ_STR) }?;
-        ::core::result::Result::Ok(v.unwrap_or(""))
+        ::graven::rt::trusted(unsafe { self.0.0.str_unchecked(edge::REQ_STR) })
+            .unwrap_or("")
     }
     #[inline]
-    pub fn req_bytes(&self) -> ::core::result::Result<&'a [u8], ::graven::Error> {
-        self.0.req_bytes()
+    pub fn req_bytes(&self) -> &'a [u8] {
+        ::graven::rt::trusted(self.0.req_bytes())
     }
     #[inline]
-    pub fn req_nums(
-        &self,
-    ) -> ::core::result::Result<::graven::ScalarList<'a, i64>, ::graven::Error> {
-        self.0.req_nums()
+    pub fn req_nums(&self) -> ::graven::ScalarList<'a, i64> {
+        ::graven::rt::trusted(self.0.req_nums())
     }
     #[allow(unsafe_code)]
     #[inline]
-    pub fn req_names(
-        &self,
-    ) -> ::core::result::Result<::graven::rt::VStrList<'a>, ::graven::Error> {
-        let l = self.0.0.strs(edge::REQ_NAMES)?;
+    pub fn req_names(&self) -> ::graven::rt::VStrList<'a> {
+        let l = ::graven::rt::trusted(self.0.0.strs(edge::REQ_NAMES));
         // SAFETY: `Edge::verify` followed this same edge (`edge::REQ_NAMES`) and passed this very list to
         // `verify_strs`, which validated every element as UTF-8 (`VStrList::new` contract; invariants
         // 2 and 6).
-        let v = unsafe { ::graven::rt::VStrList::new(l) };
-        ::core::result::Result::Ok(v)
+        unsafe { ::graven::rt::VStrList::new(l) }
     }
     #[inline]
-    pub fn req_blobs(
-        &self,
-    ) -> ::core::result::Result<::graven::StrList<'a>, ::graven::Error> {
-        self.0.req_blobs()
+    pub fn req_blobs(&self) -> ::graven::StrList<'a> {
+        ::graven::rt::trusted(self.0.req_blobs())
     }
     #[allow(unsafe_code)]
     #[inline]
-    pub fn req_small(
-        &self,
-    ) -> ::core::result::Result<
-        ::graven::rt::VListR<'a, SmallVerified<'a>>,
-        ::graven::Error,
-    > {
-        let l = self.0.0.tables(edge::REQ_SMALL)?;
+    pub fn req_small(&self) -> ::graven::rt::VListR<'a, SmallVerified<'a>> {
+        let l = ::graven::rt::trusted(self.0.0.tables(edge::REQ_SMALL));
         // SAFETY: `Edge::verify` followed this same edge (`edge::REQ_SMALL`) and verified it as
         // `ListR<Small>`, i.e. every element as `Small`; `SmallVerified` wraps exactly `Small`, so `T`
         // matches what verify used for this list (`VListR::new` contract).
-        let v = unsafe { ::graven::rt::VListR::new(l) };
-        ::core::result::Result::Ok(v)
+        unsafe { ::graven::rt::VListR::new(l) }
     }
     #[allow(unsafe_code)]
     #[inline]
-    pub fn req_big(
-        &self,
-    ) -> ::core::result::Result<
-        ::graven::rt::VListR<'a, BigVerified<'a>>,
-        ::graven::Error,
-    > {
-        let l = self.0.0.tables(edge::REQ_BIG)?;
+    pub fn req_big(&self) -> ::graven::rt::VListR<'a, BigVerified<'a>> {
+        let l = ::graven::rt::trusted(self.0.0.tables(edge::REQ_BIG));
         // SAFETY: `Edge::verify` followed this same edge (`edge::REQ_BIG`) and verified it as `ListR<Big>`,
         // i.e. every element as `Big`; `BigVerified` wraps exactly `Big`, so `T` matches what verify
         // used for this list (`VListR::new` contract).
-        let v = unsafe { ::graven::rt::VListR::new(l) };
-        ::core::result::Result::Ok(v)
+        unsafe { ::graven::rt::VListR::new(l) }
     }
     #[allow(unsafe_code)]
     #[inline]
-    pub fn req_tab(&self) -> ::core::result::Result<SmallVerified<'a>, ::graven::Error> {
-        let t = self
-            .0
-            .0
-            .table(edge::REQ_TAB)?
-            .ok_or(::graven::Error::Missing {
-                field: "req_tab",
-            })?;
+    pub fn req_tab(&self) -> SmallVerified<'a> {
+        let t = ::graven::rt::trusted(
+            self
+                .0
+                .0
+                .table(edge::REQ_TAB)
+                .and_then(|t| {
+                    t
+                        .ok_or(::graven::Error::Missing {
+                            field: "req_tab",
+                        })
+                }),
+        );
         // SAFETY: `Edge::verify` followed this same edge (`edge::REQ_TAB`), ran `Small::from_ref` on the
         // target and verified it as `Small`; `SmallVerified` wraps exactly `Small` (`from_verified`
         // contract, condition 1).
-        let v = unsafe {
+        unsafe {
             <SmallVerified<'a> as ::graven::rt::FromVerified<'a>>::from_verified(t)
-        };
-        ::core::result::Result::Ok(v)
+        }
     }
     #[allow(unsafe_code)]
     #[inline]
-    pub fn req_pick(&self) -> ::core::result::Result<PickVerified<'a>, ::graven::Error> {
-        let v = match self.0.0.union(edge::REQ_PICK)? {
+    pub fn req_pick(&self) -> PickVerified<'a> {
+        let v = match ::graven::rt::trusted(self.0.0.union(edge::REQ_PICK)) {
             ::core::option::Option::Some((1, t)) => {
                 // SAFETY: `Edge::verify` followed this same edge (`edge::REQ_PICK`) for every tag known to `Pick` and
                 // verified the target as that variant's table; the matching `*Verified` wraps exactly that
@@ -1173,9 +1211,12 @@ impl<'a> EdgeVerified<'a> {
             }
             ::core::option::Option::None => ::core::option::Option::None,
         };
-        v.ok_or(::graven::Error::Missing {
-            field: "req_pick",
-        })
+        ::graven::rt::trusted(
+            v
+                .ok_or(::graven::Error::Missing {
+                    field: "req_pick",
+                }),
+        )
     }
     #[inline]
     pub fn d_i8(&self) -> i8 {
@@ -1210,60 +1251,32 @@ impl<'a> EdgeVerified<'a> {
         self.0.pair()
     }
     #[inline]
-    pub fn bools(
-        &self,
-    ) -> ::core::result::Result<
-        ::core::option::Option<::graven::ScalarList<'a, bool>>,
-        ::graven::Error,
-    > {
-        self.0.bools()
+    pub fn bools(&self) -> ::core::option::Option<::graven::ScalarList<'a, bool>> {
+        ::graven::rt::trusted(self.0.bools())
     }
     #[inline]
-    pub fn modes(
-        &self,
-    ) -> ::core::result::Result<
-        ::core::option::Option<::graven::ScalarList<'a, Mode>>,
-        ::graven::Error,
-    > {
-        self.0.modes()
+    pub fn modes(&self) -> ::core::option::Option<::graven::ScalarList<'a, Mode>> {
+        ::graven::rt::trusted(self.0.modes())
     }
     #[inline]
-    pub fn pixels(
-        &self,
-    ) -> ::core::result::Result<
-        ::core::option::Option<::graven::ScalarList<'a, Pixel>>,
-        ::graven::Error,
-    > {
-        self.0.pixels()
+    pub fn pixels(&self) -> ::core::option::Option<::graven::ScalarList<'a, Pixel>> {
+        ::graven::rt::trusted(self.0.pixels())
     }
     #[allow(unsafe_code)]
     #[inline]
-    pub fn opt_tab(
-        &self,
-    ) -> ::core::result::Result<
-        ::core::option::Option<BigVerified<'a>>,
-        ::graven::Error,
-    > {
-        let ::core::option::Option::Some(t) = self.0.0.table(edge::OPT_TAB)? else {
-            return ::core::result::Result::Ok(::core::option::Option::None);
-        };
+    pub fn opt_tab(&self) -> ::core::option::Option<BigVerified<'a>> {
+        let t = ::graven::rt::trusted(self.0.0.table(edge::OPT_TAB))?;
         // SAFETY: `Edge::verify` followed this same edge (`edge::OPT_TAB`), ran `Big::from_ref` on the target
         // and verified it as `Big`; `BigVerified` wraps exactly `Big` (`from_verified` contract,
         // condition 1).
-        let v = unsafe {
+        ::core::option::Option::Some(unsafe {
             <BigVerified<'a> as ::graven::rt::FromVerified<'a>>::from_verified(t)
-        };
-        ::core::result::Result::Ok(::core::option::Option::Some(v))
+        })
     }
     #[allow(unsafe_code)]
     #[inline]
-    pub fn opt_pick(
-        &self,
-    ) -> ::core::result::Result<
-        ::core::option::Option<PickVerified<'a>>,
-        ::graven::Error,
-    > {
-        let v = match self.0.0.union(edge::OPT_PICK)? {
+    pub fn opt_pick(&self) -> ::core::option::Option<PickVerified<'a>> {
+        match ::graven::rt::trusted(self.0.0.union(edge::OPT_PICK)) {
             ::core::option::Option::Some((1, t)) => {
                 // SAFETY: `Edge::verify` followed this same edge (`edge::OPT_PICK`) for every tag known to `Pick` and
                 // verified the target as that variant's table; the matching `*Verified` wraps exactly that
@@ -1290,8 +1303,7 @@ impl<'a> EdgeVerified<'a> {
                 ::core::option::Option::Some(PickVerified::Unknown(tag))
             }
             ::core::option::Option::None => ::core::option::Option::None,
-        };
-        ::core::result::Result::Ok(v)
+        }
     }
     #[inline]
     pub fn last(&self) -> ::core::option::Option<u8> {
@@ -1299,8 +1311,10 @@ impl<'a> EdgeVerified<'a> {
     }
 }
 /// Writer of `Edge`.
+#[allow(dead_code)]
 pub struct EdgeW<'b>(pub(crate) ::graven::TableW<'b>);
 #[allow(clippy::should_implement_trait)]
+#[allow(dead_code)]
 impl<'b> EdgeW<'b> {
     #[inline]
     pub fn root(b: &'b mut ::graven::Builder<'_>) -> Self {
@@ -1509,7 +1523,9 @@ impl<'b> EdgeW<'b> {
     }
 }
 /// List element descriptor of `Edge`.
+#[allow(dead_code)]
 pub struct EdgeE;
+#[allow(dead_code)]
 impl ::graven::rt::Elem for EdgeE {
     const FIXED_LEN: u16 = edge::FIXED_LEN;
     const PTR_SLOTS: &'static [u16] = edge::PTR_SLOTS;

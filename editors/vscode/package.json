@@ -1,25 +1,60 @@
 {
   "name": "graven",
   "displayName": "Graven",
-  "description": "Syntax highlighting for the Graven schema language (.graven)",
+  "description": "Graven schema language (.graven): syntax highlighting, go to definition, find references, hover, outline and symbols",
+  "icon": "icon.png",
   "version": "0.1.0",
   "publisher": "graven",
   "license": "MIT",
-  "repository": { "type": "git", "url": "https://github.com/lpj145/graven.git" },
-  "engines": { "vscode": "^1.75.0" },
-  "categories": ["Programming Languages"],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/lpj145/graven.git"
+  },
+  "homepage": "https://graven.pages.dev",
+  "bugs": {
+    "url": "https://github.com/lpj145/graven/issues"
+  },
+  "engines": {
+    "vscode": "^1.75.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "keywords": [
+    "graven",
+    "schema",
+    "idl",
+    "serialization",
+    "zero-copy",
+    "binary",
+    "rpc"
+  ],
+  "main": "./extension.js",
+  "activationEvents": [
+    "onLanguage:graven",
+    "workspaceContains:**/*.graven"
+  ],
   "contributes": {
     "languages": [
       {
         "id": "graven",
-        "aliases": ["Graven", "graven"],
-        "extensions": [".graven"],
+        "aliases": [
+          "Graven",
+          "graven"
+        ],
+        "extensions": [
+          ".graven"
+        ],
         "configuration": "./language-configuration.json"
       },
       {
         "id": "graven-lock",
-        "aliases": ["Graven lockfile"],
-        "filenamePatterns": ["*.graven.lock"]
+        "aliases": [
+          "Graven lockfile"
+        ],
+        "filenamePatterns": [
+          "*.graven.lock"
+        ]
       }
     ],
     "grammars": [

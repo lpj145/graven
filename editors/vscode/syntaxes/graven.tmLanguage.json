@@ -22,6 +22,9 @@
       "include": "#reserved"
     },
     {
+      "include": "#method"
+    },
+    {
       "include": "#field-id"
     },
     {
@@ -64,7 +67,7 @@
       }
     },
     "declaration": {
-      "match": "\\b(enum|struct|table|union)\\s+([A-Za-z_][A-Za-z0-9_]*)",
+      "match": "\\b(enum|struct|table|union|service)\\s+([A-Za-z_][A-Za-z0-9_]*)",
       "captures": {
         "1": {
           "name": "storage.type.graven"
@@ -75,13 +78,72 @@
       }
     },
     "attribute": {
-      "match": "#\\[\\s*([A-Za-z_][A-Za-z0-9_]*)\\s*\\]",
       "name": "meta.attribute.graven",
-      "captures": {
+      "begin": "(#)(\\[)",
+      "beginCaptures": {
         "1": {
-          "name": "entity.other.attribute-name.graven"
+          "name": "punctuation.definition.attribute.graven"
+        },
+        "2": {
+          "name": "punctuation.section.brackets.begin.graven"
         }
-      }
+      },
+      "end": "\\]",
+      "endCaptures": {
+        "0": {
+          "name": "punctuation.section.brackets.end.graven"
+        }
+      },
+      "patterns": [
+        {
+          "include": "#comments"
+        },
+        {
+          "match": "\\b([A-Za-z_][A-Za-z0-9_]*)\\s*(=)",
+          "captures": {
+            "1": {
+              "name": "variable.parameter.graven"
+            },
+            "2": {
+              "name": "keyword.operator.assignment.graven"
+            }
+          }
+        },
+        {
+          "begin": "\\b(check)\\s*(\\()",
+          "beginCaptures": {
+            "1": {
+              "name": "entity.other.attribute-name.graven"
+            },
+            "2": {
+              "name": "punctuation.section.parens.begin.graven"
+            }
+          },
+          "end": "\\)",
+          "endCaptures": {
+            "0": {
+              "name": "punctuation.section.parens.end.graven"
+            }
+          },
+          "patterns": [
+            {
+              "match": "[A-Za-z_][A-Za-z0-9_]*",
+              "name": "entity.name.function.check.graven"
+            }
+          ]
+        },
+        {
+          "match": "\\b[A-Za-z_][A-Za-z0-9_]*\\b",
+          "name": "entity.other.attribute-name.graven"
+        },
+        {
+          "include": "#literals"
+        },
+        {
+          "match": "[(),]",
+          "name": "punctuation.separator.graven"
+        }
+      ]
     },
     "reserved": {
       "match": "\\breserved\\b",
@@ -132,6 +194,10 @@
         {
           "match": "[:;,]",
           "name": "punctuation.separator.graven"
+        },
+        {
+          "match": "[()]",
+          "name": "punctuation.section.parens.graven"
         }
       ]
     },
@@ -151,6 +217,33 @@
           "name": "entity.name.namespace.graven"
         }
       }
+    },
+    "method": {
+      "patterns": [
+        {
+          "match": "->",
+          "name": "keyword.operator.arrow.graven"
+        },
+        {
+          "match": "\\bstream\\b",
+          "name": "keyword.other.stream.graven"
+        },
+        {
+          "match": "\\b(Result)\\s*(<)",
+          "captures": {
+            "1": {
+              "name": "support.type.result.graven"
+            },
+            "2": {
+              "name": "punctuation.definition.generic.begin.graven"
+            }
+          }
+        },
+        {
+          "match": ">",
+          "name": "punctuation.definition.generic.end.graven"
+        }
+      ]
     }
   }
 }

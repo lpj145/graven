@@ -3,23 +3,30 @@
 // same module could break the safety of the verified views (by constructing `XVerified(...)`
 // without `verify()`).
 /// Schema id of `conformance.v1.Leaf` (envelope header); same as [`Leaf::SCHEMA_ID`].
+#[allow(dead_code)]
 pub const LEAF_SCHEMA_ID: u64 = Leaf::SCHEMA_ID;
 /// Schema id of `conformance.v1.Root` (envelope header); same as [`Root::SCHEMA_ID`].
+#[allow(dead_code)]
 pub const ROOT_SCHEMA_ID: u64 = Root::SCHEMA_ID;
 /// Schema id of `conformance.v1.RootV2` (envelope header); same as [`RootV2::SCHEMA_ID`].
+#[allow(dead_code)]
 pub const ROOT_V2_SCHEMA_ID: u64 = RootV2::SCHEMA_ID;
 /// Schema id of `conformance.v1.Extra` (envelope header); same as [`Extra::SCHEMA_ID`].
+#[allow(dead_code)]
 pub const EXTRA_SCHEMA_ID: u64 = Extra::SCHEMA_ID;
 /// Schema id of `conformance.v1.Holder` (envelope header); same as [`Holder::SCHEMA_ID`].
+#[allow(dead_code)]
 pub const HOLDER_SCHEMA_ID: u64 = Holder::SCHEMA_ID;
 /// Enum `Color` (base `u8`); a value outside the variants ⇒ `Unknown(raw)`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[allow(dead_code)]
 pub enum Color {
     Red,
     Green,
     Blue,
     Unknown(u8),
 }
+#[allow(dead_code)]
 impl Color {
     #[inline]
     pub fn from_raw(v: u8) -> Self {
@@ -40,6 +47,7 @@ impl Color {
         }
     }
 }
+#[allow(dead_code)]
 impl ::core::default::Default for Color {
     /// The raw value 0.
     #[inline]
@@ -47,6 +55,7 @@ impl ::core::default::Default for Color {
         Color::from_raw(0)
     }
 }
+#[allow(dead_code)]
 impl ::graven::Le for Color {
     const SIZE: usize = 1;
     #[inline(always)]
@@ -60,10 +69,12 @@ impl ::graven::Le for Color {
 }
 /// Frozen struct `Point`: 8 bytes, never evolves.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[allow(dead_code)]
 pub struct Point {
     pub x: i32,
     pub y: i32,
 }
+#[allow(dead_code)]
 impl ::graven::Le for Point {
     const SIZE: usize = 8;
     #[inline(always)]
@@ -81,10 +92,12 @@ impl ::graven::Le for Point {
 }
 /// Frozen struct `Flags`: 2 bytes, never evolves.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[allow(dead_code)]
 pub struct Flags {
     pub on: bool,
     pub c: Color,
 }
+#[allow(dead_code)]
 impl ::graven::Le for Flags {
     const SIZE: usize = 2;
     #[inline(always)]
@@ -102,7 +115,9 @@ impl ::graven::Le for Flags {
 }
 /// Frozen struct `Empty`: 0 bytes, never evolves.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[allow(dead_code)]
 pub struct Empty {}
+#[allow(dead_code)]
 impl ::graven::Le for Empty {
     const SIZE: usize = 0;
     #[inline(always)]
@@ -114,18 +129,21 @@ impl ::graven::Le for Empty {
 }
 /// Union `Choice` as read by the checked reader. Unknown tag ⇒ `Unknown(tag)` (the target is not visited).
 #[derive(Clone, Copy)]
+#[allow(dead_code)]
 pub enum Choice<'a> {
     Leaf(Leaf<'a>),
     Unknown(u16),
 }
 /// Union `Choice` in a verified message. Unknown tag ⇒ `Unknown(tag)`: `verify` did not descend into it, so the view does not either.
 #[derive(Clone, Copy)]
+#[allow(dead_code)]
 pub enum ChoiceVerified<'a> {
     Leaf(LeafVerified<'a>),
     Unknown(u16),
 }
 /// Layout of the fixed part of `Leaf` (spec §3.3).
 #[allow(clippy::module_inception)]
+#[allow(dead_code)]
 pub mod leaf {
     pub const FIXED_LEN: u16 = 13;
     pub const N: u16 = 1;
@@ -137,8 +155,10 @@ pub mod leaf {
 }
 /// Checked reader of `conformance.v1.Leaf`: accessors validate on demand. [`Leaf::verified`] / [`Leaf::from_bytes`] verify the whole message and return the view [`LeafVerified`].
 #[derive(Clone, Copy)]
+#[allow(dead_code)]
 pub struct Leaf<'a>(::graven::TableRef<'a>);
 /// Required fields of `Leaf` (and optional scalar slots), in ID order.
+#[allow(dead_code)]
 pub const LEAF_REQ: &[::graven::rt::Req] = &[
     ::graven::rt::Req::Scalar {
         name: "n",
@@ -147,12 +167,14 @@ pub const LEAF_REQ: &[::graven::rt::Req] = &[
         bit: leaf::N_BIT,
     },
 ];
+#[allow(dead_code)]
 const LEAF_MASK: ::graven::rt::ReqMask = ::graven::rt::ReqMask {
     len: leaf::FIXED_LEN,
     bits: &[(0, ::graven::rt::mask_for(LEAF_REQ, 0))],
     ptrs: &[],
     unions: &[],
 };
+#[allow(dead_code)]
 impl<'a> ::graven::rt::FromTable<'a> for Leaf<'a> {
     #[inline]
     fn from_ref(
@@ -181,6 +203,7 @@ impl<'a> ::graven::rt::FromTable<'a> for Leaf<'a> {
     }
 }
 #[allow(clippy::should_implement_trait)]
+#[allow(dead_code)]
 impl<'a> Leaf<'a> {
     /// Schema id of `conformance.v1.Leaf` (envelope header), read from the lock.
     pub const SCHEMA_ID: u64 = 0x289ce2faa6b04709;
@@ -256,7 +279,9 @@ impl<'a> Leaf<'a> {
 }
 /// A [`Leaf`] whose `verify()` passed. Only constructed by [`Leaf::verified`] / [`Leaf::from_bytes`] (or as a field/element of a verified view); strings are read without revalidating UTF-8.
 #[derive(Clone, Copy)]
+#[allow(dead_code)]
 pub struct LeafVerified<'a>(Leaf<'a>);
+#[allow(dead_code)]
 impl<'a> ::graven::rt::FromVerified<'a> for LeafVerified<'a> {
     /// The required fields were checked by `Leaf::from_ref` when the root's `verify()` reached `t` as a `Leaf` along this edge (this fn's contract, condition 1).
     #[allow(unsafe_code)]
@@ -266,6 +291,7 @@ impl<'a> ::graven::rt::FromVerified<'a> for LeafVerified<'a> {
     }
 }
 #[allow(clippy::should_implement_trait)]
+#[allow(dead_code)]
 impl<'a> LeafVerified<'a> {
     /// The checked reader over the same table.
     #[inline]
@@ -278,38 +304,30 @@ impl<'a> LeafVerified<'a> {
     }
     #[allow(unsafe_code)]
     #[inline]
-    pub fn s(
-        &self,
-    ) -> ::core::result::Result<::core::option::Option<&'a str>, ::graven::Error> {
+    pub fn s(&self) -> ::core::option::Option<&'a str> {
         // SAFETY: a `LeafVerified` is only built after `Leaf::verify()` succeeded on this very table (by
         // `verified`, or `from_verified` under its contract: reached as a `Leaf` along the same edge,
         // condition 1); `Leaf::verify` calls the validating `str(leaf::S)` at this same offset
         // (condition 2).
-        unsafe { self.0.0.str_unchecked(leaf::S) }
+        ::graven::rt::trusted(unsafe { self.0.0.str_unchecked(leaf::S) })
     }
     #[allow(unsafe_code)]
     #[inline]
-    pub fn next(
-        &self,
-    ) -> ::core::result::Result<
-        ::core::option::Option<LeafVerified<'a>>,
-        ::graven::Error,
-    > {
-        let ::core::option::Option::Some(t) = self.0.0.table(leaf::NEXT)? else {
-            return ::core::result::Result::Ok(::core::option::Option::None);
-        };
+    pub fn next(&self) -> ::core::option::Option<LeafVerified<'a>> {
+        let t = ::graven::rt::trusted(self.0.0.table(leaf::NEXT))?;
         // SAFETY: `Leaf::verify` followed this same edge (`leaf::NEXT`), ran `Leaf::from_ref` on the target
         // and verified it as `Leaf`; `LeafVerified` wraps exactly `Leaf` (`from_verified` contract,
         // condition 1).
-        let v = unsafe {
+        ::core::option::Option::Some(unsafe {
             <LeafVerified<'a> as ::graven::rt::FromVerified<'a>>::from_verified(t)
-        };
-        ::core::result::Result::Ok(::core::option::Option::Some(v))
+        })
     }
 }
 /// Writer of `Leaf`.
+#[allow(dead_code)]
 pub struct LeafW<'b>(pub(crate) ::graven::TableW<'b>);
 #[allow(clippy::should_implement_trait)]
+#[allow(dead_code)]
 impl<'b> LeafW<'b> {
     #[inline]
     pub fn root(b: &'b mut ::graven::Builder<'_>) -> Self {
@@ -357,7 +375,9 @@ impl<'b> LeafW<'b> {
     }
 }
 /// List element descriptor of `Leaf`.
+#[allow(dead_code)]
 pub struct LeafE;
+#[allow(dead_code)]
 impl ::graven::rt::Elem for LeafE {
     const FIXED_LEN: u16 = leaf::FIXED_LEN;
     const PTR_SLOTS: &'static [u16] = leaf::PTR_SLOTS;
@@ -373,6 +393,7 @@ impl ::graven::rt::Elem for LeafE {
 }
 /// Layout of the fixed part of `Root` (spec §3.3).
 #[allow(clippy::module_inception)]
+#[allow(dead_code)]
 pub mod root {
     pub const FIXED_LEN: u16 = 112;
     pub const A_U8: u16 = 1;
@@ -433,8 +454,10 @@ pub mod root {
 }
 /// Checked reader of `conformance.v1.Root`: accessors validate on demand. [`Root::verified`] / [`Root::from_bytes`] verify the whole message and return the view [`RootVerified`].
 #[derive(Clone, Copy)]
+#[allow(dead_code)]
 pub struct Root<'a>(::graven::TableRef<'a>);
 /// Required fields of `Root` (and optional scalar slots), in ID order.
+#[allow(dead_code)]
 pub const ROOT_REQ: &[::graven::rt::Req] = &[
     ::graven::rt::Req::Scalar {
         name: "a_u8",
@@ -483,6 +506,7 @@ pub const ROOT_REQ: &[::graven::rt::Req] = &[
         size: 8,
     },
 ];
+#[allow(dead_code)]
 const ROOT_MASK: ::graven::rt::ReqMask = ::graven::rt::ReqMask {
     len: root::FIXED_LEN,
     bits: &[
@@ -492,6 +516,7 @@ const ROOT_MASK: ::graven::rt::ReqMask = ::graven::rt::ReqMask {
     ptrs: &[],
     unions: &[],
 };
+#[allow(dead_code)]
 impl<'a> ::graven::rt::FromTable<'a> for Root<'a> {
     #[inline]
     fn from_ref(
@@ -536,6 +561,7 @@ impl<'a> ::graven::rt::FromTable<'a> for Root<'a> {
     }
 }
 #[allow(clippy::should_implement_trait)]
+#[allow(dead_code)]
 impl<'a> Root<'a> {
     /// Schema id of `conformance.v1.Root` (envelope header), read from the lock.
     pub const SCHEMA_ID: u64 = 0x4c22ab2f27b43129;
@@ -731,7 +757,9 @@ impl<'a> Root<'a> {
 }
 /// A [`Root`] whose `verify()` passed. Only constructed by [`Root::verified`] / [`Root::from_bytes`] (or as a field/element of a verified view); strings are read without revalidating UTF-8.
 #[derive(Clone, Copy)]
+#[allow(dead_code)]
 pub struct RootVerified<'a>(Root<'a>);
+#[allow(dead_code)]
 impl<'a> ::graven::rt::FromVerified<'a> for RootVerified<'a> {
     /// The required fields were checked by `Root::from_ref` when the root's `verify()` reached `t` as a `Root` along this edge (this fn's contract, condition 1).
     #[allow(unsafe_code)]
@@ -741,6 +769,7 @@ impl<'a> ::graven::rt::FromVerified<'a> for RootVerified<'a> {
     }
 }
 #[allow(clippy::should_implement_trait)]
+#[allow(dead_code)]
 impl<'a> RootVerified<'a> {
     /// The checked reader over the same table.
     #[inline]
@@ -797,110 +826,68 @@ impl<'a> RootVerified<'a> {
     }
     #[allow(unsafe_code)]
     #[inline]
-    pub fn name(
-        &self,
-    ) -> ::core::result::Result<::core::option::Option<&'a str>, ::graven::Error> {
+    pub fn name(&self) -> ::core::option::Option<&'a str> {
         // SAFETY: a `RootVerified` is only built after `Root::verify()` succeeded on this very table (by
         // `verified`, or `from_verified` under its contract: reached as a `Root` along the same edge,
         // condition 1); `Root::verify` calls the validating `str(root::NAME)` at this same offset
         // (condition 2).
-        unsafe { self.0.0.str_unchecked(root::NAME) }
+        ::graven::rt::trusted(unsafe { self.0.0.str_unchecked(root::NAME) })
     }
     #[inline]
-    pub fn blob(
-        &self,
-    ) -> ::core::result::Result<::core::option::Option<&'a [u8]>, ::graven::Error> {
-        self.0.blob()
+    pub fn blob(&self) -> ::core::option::Option<&'a [u8]> {
+        ::graven::rt::trusted(self.0.blob())
     }
     #[inline]
-    pub fn nums(
-        &self,
-    ) -> ::core::result::Result<
-        ::core::option::Option<::graven::ScalarList<'a, u16>>,
-        ::graven::Error,
-    > {
-        self.0.nums()
+    pub fn nums(&self) -> ::core::option::Option<::graven::ScalarList<'a, u16>> {
+        ::graven::rt::trusted(self.0.nums())
     }
     #[inline]
-    pub fn points(
-        &self,
-    ) -> ::core::result::Result<
-        ::core::option::Option<::graven::ScalarList<'a, Point>>,
-        ::graven::Error,
-    > {
-        self.0.points()
+    pub fn points(&self) -> ::core::option::Option<::graven::ScalarList<'a, Point>> {
+        ::graven::rt::trusted(self.0.points())
     }
     #[allow(unsafe_code)]
     #[inline]
     pub fn leaves(
         &self,
-    ) -> ::core::result::Result<
-        ::core::option::Option<::graven::rt::VListR<'a, LeafVerified<'a>>>,
-        ::graven::Error,
-    > {
-        let ::core::option::Option::Some(l) = self.0.0.tables(root::LEAVES)? else {
-            return ::core::result::Result::Ok(::core::option::Option::None);
-        };
+    ) -> ::core::option::Option<::graven::rt::VListR<'a, LeafVerified<'a>>> {
+        let l = ::graven::rt::trusted(self.0.0.tables(root::LEAVES))?;
         // SAFETY: `Root::verify` followed this same edge (`root::LEAVES`) and verified it as `ListR<Leaf>`,
         // i.e. every element as `Leaf`; `LeafVerified` wraps exactly `Leaf`, so `T` matches what
         // verify used for this list (`VListR::new` contract).
-        let v = unsafe { ::graven::rt::VListR::new(::core::option::Option::Some(l)) };
-        ::core::result::Result::Ok(::core::option::Option::Some(v))
+        ::core::option::Option::Some(unsafe {
+            ::graven::rt::VListR::new(::core::option::Option::Some(l))
+        })
     }
     #[allow(unsafe_code)]
     #[inline]
-    pub fn names(
-        &self,
-    ) -> ::core::result::Result<
-        ::core::option::Option<::graven::rt::VStrList<'a>>,
-        ::graven::Error,
-    > {
-        let ::core::option::Option::Some(l) = self.0.0.strs(root::NAMES)? else {
-            return ::core::result::Result::Ok(::core::option::Option::None);
-        };
+    pub fn names(&self) -> ::core::option::Option<::graven::rt::VStrList<'a>> {
+        let l = ::graven::rt::trusted(self.0.0.strs(root::NAMES))?;
         // SAFETY: `Root::verify` followed this same edge (`root::NAMES`) and passed this very list to
         // `verify_strs`, which validated every element as UTF-8 (`VStrList::new` contract; invariants
         // 2 and 6).
-        let v = unsafe { ::graven::rt::VStrList::new(::core::option::Option::Some(l)) };
-        ::core::result::Result::Ok(::core::option::Option::Some(v))
+        ::core::option::Option::Some(unsafe {
+            ::graven::rt::VStrList::new(::core::option::Option::Some(l))
+        })
     }
     #[inline]
-    pub fn blobs(
-        &self,
-    ) -> ::core::result::Result<
-        ::core::option::Option<::graven::StrList<'a>>,
-        ::graven::Error,
-    > {
-        self.0.blobs()
+    pub fn blobs(&self) -> ::core::option::Option<::graven::StrList<'a>> {
+        ::graven::rt::trusted(self.0.blobs())
     }
     #[allow(unsafe_code)]
     #[inline]
-    pub fn child(
-        &self,
-    ) -> ::core::result::Result<
-        ::core::option::Option<LeafVerified<'a>>,
-        ::graven::Error,
-    > {
-        let ::core::option::Option::Some(t) = self.0.0.table(root::CHILD)? else {
-            return ::core::result::Result::Ok(::core::option::Option::None);
-        };
+    pub fn child(&self) -> ::core::option::Option<LeafVerified<'a>> {
+        let t = ::graven::rt::trusted(self.0.0.table(root::CHILD))?;
         // SAFETY: `Root::verify` followed this same edge (`root::CHILD`), ran `Leaf::from_ref` on the target
         // and verified it as `Leaf`; `LeafVerified` wraps exactly `Leaf` (`from_verified` contract,
         // condition 1).
-        let v = unsafe {
+        ::core::option::Option::Some(unsafe {
             <LeafVerified<'a> as ::graven::rt::FromVerified<'a>>::from_verified(t)
-        };
-        ::core::result::Result::Ok(::core::option::Option::Some(v))
+        })
     }
     #[allow(unsafe_code)]
     #[inline]
-    pub fn choice(
-        &self,
-    ) -> ::core::result::Result<
-        ::core::option::Option<ChoiceVerified<'a>>,
-        ::graven::Error,
-    > {
-        let v = match self.0.0.union(root::CHOICE)? {
+    pub fn choice(&self) -> ::core::option::Option<ChoiceVerified<'a>> {
+        match ::graven::rt::trusted(self.0.0.union(root::CHOICE)) {
             ::core::option::Option::Some((1, t)) => {
                 // SAFETY: `Root::verify` followed this same edge (`root::CHOICE`) for every tag known to `Choice` and
                 // verified the target as that variant's table; the matching `*Verified` wraps exactly that
@@ -917,13 +904,14 @@ impl<'a> RootVerified<'a> {
                 ::core::option::Option::Some(ChoiceVerified::Unknown(tag))
             }
             ::core::option::Option::None => ::core::option::Option::None,
-        };
-        ::core::result::Result::Ok(v)
+        }
     }
 }
 /// Writer of `Root`.
+#[allow(dead_code)]
 pub struct RootW<'b>(pub(crate) ::graven::TableW<'b>);
 #[allow(clippy::should_implement_trait)]
+#[allow(dead_code)]
 impl<'b> RootW<'b> {
     #[inline]
     pub fn root(b: &'b mut ::graven::Builder<'_>) -> Self {
@@ -1091,7 +1079,9 @@ impl<'b> RootW<'b> {
     }
 }
 /// List element descriptor of `Root`.
+#[allow(dead_code)]
 pub struct RootE;
+#[allow(dead_code)]
 impl ::graven::rt::Elem for RootE {
     const FIXED_LEN: u16 = root::FIXED_LEN;
     const PTR_SLOTS: &'static [u16] = root::PTR_SLOTS;
@@ -1107,6 +1097,7 @@ impl ::graven::rt::Elem for RootE {
 }
 /// Layout of the fixed part of `RootV2` (spec §3.3).
 #[allow(clippy::module_inception)]
+#[allow(dead_code)]
 pub mod root_v2 {
     pub const FIXED_LEN: u16 = 120;
     pub const A_U8: u16 = 1;
@@ -1172,8 +1163,10 @@ pub mod root_v2 {
 }
 /// Checked reader of `conformance.v1.RootV2`: accessors validate on demand. [`RootV2::verified`] / [`RootV2::from_bytes`] verify the whole message and return the view [`RootV2Verified`].
 #[derive(Clone, Copy)]
+#[allow(dead_code)]
 pub struct RootV2<'a>(::graven::TableRef<'a>);
 /// Required fields of `RootV2` (and optional scalar slots), in ID order.
+#[allow(dead_code)]
 pub const ROOT_V2_REQ: &[::graven::rt::Req] = &[
     ::graven::rt::Req::Scalar {
         name: "a_u8",
@@ -1226,6 +1219,7 @@ pub const ROOT_V2_REQ: &[::graven::rt::Req] = &[
         size: 8,
     },
 ];
+#[allow(dead_code)]
 const ROOT_V2_MASK: ::graven::rt::ReqMask = ::graven::rt::ReqMask {
     len: root_v2::FIXED_LEN,
     bits: &[
@@ -1235,6 +1229,7 @@ const ROOT_V2_MASK: ::graven::rt::ReqMask = ::graven::rt::ReqMask {
     ptrs: &[],
     unions: &[],
 };
+#[allow(dead_code)]
 impl<'a> ::graven::rt::FromTable<'a> for RootV2<'a> {
     #[inline]
     fn from_ref(
@@ -1282,6 +1277,7 @@ impl<'a> ::graven::rt::FromTable<'a> for RootV2<'a> {
     }
 }
 #[allow(clippy::should_implement_trait)]
+#[allow(dead_code)]
 impl<'a> RootV2<'a> {
     /// Schema id of `conformance.v1.RootV2` (envelope header), read from the lock.
     pub const SCHEMA_ID: u64 = 0xa5ec562a86bddf4d;
@@ -1481,7 +1477,9 @@ impl<'a> RootV2<'a> {
 }
 /// A [`RootV2`] whose `verify()` passed. Only constructed by [`RootV2::verified`] / [`RootV2::from_bytes`] (or as a field/element of a verified view); strings are read without revalidating UTF-8.
 #[derive(Clone, Copy)]
+#[allow(dead_code)]
 pub struct RootV2Verified<'a>(RootV2<'a>);
+#[allow(dead_code)]
 impl<'a> ::graven::rt::FromVerified<'a> for RootV2Verified<'a> {
     /// The required fields were checked by `RootV2::from_ref` when the root's `verify()` reached `t` as a `RootV2` along this edge (this fn's contract, condition 1).
     #[allow(unsafe_code)]
@@ -1491,6 +1489,7 @@ impl<'a> ::graven::rt::FromVerified<'a> for RootV2Verified<'a> {
     }
 }
 #[allow(clippy::should_implement_trait)]
+#[allow(dead_code)]
 impl<'a> RootV2Verified<'a> {
     /// The checked reader over the same table.
     #[inline]
@@ -1547,110 +1546,68 @@ impl<'a> RootV2Verified<'a> {
     }
     #[allow(unsafe_code)]
     #[inline]
-    pub fn name(
-        &self,
-    ) -> ::core::result::Result<::core::option::Option<&'a str>, ::graven::Error> {
+    pub fn name(&self) -> ::core::option::Option<&'a str> {
         // SAFETY: a `RootV2Verified` is only built after `RootV2::verify()` succeeded on this very table (by
         // `verified`, or `from_verified` under its contract: reached as a `RootV2` along the same
         // edge, condition 1); `RootV2::verify` calls the validating `str(root_v2::NAME)` at this same
         // offset (condition 2).
-        unsafe { self.0.0.str_unchecked(root_v2::NAME) }
+        ::graven::rt::trusted(unsafe { self.0.0.str_unchecked(root_v2::NAME) })
     }
     #[inline]
-    pub fn blob(
-        &self,
-    ) -> ::core::result::Result<::core::option::Option<&'a [u8]>, ::graven::Error> {
-        self.0.blob()
+    pub fn blob(&self) -> ::core::option::Option<&'a [u8]> {
+        ::graven::rt::trusted(self.0.blob())
     }
     #[inline]
-    pub fn nums(
-        &self,
-    ) -> ::core::result::Result<
-        ::core::option::Option<::graven::ScalarList<'a, u16>>,
-        ::graven::Error,
-    > {
-        self.0.nums()
+    pub fn nums(&self) -> ::core::option::Option<::graven::ScalarList<'a, u16>> {
+        ::graven::rt::trusted(self.0.nums())
     }
     #[inline]
-    pub fn points(
-        &self,
-    ) -> ::core::result::Result<
-        ::core::option::Option<::graven::ScalarList<'a, Point>>,
-        ::graven::Error,
-    > {
-        self.0.points()
+    pub fn points(&self) -> ::core::option::Option<::graven::ScalarList<'a, Point>> {
+        ::graven::rt::trusted(self.0.points())
     }
     #[allow(unsafe_code)]
     #[inline]
     pub fn leaves(
         &self,
-    ) -> ::core::result::Result<
-        ::core::option::Option<::graven::rt::VListR<'a, LeafVerified<'a>>>,
-        ::graven::Error,
-    > {
-        let ::core::option::Option::Some(l) = self.0.0.tables(root_v2::LEAVES)? else {
-            return ::core::result::Result::Ok(::core::option::Option::None);
-        };
+    ) -> ::core::option::Option<::graven::rt::VListR<'a, LeafVerified<'a>>> {
+        let l = ::graven::rt::trusted(self.0.0.tables(root_v2::LEAVES))?;
         // SAFETY: `RootV2::verify` followed this same edge (`root_v2::LEAVES`) and verified it as
         // `ListR<Leaf>`, i.e. every element as `Leaf`; `LeafVerified` wraps exactly `Leaf`, so `T`
         // matches what verify used for this list (`VListR::new` contract).
-        let v = unsafe { ::graven::rt::VListR::new(::core::option::Option::Some(l)) };
-        ::core::result::Result::Ok(::core::option::Option::Some(v))
+        ::core::option::Option::Some(unsafe {
+            ::graven::rt::VListR::new(::core::option::Option::Some(l))
+        })
     }
     #[allow(unsafe_code)]
     #[inline]
-    pub fn names(
-        &self,
-    ) -> ::core::result::Result<
-        ::core::option::Option<::graven::rt::VStrList<'a>>,
-        ::graven::Error,
-    > {
-        let ::core::option::Option::Some(l) = self.0.0.strs(root_v2::NAMES)? else {
-            return ::core::result::Result::Ok(::core::option::Option::None);
-        };
+    pub fn names(&self) -> ::core::option::Option<::graven::rt::VStrList<'a>> {
+        let l = ::graven::rt::trusted(self.0.0.strs(root_v2::NAMES))?;
         // SAFETY: `RootV2::verify` followed this same edge (`root_v2::NAMES`) and passed this very list to
         // `verify_strs`, which validated every element as UTF-8 (`VStrList::new` contract; invariants
         // 2 and 6).
-        let v = unsafe { ::graven::rt::VStrList::new(::core::option::Option::Some(l)) };
-        ::core::result::Result::Ok(::core::option::Option::Some(v))
+        ::core::option::Option::Some(unsafe {
+            ::graven::rt::VStrList::new(::core::option::Option::Some(l))
+        })
     }
     #[inline]
-    pub fn blobs(
-        &self,
-    ) -> ::core::result::Result<
-        ::core::option::Option<::graven::StrList<'a>>,
-        ::graven::Error,
-    > {
-        self.0.blobs()
+    pub fn blobs(&self) -> ::core::option::Option<::graven::StrList<'a>> {
+        ::graven::rt::trusted(self.0.blobs())
     }
     #[allow(unsafe_code)]
     #[inline]
-    pub fn child(
-        &self,
-    ) -> ::core::result::Result<
-        ::core::option::Option<LeafVerified<'a>>,
-        ::graven::Error,
-    > {
-        let ::core::option::Option::Some(t) = self.0.0.table(root_v2::CHILD)? else {
-            return ::core::result::Result::Ok(::core::option::Option::None);
-        };
+    pub fn child(&self) -> ::core::option::Option<LeafVerified<'a>> {
+        let t = ::graven::rt::trusted(self.0.0.table(root_v2::CHILD))?;
         // SAFETY: `RootV2::verify` followed this same edge (`root_v2::CHILD`), ran `Leaf::from_ref` on the
         // target and verified it as `Leaf`; `LeafVerified` wraps exactly `Leaf` (`from_verified`
         // contract, condition 1).
-        let v = unsafe {
+        ::core::option::Option::Some(unsafe {
             <LeafVerified<'a> as ::graven::rt::FromVerified<'a>>::from_verified(t)
-        };
-        ::core::result::Result::Ok(::core::option::Option::Some(v))
+        })
     }
     #[allow(unsafe_code)]
     #[inline]
-    pub fn choice(
-        &self,
-    ) -> ::core::result::Result<
-        ::core::option::Option<ChoiceVerified<'a>>,
-        ::graven::Error,
-    > {
-        let v = match self.0.0.union(root_v2::CHOICE)? {
+    pub fn choice(&self) -> ::core::option::Option<ChoiceVerified<'a>> {
+        match ::graven::rt::trusted(self.0.0.union(root_v2::CHOICE)) {
             ::core::option::Option::Some((1, t)) => {
                 // SAFETY: `RootV2::verify` followed this same edge (`root_v2::CHOICE`) for every tag known to `Choice`
                 // and verified the target as that variant's table; the matching `*Verified` wraps exactly that
@@ -1667,8 +1624,7 @@ impl<'a> RootV2Verified<'a> {
                 ::core::option::Option::Some(ChoiceVerified::Unknown(tag))
             }
             ::core::option::Option::None => ::core::option::Option::None,
-        };
-        ::core::result::Result::Ok(v)
+        }
     }
     #[inline]
     pub fn extra(&self) -> ::core::option::Option<u64> {
@@ -1676,8 +1632,10 @@ impl<'a> RootV2Verified<'a> {
     }
 }
 /// Writer of `RootV2`.
+#[allow(dead_code)]
 pub struct RootV2W<'b>(pub(crate) ::graven::TableW<'b>);
 #[allow(clippy::should_implement_trait)]
+#[allow(dead_code)]
 impl<'b> RootV2W<'b> {
     #[inline]
     pub fn root(b: &'b mut ::graven::Builder<'_>) -> Self {
@@ -1850,7 +1808,9 @@ impl<'b> RootV2W<'b> {
     }
 }
 /// List element descriptor of `RootV2`.
+#[allow(dead_code)]
 pub struct RootV2E;
+#[allow(dead_code)]
 impl ::graven::rt::Elem for RootV2E {
     const FIXED_LEN: u16 = root_v2::FIXED_LEN;
     const PTR_SLOTS: &'static [u16] = root_v2::PTR_SLOTS;
@@ -1866,6 +1826,7 @@ impl ::graven::rt::Elem for RootV2E {
 }
 /// Layout of the fixed part of `Extra` (spec §3.3).
 #[allow(clippy::module_inception)]
+#[allow(dead_code)]
 pub mod extra {
     pub const FIXED_LEN: u16 = 41;
     pub const FLAGS: u16 = 1;
@@ -1884,8 +1845,10 @@ pub mod extra {
 }
 /// Checked reader of `conformance.v1.Extra`: accessors validate on demand. [`Extra::verified`] / [`Extra::from_bytes`] verify the whole message and return the view [`ExtraVerified`].
 #[derive(Clone, Copy)]
+#[allow(dead_code)]
 pub struct Extra<'a>(::graven::TableRef<'a>);
 /// Required fields of `Extra` (and optional scalar slots), in ID order.
+#[allow(dead_code)]
 pub const EXTRA_REQ: &[::graven::rt::Req] = &[
     ::graven::rt::Req::Slot {
         off: extra::FLAGS,
@@ -1900,12 +1863,14 @@ pub const EXTRA_REQ: &[::graven::rt::Req] = &[
         size: 0,
     },
 ];
+#[allow(dead_code)]
 const EXTRA_MASK: ::graven::rt::ReqMask = ::graven::rt::ReqMask {
     len: extra::FIXED_LEN,
     bits: &[],
     ptrs: &[],
     unions: &[extra::PICK],
 };
+#[allow(dead_code)]
 impl<'a> ::graven::rt::FromTable<'a> for Extra<'a> {
     #[inline]
     fn from_ref(
@@ -1945,6 +1910,7 @@ impl<'a> ::graven::rt::FromTable<'a> for Extra<'a> {
     }
 }
 #[allow(clippy::should_implement_trait)]
+#[allow(dead_code)]
 impl<'a> Extra<'a> {
     /// Schema id of `conformance.v1.Extra` (envelope header), read from the lock.
     pub const SCHEMA_ID: u64 = 0x7c7f3f00af739f0d;
@@ -2074,7 +2040,9 @@ impl<'a> Extra<'a> {
 }
 /// A [`Extra`] whose `verify()` passed. Only constructed by [`Extra::verified`] / [`Extra::from_bytes`] (or as a field/element of a verified view); strings are read without revalidating UTF-8.
 #[derive(Clone, Copy)]
+#[allow(dead_code)]
 pub struct ExtraVerified<'a>(Extra<'a>);
+#[allow(dead_code)]
 impl<'a> ::graven::rt::FromVerified<'a> for ExtraVerified<'a> {
     /// The required fields were checked by `Extra::from_ref` when the root's `verify()` reached `t` as a `Extra` along this edge (this fn's contract, condition 1).
     #[allow(unsafe_code)]
@@ -2084,6 +2052,7 @@ impl<'a> ::graven::rt::FromVerified<'a> for ExtraVerified<'a> {
     }
 }
 #[allow(clippy::should_implement_trait)]
+#[allow(dead_code)]
 impl<'a> ExtraVerified<'a> {
     /// The checked reader over the same table.
     #[inline]
@@ -2095,53 +2064,32 @@ impl<'a> ExtraVerified<'a> {
         self.0.flags()
     }
     #[inline]
-    pub fn bools(
-        &self,
-    ) -> ::core::result::Result<
-        ::core::option::Option<::graven::ScalarList<'a, bool>>,
-        ::graven::Error,
-    > {
-        self.0.bools()
+    pub fn bools(&self) -> ::core::option::Option<::graven::ScalarList<'a, bool>> {
+        ::graven::rt::trusted(self.0.bools())
     }
     #[inline]
-    pub fn colors(
-        &self,
-    ) -> ::core::result::Result<
-        ::core::option::Option<::graven::ScalarList<'a, Color>>,
-        ::graven::Error,
-    > {
-        self.0.colors()
+    pub fn colors(&self) -> ::core::option::Option<::graven::ScalarList<'a, Color>> {
+        ::graven::rt::trusted(self.0.colors())
     }
     #[allow(unsafe_code)]
     #[inline]
-    pub fn names(
-        &self,
-    ) -> ::core::result::Result<
-        ::core::option::Option<::graven::rt::VStrList<'a>>,
-        ::graven::Error,
-    > {
-        let ::core::option::Option::Some(l) = self.0.0.strs(extra::NAMES)? else {
-            return ::core::result::Result::Ok(::core::option::Option::None);
-        };
+    pub fn names(&self) -> ::core::option::Option<::graven::rt::VStrList<'a>> {
+        let l = ::graven::rt::trusted(self.0.0.strs(extra::NAMES))?;
         // SAFETY: `Extra::verify` followed this same edge (`extra::NAMES`) and passed this very list to
         // `verify_strs`, which validated every element as UTF-8 (`VStrList::new` contract; invariants
         // 2 and 6).
-        let v = unsafe { ::graven::rt::VStrList::new(::core::option::Option::Some(l)) };
-        ::core::result::Result::Ok(::core::option::Option::Some(v))
+        ::core::option::Option::Some(unsafe {
+            ::graven::rt::VStrList::new(::core::option::Option::Some(l))
+        })
     }
     #[inline]
-    pub fn blobs(
-        &self,
-    ) -> ::core::result::Result<
-        ::core::option::Option<::graven::StrList<'a>>,
-        ::graven::Error,
-    > {
-        self.0.blobs()
+    pub fn blobs(&self) -> ::core::option::Option<::graven::StrList<'a>> {
+        ::graven::rt::trusted(self.0.blobs())
     }
     #[allow(unsafe_code)]
     #[inline]
-    pub fn pick(&self) -> ::core::result::Result<ChoiceVerified<'a>, ::graven::Error> {
-        let v = match self.0.0.union(extra::PICK)? {
+    pub fn pick(&self) -> ChoiceVerified<'a> {
+        let v = match ::graven::rt::trusted(self.0.0.union(extra::PICK)) {
             ::core::option::Option::Some((1, t)) => {
                 // SAFETY: `Extra::verify` followed this same edge (`extra::PICK`) for every tag known to `Choice` and
                 // verified the target as that variant's table; the matching `*Verified` wraps exactly that
@@ -2159,26 +2107,25 @@ impl<'a> ExtraVerified<'a> {
             }
             ::core::option::Option::None => ::core::option::Option::None,
         };
-        v.ok_or(::graven::Error::Missing {
-            field: "pick",
-        })
+        ::graven::rt::trusted(
+            v
+                .ok_or(::graven::Error::Missing {
+                    field: "pick",
+                }),
+        )
     }
     #[allow(unsafe_code)]
     #[inline]
     pub fn leaves(
         &self,
-    ) -> ::core::result::Result<
-        ::core::option::Option<::graven::rt::VListR<'a, LeafVerified<'a>>>,
-        ::graven::Error,
-    > {
-        let ::core::option::Option::Some(l) = self.0.0.tables(extra::LEAVES)? else {
-            return ::core::result::Result::Ok(::core::option::Option::None);
-        };
+    ) -> ::core::option::Option<::graven::rt::VListR<'a, LeafVerified<'a>>> {
+        let l = ::graven::rt::trusted(self.0.0.tables(extra::LEAVES))?;
         // SAFETY: `Extra::verify` followed this same edge (`extra::LEAVES`) and verified it as `ListR<Leaf>`,
         // i.e. every element as `Leaf`; `LeafVerified` wraps exactly `Leaf`, so `T` matches what
         // verify used for this list (`VListR::new` contract).
-        let v = unsafe { ::graven::rt::VListR::new(::core::option::Option::Some(l)) };
-        ::core::result::Result::Ok(::core::option::Option::Some(v))
+        ::core::option::Option::Some(unsafe {
+            ::graven::rt::VListR::new(::core::option::Option::Some(l))
+        })
     }
     #[inline]
     pub fn e(&self) -> ::core::option::Option<Empty> {
@@ -2186,19 +2133,19 @@ impl<'a> ExtraVerified<'a> {
     }
     #[allow(unsafe_code)]
     #[inline]
-    pub fn tail(
-        &self,
-    ) -> ::core::result::Result<::core::option::Option<&'a str>, ::graven::Error> {
+    pub fn tail(&self) -> ::core::option::Option<&'a str> {
         // SAFETY: a `ExtraVerified` is only built after `Extra::verify()` succeeded on this very table (by
         // `verified`, or `from_verified` under its contract: reached as a `Extra` along the same edge,
         // condition 1); `Extra::verify` calls the validating `str(extra::TAIL)` at this same offset
         // (condition 2).
-        unsafe { self.0.0.str_unchecked(extra::TAIL) }
+        ::graven::rt::trusted(unsafe { self.0.0.str_unchecked(extra::TAIL) })
     }
 }
 /// Writer of `Extra`.
+#[allow(dead_code)]
 pub struct ExtraW<'b>(pub(crate) ::graven::TableW<'b>);
 #[allow(clippy::should_implement_trait)]
+#[allow(dead_code)]
 impl<'b> ExtraW<'b> {
     #[inline]
     pub fn root(b: &'b mut ::graven::Builder<'_>) -> Self {
@@ -2307,7 +2254,9 @@ impl<'b> ExtraW<'b> {
     }
 }
 /// List element descriptor of `Extra`.
+#[allow(dead_code)]
 pub struct ExtraE;
+#[allow(dead_code)]
 impl ::graven::rt::Elem for ExtraE {
     const FIXED_LEN: u16 = extra::FIXED_LEN;
     const PTR_SLOTS: &'static [u16] = extra::PTR_SLOTS;
@@ -2323,6 +2272,7 @@ impl ::graven::rt::Elem for ExtraE {
 }
 /// Layout of the fixed part of `Holder` (spec §3.3).
 #[allow(clippy::module_inception)]
+#[allow(dead_code)]
 pub mod holder {
     pub const FIXED_LEN: u16 = 4;
     pub const ITEMS: u16 = 0;
@@ -2331,20 +2281,24 @@ pub mod holder {
 }
 /// Checked reader of `conformance.v1.Holder`: accessors validate on demand. [`Holder::verified`] / [`Holder::from_bytes`] verify the whole message and return the view [`HolderVerified`].
 #[derive(Clone, Copy)]
+#[allow(dead_code)]
 pub struct Holder<'a>(::graven::TableRef<'a>);
 /// Required fields of `Holder` (and optional scalar slots), in ID order.
+#[allow(dead_code)]
 pub const HOLDER_REQ: &[::graven::rt::Req] = &[
     ::graven::rt::Req::Ptr {
         name: "items",
         off: holder::ITEMS,
     },
 ];
+#[allow(dead_code)]
 const HOLDER_MASK: ::graven::rt::ReqMask = ::graven::rt::ReqMask {
     len: holder::FIXED_LEN,
     bits: &[],
     ptrs: &[holder::ITEMS],
     unions: &[],
 };
+#[allow(dead_code)]
 impl<'a> ::graven::rt::FromTable<'a> for Holder<'a> {
     #[inline]
     fn from_ref(
@@ -2369,6 +2323,7 @@ impl<'a> ::graven::rt::FromTable<'a> for Holder<'a> {
     }
 }
 #[allow(clippy::should_implement_trait)]
+#[allow(dead_code)]
 impl<'a> Holder<'a> {
     /// Schema id of `conformance.v1.Holder` (envelope header), read from the lock.
     pub const SCHEMA_ID: u64 = 0x56f69f05425afe7b;
@@ -2425,7 +2380,9 @@ impl<'a> Holder<'a> {
 }
 /// A [`Holder`] whose `verify()` passed. Only constructed by [`Holder::verified`] / [`Holder::from_bytes`] (or as a field/element of a verified view); strings are read without revalidating UTF-8.
 #[derive(Clone, Copy)]
+#[allow(dead_code)]
 pub struct HolderVerified<'a>(Holder<'a>);
+#[allow(dead_code)]
 impl<'a> ::graven::rt::FromVerified<'a> for HolderVerified<'a> {
     /// The required fields were checked by `Holder::from_ref` when the root's `verify()` reached `t` as a `Holder` along this edge (this fn's contract, condition 1).
     #[allow(unsafe_code)]
@@ -2435,6 +2392,7 @@ impl<'a> ::graven::rt::FromVerified<'a> for HolderVerified<'a> {
     }
 }
 #[allow(clippy::should_implement_trait)]
+#[allow(dead_code)]
 impl<'a> HolderVerified<'a> {
     /// The checked reader over the same table.
     #[inline]
@@ -2443,23 +2401,19 @@ impl<'a> HolderVerified<'a> {
     }
     #[allow(unsafe_code)]
     #[inline]
-    pub fn items(
-        &self,
-    ) -> ::core::result::Result<
-        ::graven::rt::VListR<'a, LeafVerified<'a>>,
-        ::graven::Error,
-    > {
-        let l = self.0.0.tables(holder::ITEMS)?;
+    pub fn items(&self) -> ::graven::rt::VListR<'a, LeafVerified<'a>> {
+        let l = ::graven::rt::trusted(self.0.0.tables(holder::ITEMS));
         // SAFETY: `Holder::verify` followed this same edge (`holder::ITEMS`) and verified it as `ListR<Leaf>`,
         // i.e. every element as `Leaf`; `LeafVerified` wraps exactly `Leaf`, so `T` matches what
         // verify used for this list (`VListR::new` contract).
-        let v = unsafe { ::graven::rt::VListR::new(l) };
-        ::core::result::Result::Ok(v)
+        unsafe { ::graven::rt::VListR::new(l) }
     }
 }
 /// Writer of `Holder`.
+#[allow(dead_code)]
 pub struct HolderW<'b>(pub(crate) ::graven::TableW<'b>);
 #[allow(clippy::should_implement_trait)]
+#[allow(dead_code)]
 impl<'b> HolderW<'b> {
     #[inline]
     pub fn root(b: &'b mut ::graven::Builder<'_>) -> Self {
@@ -2504,7 +2458,9 @@ impl<'b> HolderW<'b> {
     }
 }
 /// List element descriptor of `Holder`.
+#[allow(dead_code)]
 pub struct HolderE;
+#[allow(dead_code)]
 impl ::graven::rt::Elem for HolderE {
     const FIXED_LEN: u16 = holder::FIXED_LEN;
     const PTR_SLOTS: &'static [u16] = holder::PTR_SLOTS;

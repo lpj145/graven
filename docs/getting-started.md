@@ -1,7 +1,7 @@
 # Getting started
 
 Graven schemas (`.graven`) are language-neutral. The `gravenc` compiler validates schemas,
-tracks compatibility in `<schema>.lock`, inspects binary files, and generates code for every
+tracks compatibility in a lockfile (`<schema>.graven.lock`), inspects binary files, and generates code for every
 supported SDK.
 
 ## 1. Install `gravenc`

@@ -213,10 +213,9 @@ fn matches_generated_bank() {
     let v = read(&buf, bank_transaction()).unwrap();
     let h = Transaction::verified(&buf).unwrap();
     let mut entries = Vec::new();
-    for e in h.entries().unwrap().iter() {
-        let e = e.unwrap();
+    for e in h.entries().iter() {
         let mut m = vec![("account", Value::UInt(e.account() as u128)), ("amount", Value::Int(e.amount() as i128))];
-        if let Some(s) = e.memo().unwrap() {
+        if let Some(s) = e.memo() {
             m.push(("memo", Value::Str(s.into())));
         }
         entries.push(table(m));
@@ -228,7 +227,7 @@ fn matches_generated_bank() {
         ("from_shard", Value::UInt(h.from_shard() as u128)),
         ("to_shard", Value::UInt(h.to_shard() as u128)),
         ("entries", Value::List(entries)),
-        ("note", Value::Str(h.note().unwrap().unwrap().into())),
+        ("note", Value::Str(h.note().unwrap().into())),
     ]);
     assert_eq!(v, want);
 

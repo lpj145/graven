@@ -213,9 +213,8 @@ fn main() -> Result<(), graven::Error> {
     })?;
 
     let catalog = Catalog::from_bytes(&bytes)?; // checks the envelope and verifies
-    for p in catalog.products()?.iter() {
-        let p = p?;
-        println!("{} {:?}", p.sku()?, p.stock());
+    for p in catalog.products().iter() {    // verified: no `?` on reads
+        println!("{} {:?}", p.sku(), p.stock());
     }
     Ok(())
 }
@@ -227,8 +226,12 @@ The generated API for a table `X`:
 - `X::from_bytes(buf)` does the same for an enveloped message, after checking its schema
   id and CRC.
 - `XW` is the writer, with chainable setters, `XW::to_bytes` and `XW::seal`.
-- Required scalars return the value, optional fields return an `Option`, and strings,
-  lists and nested tables return a `Result`.
+- On a verified view (`from_bytes`, `verified`), every accessor returns the value itself
+  (`T`, or `Option<T>` for an optional field, strings and lists included): never write `?`
+  after a read of a verified view. On a checked reader (`read`), strings, lists and nested
+  tables return a `Result`.
+- `view.validate_all(&checks)` returns `Vec<Invalid>` (empty when valid); `view.validate(&checks)`
+  returns `Result<(), ValidateError>`.
 
 Details: [Rust SDK](sdk/rust.md#api-reference).
 

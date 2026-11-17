@@ -1,5 +1,25 @@
 # Changelog
 
+## Unreleased
+
+- **Rust: reads of a verified view cannot fail, so they no longer return `Result`.** On
+  `XVerified` (`from_bytes`, `verified`, and every view a client `Response` or a server call
+  hands out), strings, bytes, lists, nested tables and unions return the value itself
+  (`&str`, `Option<&str>`, `VListR<…>`…): `req.sku()` instead of `req.sku()?`. Lists of a
+  verified view iterate over their elements directly, and `get(i)` returns `Option`.
+  `validate_all` returns `Vec<Invalid>`. Checked readers (`read`) keep their `Result`s.
+  Breaking for code that wrote `?` after those reads.
+- **Rust: `StreamReply::frames(items, |w, item| …)`** encodes a whole streamed reply lazily
+  (one `Item` per element, then `End`), ready for an HTTP body stream.
+- **Rust: generated code is `#[allow(dead_code)]`,** so a binary that uses part of it builds
+  without warnings.
+- **Axum example** (`examples/axum`): a service served by Axum, with tests that call it
+  through the generated Rust client, and a JavaScript client; documented in the Rust SDK
+  ("Serving over HTTP").
+- **VS Code extension:** go to definition, find references, hover, outline and workspace
+  symbols for `.graven` schemas; highlighting for services, methods and attributes with
+  arguments.
+
 ## 0.3.1 — one message, two containers
 
 - **RPC frames carry bare messages** ([proposal 0005](docs/proposals/0005-wire-frames.md)).

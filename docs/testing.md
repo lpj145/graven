@@ -16,7 +16,7 @@ for f in crates/graven-schemas/schemas/evo/*.graven; do target/debug/gravenc che
 - the mutation gates (every single-byte mutation of every vector is read identically by
   the interpreter and the generated code);
 - the `bank` v1/v2/v3 evolution matrix (`crates/graven-schemas/tests/evolution_matrix.rs`);
-- the frozen RPC frame vectors (`testvectors/rpc-v1/`, 23 vectors), the fault schema's
+- the RPC frame vectors (`testvectors/rpc-v1/`, 23 vectors), the fault schema's
   layout, and the generated service client and server edge talking to each other;
 - the compiler's compatibility corpus, including version chains.
 
@@ -24,6 +24,10 @@ The JavaScript implementation is tested by `./scripts/ts.sh` (Node >= 20; the fi
 installs the TypeScript compiler in `ts/`): the same vectors, byte-for-byte writing against Rust, validation, RPC frames,
 `.d.ts` declarations against the `.js` exports, and a client calling the generated Rust server
 ([details](sdk/js.md#verification-suite-scriptstssh)).
+
+The [Axum example](https://github.com/lpj145/graven/tree/main/examples/axum) is outside the
+workspace, so `cargo test --workspace` does not build Axum; test it on its own with
+`cd examples/axum && cargo test` (the generated Rust client calling the router in process).
 
 ## Fuzzing (nightly + `cargo-fuzz`)
 

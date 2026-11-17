@@ -3,13 +3,16 @@
 // same module could break the safety of the verified views (by constructing `XVerified(...)`
 // without `verify()`).
 /// Schema id of `bank.Entry` (envelope header); same as [`Entry::SCHEMA_ID`].
+#[allow(dead_code)]
 pub const ENTRY_SCHEMA_ID: u64 = Entry::SCHEMA_ID;
 /// Schema id of `bank.Transaction` (envelope header); same as [`Transaction::SCHEMA_ID`].
+#[allow(dead_code)]
 pub const TRANSACTION_SCHEMA_ID: u64 = Transaction::SCHEMA_ID;
 /// ISO 4217 currency of a transaction.
 ///
 /// Enum `Currency` (base `u16`); a value outside the variants ⇒ `Unknown(raw)`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[allow(dead_code)]
 pub enum Currency {
     /// Brazilian real.
     BRL,
@@ -19,6 +22,7 @@ pub enum Currency {
     EUR,
     Unknown(u16),
 }
+#[allow(dead_code)]
 impl Currency {
     #[inline]
     pub fn from_raw(v: u16) -> Self {
@@ -39,6 +43,7 @@ impl Currency {
         }
     }
 }
+#[allow(dead_code)]
 impl ::core::default::Default for Currency {
     /// The raw value 0.
     #[inline]
@@ -46,6 +51,7 @@ impl ::core::default::Default for Currency {
         Currency::from_raw(0)
     }
 }
+#[allow(dead_code)]
 impl ::graven::Le for Currency {
     const SIZE: usize = 2;
     #[inline(always)]
@@ -59,6 +65,7 @@ impl ::graven::Le for Currency {
 }
 /// Layout of the fixed part of `Entry` (spec §3.3).
 #[allow(clippy::module_inception)]
+#[allow(dead_code)]
 pub mod entry {
     pub const FIXED_LEN: u16 = 21;
     pub const ACCOUNT: u16 = 1;
@@ -73,8 +80,10 @@ pub mod entry {
 ///
 /// Checked reader of `bank.Entry`: accessors validate on demand. [`Entry::verified`] / [`Entry::from_bytes`] verify the whole message and return the view [`EntryVerified`].
 #[derive(Clone, Copy)]
+#[allow(dead_code)]
 pub struct Entry<'a>(::graven::TableRef<'a>);
 /// Required fields of `Entry` (and optional scalar slots), in ID order.
+#[allow(dead_code)]
 pub const ENTRY_REQ: &[::graven::rt::Req] = &[
     ::graven::rt::Req::Scalar {
         name: "account",
@@ -89,12 +98,14 @@ pub const ENTRY_REQ: &[::graven::rt::Req] = &[
         bit: entry::AMOUNT_BIT,
     },
 ];
+#[allow(dead_code)]
 const ENTRY_MASK: ::graven::rt::ReqMask = ::graven::rt::ReqMask {
     len: entry::FIXED_LEN,
     bits: &[(0, ::graven::rt::mask_for(ENTRY_REQ, 0))],
     ptrs: &[],
     unions: &[],
 };
+#[allow(dead_code)]
 impl<'a> ::graven::rt::FromTable<'a> for Entry<'a> {
     #[inline]
     fn from_ref(
@@ -120,6 +131,7 @@ impl<'a> ::graven::rt::FromTable<'a> for Entry<'a> {
     }
 }
 #[allow(clippy::should_implement_trait)]
+#[allow(dead_code)]
 impl<'a> Entry<'a> {
     /// Schema id of `bank.Entry` (envelope header), read from the lock.
     pub const SCHEMA_ID: u64 = 0xf3aba2f39e625465;
@@ -185,7 +197,9 @@ impl<'a> Entry<'a> {
 ///
 /// A [`Entry`] whose `verify()` passed. Only constructed by [`Entry::verified`] / [`Entry::from_bytes`] (or as a field/element of a verified view); strings are read without revalidating UTF-8.
 #[derive(Clone, Copy)]
+#[allow(dead_code)]
 pub struct EntryVerified<'a>(Entry<'a>);
+#[allow(dead_code)]
 impl<'a> ::graven::rt::FromVerified<'a> for EntryVerified<'a> {
     /// The required fields were checked by `Entry::from_ref` when the root's `verify()` reached `t` as a `Entry` along this edge (this fn's contract, condition 1).
     #[allow(unsafe_code)]
@@ -195,6 +209,7 @@ impl<'a> ::graven::rt::FromVerified<'a> for EntryVerified<'a> {
     }
 }
 #[allow(clippy::should_implement_trait)]
+#[allow(dead_code)]
 impl<'a> EntryVerified<'a> {
     /// The checked reader over the same table.
     #[inline]
@@ -212,21 +227,21 @@ impl<'a> EntryVerified<'a> {
     }
     #[allow(unsafe_code)]
     #[inline]
-    pub fn memo(
-        &self,
-    ) -> ::core::result::Result<::core::option::Option<&'a str>, ::graven::Error> {
+    pub fn memo(&self) -> ::core::option::Option<&'a str> {
         // SAFETY: a `EntryVerified` is only built after `Entry::verify()` succeeded on this very table (by
         // `verified`, or `from_verified` under its contract: reached as a `Entry` along the same edge,
         // condition 1); `Entry::verify` calls the validating `str(entry::MEMO)` at this same offset
         // (condition 2).
-        unsafe { self.0.0.str_unchecked(entry::MEMO) }
+        ::graven::rt::trusted(unsafe { self.0.0.str_unchecked(entry::MEMO) })
     }
 }
 /// One leg of a transaction: an amount moved in or out of an account.
 ///
 /// Writer of `Entry`.
+#[allow(dead_code)]
 pub struct EntryW<'b>(pub(crate) ::graven::TableW<'b>);
 #[allow(clippy::should_implement_trait)]
+#[allow(dead_code)]
 impl<'b> EntryW<'b> {
     #[inline]
     pub fn root(b: &'b mut ::graven::Builder<'_>) -> Self {
@@ -276,7 +291,9 @@ impl<'b> EntryW<'b> {
     }
 }
 /// List element descriptor of `Entry`.
+#[allow(dead_code)]
 pub struct EntryE;
+#[allow(dead_code)]
 impl ::graven::rt::Elem for EntryE {
     const FIXED_LEN: u16 = entry::FIXED_LEN;
     const PTR_SLOTS: &'static [u16] = entry::PTR_SLOTS;
@@ -292,6 +309,7 @@ impl ::graven::rt::Elem for EntryE {
 }
 /// Layout of the fixed part of `Transaction` (spec §3.3).
 #[allow(clippy::module_inception)]
+#[allow(dead_code)]
 pub mod transaction {
     pub const FIXED_LEN: u16 = 35;
     pub const ID: u16 = 1;
@@ -315,8 +333,10 @@ pub mod transaction {
 ///
 /// Checked reader of `bank.Transaction`: accessors validate on demand. [`Transaction::verified`] / [`Transaction::from_bytes`] verify the whole message and return the view [`TransactionVerified`].
 #[derive(Clone, Copy)]
+#[allow(dead_code)]
 pub struct Transaction<'a>(::graven::TableRef<'a>);
 /// Required fields of `Transaction` (and optional scalar slots), in ID order.
+#[allow(dead_code)]
 pub const TRANSACTION_REQ: &[::graven::rt::Req] = &[
     ::graven::rt::Req::Scalar {
         name: "id",
@@ -353,12 +373,14 @@ pub const TRANSACTION_REQ: &[::graven::rt::Req] = &[
         off: transaction::ENTRIES,
     },
 ];
+#[allow(dead_code)]
 const TRANSACTION_MASK: ::graven::rt::ReqMask = ::graven::rt::ReqMask {
     len: transaction::FIXED_LEN,
     bits: &[(0, ::graven::rt::mask_for(TRANSACTION_REQ, 0))],
     ptrs: &[transaction::ENTRIES],
     unions: &[],
 };
+#[allow(dead_code)]
 impl<'a> ::graven::rt::FromTable<'a> for Transaction<'a> {
     #[inline]
     fn from_ref(
@@ -386,6 +408,7 @@ impl<'a> ::graven::rt::FromTable<'a> for Transaction<'a> {
     }
 }
 #[allow(clippy::should_implement_trait)]
+#[allow(dead_code)]
 impl<'a> Transaction<'a> {
     /// Schema id of `bank.Transaction` (envelope header), read from the lock.
     pub const SCHEMA_ID: u64 = 0xf17b8ae3924b581d;
@@ -473,7 +496,9 @@ impl<'a> Transaction<'a> {
 ///
 /// A [`Transaction`] whose `verify()` passed. Only constructed by [`Transaction::verified`] / [`Transaction::from_bytes`] (or as a field/element of a verified view); strings are read without revalidating UTF-8.
 #[derive(Clone, Copy)]
+#[allow(dead_code)]
 pub struct TransactionVerified<'a>(Transaction<'a>);
+#[allow(dead_code)]
 impl<'a> ::graven::rt::FromVerified<'a> for TransactionVerified<'a> {
     /// The required fields were checked by `Transaction::from_ref` when the root's `verify()` reached `t` as a `Transaction` along this edge (this fn's contract, condition 1).
     #[allow(unsafe_code)]
@@ -483,6 +508,7 @@ impl<'a> ::graven::rt::FromVerified<'a> for TransactionVerified<'a> {
     }
 }
 #[allow(clippy::should_implement_trait)]
+#[allow(dead_code)]
 impl<'a> TransactionVerified<'a> {
     /// The checked reader over the same table.
     #[inline]
@@ -512,29 +538,21 @@ impl<'a> TransactionVerified<'a> {
     }
     #[allow(unsafe_code)]
     #[inline]
-    pub fn entries(
-        &self,
-    ) -> ::core::result::Result<
-        ::graven::rt::VListR<'a, EntryVerified<'a>>,
-        ::graven::Error,
-    > {
-        let l = self.0.0.tables(transaction::ENTRIES)?;
+    pub fn entries(&self) -> ::graven::rt::VListR<'a, EntryVerified<'a>> {
+        let l = ::graven::rt::trusted(self.0.0.tables(transaction::ENTRIES));
         // SAFETY: `Transaction::verify` followed this same edge (`transaction::ENTRIES`) and verified it as
         // `ListR<Entry>`, i.e. every element as `Entry`; `EntryVerified` wraps exactly `Entry`, so `T`
         // matches what verify used for this list (`VListR::new` contract).
-        let v = unsafe { ::graven::rt::VListR::new(l) };
-        ::core::result::Result::Ok(v)
+        unsafe { ::graven::rt::VListR::new(l) }
     }
     #[allow(unsafe_code)]
     #[inline]
-    pub fn note(
-        &self,
-    ) -> ::core::result::Result<::core::option::Option<&'a str>, ::graven::Error> {
+    pub fn note(&self) -> ::core::option::Option<&'a str> {
         // SAFETY: a `TransactionVerified` is only built after `Transaction::verify()` succeeded on this very
         // table (by `verified`, or `from_verified` under its contract: reached as a `Transaction`
         // along the same edge, condition 1); `Transaction::verify` calls the validating
         // `str(transaction::NOTE)` at this same offset (condition 2).
-        unsafe { self.0.0.str_unchecked(transaction::NOTE) }
+        ::graven::rt::trusted(unsafe { self.0.0.str_unchecked(transaction::NOTE) })
     }
 }
 /// A double-entry transaction between two shards.
@@ -542,8 +560,10 @@ impl<'a> TransactionVerified<'a> {
 /// The entries of a transaction always sum to zero.
 ///
 /// Writer of `Transaction`.
+#[allow(dead_code)]
 pub struct TransactionW<'b>(pub(crate) ::graven::TableW<'b>);
 #[allow(clippy::should_implement_trait)]
+#[allow(dead_code)]
 impl<'b> TransactionW<'b> {
     #[inline]
     pub fn root(b: &'b mut ::graven::Builder<'_>) -> Self {
@@ -627,7 +647,9 @@ impl<'b> TransactionW<'b> {
     }
 }
 /// List element descriptor of `Transaction`.
+#[allow(dead_code)]
 pub struct TransactionE;
+#[allow(dead_code)]
 impl ::graven::rt::Elem for TransactionE {
     const FIXED_LEN: u16 = transaction::FIXED_LEN;
     const PTR_SLOTS: &'static [u16] = transaction::PTR_SLOTS;

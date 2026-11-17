@@ -93,13 +93,42 @@ fn write(w: Writer, enveloped: bool) -> Vec<u8> {
     }
 }
 
+/// A checked reader returns `Result`s, a verified view the values themselves; `res()` turns
+/// both into a `Result` so the macros below read either the same way.
+trait Res {
+    type T;
+    fn res(self) -> Result<Self::T, Error>;
+}
+impl<T> Res for Result<T, Error> {
+    type T = T;
+    fn res(self) -> Result<T, Error> {
+        self
+    }
+}
+impl<T> Res for Option<T> {
+    type T = Option<T>;
+    fn res(self) -> Result<Option<T>, Error> {
+        Ok(self)
+    }
+}
+impl<'a, T> Res for graven::rt::VListR<'a, T> {
+    type T = Self;
+    fn res(self) -> Result<Self, Error> {
+        Ok(self)
+    }
+}
+macro_rules! res_identity {
+    ($($t:ty),*) => {$(impl Res for $t { type T = Self; fn res(self) -> Result<Self, Error> { Ok(self) } })*};
+}
+res_identity!(v1::EntryVerified<'_>, v2::EntryVerified<'_>, v3::EntryVerified<'_>);
+
 /// Entries read by any version (checked or verified: same names).
 macro_rules! entries_of {
     ($t:expr) => {{
         let mut out = Vec::new();
-        for e in $t.entries()?.iter() {
-            let e = e?;
-            out.push((e.account(), e.amount(), e.memo()?.map(str::to_string)));
+        for e in $t.entries().res()?.iter() {
+            let e = e.res()?;
+            out.push((e.account(), e.amount(), e.memo().res()?.map(str::to_string)));
         }
         out
     }};
@@ -115,7 +144,7 @@ macro_rules! view_v1 {
             from_shard: Some(t.from_shard()),
             to_shard: Some(t.to_shard()),
             entries: entries_of!(t),
-            note: t.note()?.map(str::to_string),
+            note: t.note().res()?.map(str::to_string),
             fee: None,
         }
     }};

@@ -195,9 +195,8 @@ fn main() -> Result<(), graven::Error> {
     })?;
 
     let catalog = Catalog::from_bytes(&bytes)?;
-    for p in catalog.products()?.iter() {
-        let p = p?;
-        println!("{} {} {:?} stock={:?}", p.sku()?, p.name()?, p.status(), p.stock());
+    for p in catalog.products().iter() {
+        println!("{} {} {:?} stock={:?}", p.sku(), p.name(), p.status(), p.stock());
     }
     Ok(())
 }
