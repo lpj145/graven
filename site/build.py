@@ -9,6 +9,8 @@ longer found fails the build, so the English page and its translations cannot dr
 silently. The specification and the technical docs stay in English (the normative text).
 """
 import hashlib
+import html
+import json
 import os
 import re
 import shutil
@@ -26,7 +28,6 @@ COMMON = [  # shared by every translation: paths one level down
     ('href="assets/', 'href="../assets/'),
     ('src="assets/', 'src="../assets/'),
     ('<a class="wordmark" href="./"', '<a class="wordmark" href="../"'),
-    ('<link rel="alternate" hreflang="en" href="./">', '<link rel="alternate" hreflang="en" href="../">'),
     ('href="pt-br/"', 'href="../pt-br/"'),
     ('href="es/"', 'href="../es/"'),
     ('href="zh/"', 'href="../zh/"'),
@@ -507,19 +508,128 @@ def render(pairs, cjk=False):
     return s
 
 
+SITE = "https://graven.pages.dev"
+REPO = "https://github.com/lpj145/graven"
+# Landing page versions: directory ("" for English), hreflang, Open Graph locale.
+VERSIONS = [("", "en", "en_US"), ("pt-br", "pt-BR", "pt_BR"), ("es", "es", "es_ES"), ("zh", "zh-CN", "zh_CN")]
+
+
+def url_of(code):
+    return f"{SITE}/{code}/" if code else f"{SITE}/"
+
+
+def seo_head(page, code):
+    """Canonical, language alternates, Open Graph, Twitter and JSON-LD for one landing version."""
+    title = html.unescape(re.search(r"<title>(.*?)</title>", page).group(1))
+    desc = html.unescape(re.search(r'<meta name="description" content="([^"]*)"', page).group(1))
+    lang, locale = next((l, loc) for c, l, loc in VERSIONS if c == code)
+    esc = lambda v: html.escape(v, quote=True)
+    tags = [f'<link rel="canonical" href="{url_of(code)}">']
+    tags += [f'<link rel="alternate" hreflang="{l}" href="{url_of(c)}">' for c, l, _ in VERSIONS]
+    tags.append(f'<link rel="alternate" hreflang="x-default" href="{url_of("")}">')
+    tags += [
+        '<meta property="og:type" content="website">',
+        '<meta property="og:site_name" content="Graven">',
+        f'<meta property="og:title" content="{esc(title)}">',
+        f'<meta property="og:description" content="{esc(desc)}">',
+        f'<meta property="og:url" content="{url_of(code)}">',
+        f'<meta property="og:image" content="{SITE}/assets/og.png">',
+        '<meta property="og:image:width" content="1200">',
+        '<meta property="og:image:height" content="630">',
+        f'<meta property="og:locale" content="{locale}">',
+    ]
+    tags += [f'<meta property="og:locale:alternate" content="{loc}">' for c, _, loc in VERSIONS if c != code]
+    tags.append('<meta name="twitter:card" content="summary_large_image">')
+    ld = {
+        "@context": "https://schema.org",
+        "@graph": [
+            {"@type": "WebSite", "name": "Graven", "url": url_of(code), "inLanguage": lang},
+            {
+                "@type": "SoftwareSourceCode",
+                "name": "Graven",
+                "description": desc,
+                "url": f"{SITE}/",
+                "codeRepository": REPO,
+                "programmingLanguage": ["Rust", "JavaScript", "TypeScript"],
+                "license": "https://opensource.org/licenses/MIT",
+            },
+        ],
+    }
+    tags.append('<script type="application/ld+json">' + json.dumps(ld, ensure_ascii=False) + "</script>")
+    return page.replace("</head>", "\n".join(tags) + "\n</head>", 1)
+
+
+NOT_FOUND = """<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Page not found — Graven</title>
+<meta name="robots" content="noindex">
+<link rel="icon" href="/assets/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/assets/site.css?v=CSS_V">
+</head>
+<body>
+<main id="main" class="wrap" style="padding: 96px 16px; max-width: 40em;">
+  <h1>Page not found</h1>
+  <p>There is no page at this address. It may have moved when the documentation was reorganized.</p>
+  <ul>
+    <li><a href="/">Graven home</a></li>
+    <li><a href="/docs/">Documentation</a></li>
+    <li><a href="/docs/spec/graven-format-v1">Format specification</a></li>
+  </ul>
+</main>
+</body>
+</html>
+"""
+
+
+def site_files(out, docs):
+    """404 page, robots.txt, sitemap.xml and the 301 redirects of moved pages (Cloudflare Pages)."""
+    with open(os.path.join(out, "404.html"), "w", encoding="utf8") as f:
+        f.write(NOT_FOUND.replace("CSS_V", CSS_V))
+    with open(os.path.join(out, "robots.txt"), "w", encoding="utf8") as f:
+        f.write(f"User-agent: *\nAllow: /\n\nSitemap: {SITE}/sitemap.xml\n")
+    alts = "".join(
+        f'\n    <xhtml:link rel="alternate" hreflang="{l}" href="{url_of(c)}"/>' for c, l, _ in VERSIONS
+    ) + f'\n    <xhtml:link rel="alternate" hreflang="x-default" href="{url_of("")}"/>'
+    urls = [f"  <url>\n    <loc>{url_of(c)}</loc>{alts}\n  </url>" for c, _, _ in VERSIONS]
+    urls += [f"  <url>\n    <loc>{u}</loc>\n  </url>" for u in docs.SITEMAP]
+    with open(os.path.join(out, "sitemap.xml"), "w", encoding="utf8") as f:
+        f.write(
+            '<?xml version="1.0" encoding="UTF-8"?>\n'
+            '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:xhtml="http://www.w3.org/1999/xhtml">\n'
+            + "\n".join(urls)
+            + "\n</urlset>\n"
+        )
+    # Moved pages whose new address has no fragment get a real 301; the others keep the
+    # HTML redirect docs.py writes (which carries the fragment).
+    lines = []
+    for old, new in docs.REDIRECTS.items():
+        if "#" in new:
+            continue
+        target = docs.canonical("docs/" + new)[len(SITE):]
+        lines += [f"/docs/{old} {target} 301", f"/docs/{old}.html {target} 301"]
+        if old.endswith("/index"):
+            lines.append(f"/docs/{old[: -len('index')]} {target} 301")
+    with open(os.path.join(out, "_redirects"), "w", encoding="utf8") as f:
+        f.write("\n".join(lines) + "\n")
+
+
 def main():
     out = sys.argv[1]
     shutil.copytree(os.path.join(HERE, "assets"), os.path.join(out, "assets"), dirs_exist_ok=True)
     with open(os.path.join(out, "index.html"), "w", encoding="utf8") as f:
-        f.write(SRC)
+        f.write(seo_head(SRC, ""))
     for code, pairs in LANGS.items():
         os.makedirs(os.path.join(out, code), exist_ok=True)
         with open(os.path.join(out, code, "index.html"), "w", encoding="utf8") as f:
-            f.write(render(pairs, cjk=(code == "zh")))
+            f.write(seo_head(render(pairs, cjk=(code == "zh")), code))
     print("landing: en, " + ", ".join(LANGS))
     import docs  # site/docs.py
     pages = docs.build(out)
     print(f"docs: {len(pages)} pages")
+    site_files(out, docs)
 
 
 if __name__ == "__main__":

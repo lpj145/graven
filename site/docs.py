@@ -350,6 +350,21 @@ def pager_html(src_rel, root):
     return f'<nav class="doc-pager" aria-label="Page navigation">{prev_link}{next_link}</nav>'
 
 
+# The published site (Cloudflare Pages serves `x.html` at `/x`, so canonical URLs drop `.html`).
+SITE = "https://graven.pages.dev"
+OG_IMAGE = f"{SITE}/assets/og.png"
+SITEMAP = []  # canonical URLs of every content page, for sitemap.xml
+
+
+def canonical(path):
+    """Canonical URL of a page written at `path` (relative to the site root)."""
+    if path.endswith("index.html"):
+        path = path[: -len("index.html")]
+    elif path.endswith(".html"):
+        path = path[: -len(".html")]
+    return f"{SITE}/{path}"
+
+
 PAGE = """<!doctype html>
 <html lang="en">
 <head>
@@ -357,6 +372,16 @@ PAGE = """<!doctype html>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{title} — Graven</title>
 <meta name="description" content="{desc}">
+<link rel="canonical" href="{canonical}">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="Graven">
+<meta property="og:title" content="{title} — Graven">
+<meta property="og:description" content="{desc}">
+<meta property="og:url" content="{canonical}">
+<meta property="og:image" content="{og_image}">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
 <link rel="icon" href="{root}assets/favicon.svg" type="image/svg+xml">
 <link rel="icon" href="{root}assets/favicon.ico" sizes="48x48">
 <link rel="apple-touch-icon" href="{root}assets/apple-touch-icon.png">
@@ -495,9 +520,13 @@ def render_page(src_rel, out_dir, title, desc):
     depth = src_rel.count("/") + 1
     root = "../" * depth
     body, toc = render_markdown_with_tabs(text, src_rel, root)
+    out_rel = "docs/" + src_rel[:-3] + ".html"
+    SITEMAP.append(canonical(out_rel))
     page = PAGE.format(
         title=html.escape(title),
         desc=html.escape(desc),
+        canonical=canonical(out_rel),
+        og_image=OG_IMAGE,
         root=root,
         nav=nav_html(root, src_rel),
         body=body,
@@ -538,8 +567,17 @@ def index_page(out_dir):
         f'<div class="hero-cards">{cards}</div>'
         f'{"".join(sections_html)}'
     )
+    SITEMAP.append(canonical("docs/index.html"))
     page = PAGE.format(
-        title="Documentation", desc="Graven documentation", root="../", nav=nav_html("../", None), body=body, pager="", toc=""
+        title="Documentation",
+        desc="Graven documentation: the schema language, the format and RPC specifications, conformance vectors, and the Rust and JavaScript SDKs.",
+        canonical=canonical("docs/index.html"),
+        og_image=OG_IMAGE,
+        root="../",
+        nav=nav_html("../", None),
+        body=body,
+        pager="",
+        toc="",
     )
     open(os.path.join(out_dir, "docs", "index.html"), "w", encoding="utf8").write(page)
 
@@ -553,9 +591,11 @@ def redirect_pages(out_dir):
         new_file, _, frag = new.partition("#")
         rel_target = os.path.relpath(os.path.join(docs_dir, new_file), rel_dir)
         target = f"{rel_target}#{frag}" if frag else rel_target
+        absolute = canonical("docs/" + new_file)  # search engines ignore fragments
         page = (
             f'<!doctype html><meta charset="utf-8"><title>Moved — Graven</title>'
-            f'<meta http-equiv="refresh" content="0; url={target}"><link rel="canonical" href="{target}">'
+            f'<meta name="robots" content="noindex">'
+            f'<meta http-equiv="refresh" content="0; url={target}"><link rel="canonical" href="{absolute}">'
             f'<p>This page moved to <a href="{target}">{target}</a>.</p>'
         )
         open(out_path, "w", encoding="utf8").write(page)
