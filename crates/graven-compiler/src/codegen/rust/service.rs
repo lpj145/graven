@@ -96,8 +96,7 @@ impl Cx<'_> {
                     fn encode_with(
                         f: impl ::core::ops::FnOnce(&mut Self::Writer<'_>),
                     ) -> ::core::result::Result<(u16, ::graven::rt::Vec<u8>), ::graven::Error> {
-                        let pool = ::graven::rpc::NoPool;
-                        let mut b = ::graven::Builder::new(&pool);
+                        let mut b = ::graven::Builder::new(&::graven::rpc::DEFAULT_POOL);
                         {
                             let mut w = #tnw::root(&mut b);
                             f(&mut w);
@@ -209,8 +208,7 @@ impl Cx<'_> {
                     fn encode_with(
                         f: impl ::core::ops::FnOnce(&mut Self::Writer<'_>),
                     ) -> ::core::result::Result<(u16, ::graven::rt::Vec<u8>), ::graven::Error> {
-                        static POOL: ::graven::rpc::NoPool = ::graven::rpc::NoPool;
-                        let mut b = ::graven::Builder::new(&POOL);
+                        let mut b = ::graven::Builder::new(&::graven::rpc::DEFAULT_POOL);
                         let variant = {
                             let mut w = #unw::new(&mut b);
                             f(&mut w);

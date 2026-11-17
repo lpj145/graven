@@ -9,7 +9,7 @@
 //! into typed readers, verified views and writers built on top of it. This crate provides:
 //!
 //! - [`Builder`] and the writers ([`TableW`], [`FixedW`], list writers): build a message
-//!   into a pooled buffer ([`BufPool`], [`SimplePool`]);
+//!   into a pooled buffer ([`BufPool`], [`LocalPool`], [`SimplePool`]);
 //! - [`TableRef`] and the list readers: checked, lazy reads, where every access validates
 //!   what it touches and returns an [`Error`] instead of misbehaving;
 //! - [`VerifyCtx`]: the depth and budget limits of a full `verify` (spec §7), which
@@ -52,7 +52,7 @@ pub use error::Error;
 pub use le::Le;
 pub use read::{Bit, Frames, ScalarList, StrList, TableList, TableRef, frames};
 #[cfg(feature = "std")]
-pub use pool::SimplePool;
+pub use pool::{LocalPool, SimplePool};
 pub use pool::BufPool;
 pub use write::{Builder, FixedListW, FixedW, ScalarListW, StreamListW, TableListW, TableW};
 pub mod envelope;

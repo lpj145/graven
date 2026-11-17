@@ -196,12 +196,11 @@ pub mod shop {
 Write and read an enveloped message:
 
 ```rust
-use graven::{Builder, SimplePool};
+use graven::{Builder, LocalPool};
 use shop::{Catalog, CatalogW};
 
 fn main() -> Result<(), graven::Error> {
-    let pool = SimplePool::new(4096);
-    let mut b = Builder::new_enveloped(&pool);
+    let mut b = Builder::new_enveloped(&LocalPool);
     let bytes = CatalogW::to_bytes(&mut b, |c| {
         let mut products = c.products(1);       // a list with a known length
         products

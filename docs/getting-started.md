@@ -72,11 +72,10 @@ pub mod bank {
     include!(concat!(env!("OUT_DIR"), "/bank.rs"));
 }
 
-use graven::{Builder, SimplePool};
+use graven::{Builder, LocalPool};
 use bank::{Currency, Transaction, TransactionW};
 
-let pool = SimplePool::new(4096);
-let mut b = Builder::new_enveloped(&pool);
+let mut b = Builder::new_enveloped(&LocalPool);
 let bytes = TransactionW::to_bytes(&mut b, |t| {
     t.id(42).ts(1_700_000_000).currency(Currency::USD).from_shard(3).to_shard(7);
     let mut entries = t.entries(1);

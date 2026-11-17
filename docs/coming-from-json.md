@@ -170,12 +170,11 @@ With the code `gravenc` generates for `catalog.graven` (see
 #### Rust
 
 ```rust
-use graven::{Builder, SimplePool};
+use graven::{Builder, LocalPool};
 use shop::{Catalog, CatalogW, Money, Status};
 
 fn main() -> Result<(), graven::Error> {
-    let pool = SimplePool::new(4096);
-    let mut b = Builder::new_enveloped(&pool);
+    let mut b = Builder::new_enveloped(&LocalPool);
     let bytes = CatalogW::to_bytes(&mut b, |c| {
         c.updated_at(1_700_000_000);
         let mut products = c.products(2);

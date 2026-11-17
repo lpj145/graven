@@ -376,6 +376,15 @@ impl BufPool for NoPool {
     fn give(&self, _b: BytesMut) {}
 }
 
+/// The pool generated RPC code writes with: [`LocalPool`](crate::LocalPool) with the `std`
+/// feature, [`NoPool`] without it.
+#[doc(hidden)]
+#[cfg(feature = "std")]
+pub static DEFAULT_POOL: crate::pool::LocalPool = crate::pool::LocalPool;
+#[doc(hidden)]
+#[cfg(not(feature = "std"))]
+pub static DEFAULT_POOL: NoPool = NoPool;
+
 fn verify_and_read_str<'a>(t: &TableRef<'a>, off: u16, ctx: &mut VerifyCtx) -> Result<Option<&'a str>, Error> {
     match t.str(off)? {
         Some(s) => {
@@ -426,8 +435,7 @@ pub fn decode_fault(payload: &[u8]) -> Result<Fault<'_>, Error> {
 
 /// Serializes a `graven.rpc.Fault` payload (raw Graven message, without envelope or frame header).
 pub fn encode_fault_payload(fault: &Fault<'_>) -> Result<Vec<u8>, Error> {
-    let pool = NoPool;
-    let mut b = Builder::new(&pool);
+    let mut b = Builder::new(&DEFAULT_POOL);
     {
         let mut w = b.root(FAULT_FIXED_LEN);
         w.set::<u16>(1, Bit { byte: 0, shift: 0 }, fault.code.as_u16());

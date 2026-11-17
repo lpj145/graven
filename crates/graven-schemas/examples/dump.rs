@@ -1,11 +1,10 @@
 //! Build one `Transaction`, print its bytes annotated, and read it back.
 //! `cargo run -p graven-schemas --example dump`
-use graven::{Builder, SimplePool};
+use graven::{Builder, LocalPool};
 use graven_schemas::bank::{Currency, Transaction, TransactionW};
 
 fn main() {
-    let pool = SimplePool::new(4096);
-    let mut b = Builder::new(&pool);
+    let mut b = Builder::new(&LocalPool);
     {
         let mut t = TransactionW::root(&mut b);
         t.id(42).ts(1_700_000_000).currency(Currency::BRL).from_shard(3).to_shard(7);

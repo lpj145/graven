@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.3.3
+
+- **Rust: `LocalPool`,** a buffer pool with one free list per thread: no lock and nothing to
+  set up (`Builder::new(&LocalPool)`). It keeps at most four 4 KiB chunks per thread and
+  drops buffers with more than 64 KiB free. Generated RPC code (calls, replies, faults) now
+  writes through it instead of starting from an empty buffer every time. Writing a small
+  message: 48 → 34 ns on one thread; on 8 threads, 85–120 ns without a pool, 3.7 µs with
+  one shared `SimplePool`, 50 ns with `LocalPool`. Needs the `std` feature (on by default);
+  without it, generated code falls back to a fresh buffer as before. The examples and docs
+  use `LocalPool`; `SimplePool` stays.
+
 ## 0.3.2
 
 - **JavaScript: streamed replies are faster, and can be read in batches.** A stream method

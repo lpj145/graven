@@ -60,12 +60,11 @@ pub mod orders { include!(concat!(env!("OUT_DIR"), "/orders.rs")); }
 Using `schemas/bank.graven` from [Getting started](../getting-started.md):
 
 ```rust
-use graven::{Builder, SimplePool};
+use graven::{Builder, LocalPool};
 use bank::{Currency, Transaction, TransactionW};
 
 fn main() -> Result<(), graven::Error> {
-    let pool = SimplePool::new(4096);
-    let mut b = Builder::new_enveloped(&pool);
+    let mut b = Builder::new_enveloped(&LocalPool);
 
     let bytes = TransactionW::to_bytes(&mut b, |t| {
         t.id(42).ts(1_700_000_000).currency(Currency::USD).from_shard(3).to_shard(7);
@@ -87,7 +86,7 @@ fn main() -> Result<(), graven::Error> {
 - **Untrusted input:** `X::from_bytes(env)` checks envelope magic, `schema_id`, and CRC32C, runs `verify()`, and returns `XVerified<'a>`. `X::verified(buf)` / `X::verified_with(buf, ctx)` do the same for bare payloads.
 - **Lazy checked reads:** `X::read(buf)` returns a checked reader without upfront traversal (cheaper when reading 1–2 fields).
 - **Return types:** on a verified view (`from_bytes`, `verified`), every accessor returns the value itself: `T` for a required field, `Option<T>` for an optional one, `&str`, `&[u8]`, lists and nested views included. The message was verified once, so reading it cannot fail. On a checked reader (`read`), strings, bytes, lists and nested tables return `Result<_, graven::Error>`, because nothing was verified yet. Enums decode to `E::Variant` or `E::Unknown(raw)`; unions decode to `U::Variant(view)` or `U::Unknown(tag)`. Lists of a verified view iterate over their elements directly, and `get(i)` returns `None` past the end.
-- **Writing:** `XW::to_bytes(&mut builder, |w| ...)` emits a single enveloped message; `XW::seal(&mut builder, |w| ...)` appends into a batch collected by `builder.take_frames()`. Use `w.entries(n)` for known-length lists or `w.entries_streaming()` when streaming elements without knowing the count upfront, and `SimplePool` to amortize allocations to zero in steady state.
+- **Writing:** `XW::to_bytes(&mut builder, |w| ...)` emits a single enveloped message; `XW::seal(&mut builder, |w| ...)` appends into a batch collected by `builder.take_frames()`. Use `w.entries(n)` for known-length lists or `w.entries_streaming()` when streaming elements without knowing the count upfront. Buffers come from a pool: `LocalPool` keeps a few per thread, with no lock and nothing to set up, so steady-state writing allocates nothing; `SimplePool` is one shared pool with a lock; any type implementing `BufPool` works. `LocalPool` needs the `std` feature (on by default).
 
 ## Validation
 

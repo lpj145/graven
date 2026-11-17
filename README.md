@@ -71,12 +71,11 @@ Writing and reading it from Rust, with the code `gravenc` generates
 (`crates/graven-schemas/examples/quickstart.rs`):
 
 ```rust
-use graven::{Builder, SimplePool};
+use graven::{Builder, LocalPool};
 use graven_schemas::bank::{Currency, Transaction, TransactionW};
 
 fn main() -> Result<(), graven::Error> {
-    let pool = SimplePool::new(4096);
-    let mut b = Builder::new_enveloped(&pool);
+    let mut b = Builder::new_enveloped(&LocalPool);
 
     // Write: one enveloped message (header + schema id + CRC32C).
     let bytes = TransactionW::to_bytes(&mut b, |t| {
