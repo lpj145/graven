@@ -108,7 +108,7 @@ cargo run -p graven-schemas --example quickstart
 | Language | Status |
 |---|---|
 | Rust | Reference implementation (this repository): runtime, `build.rs` code generation, service client and server edge. Passes all v1 and RPC frame vectors. |
-| JavaScript / TypeScript | `gravenc gen --lang js`: `.js` with `.d.ts` declarations and the runtime, for browsers, Node and Deno. Passes all v1 and RPC frame vectors. |
+| JavaScript / TypeScript | `gravenc gen --lang js`: `.js` with `.d.ts` declarations and the runtime, for browsers, Node and Deno; service client with streamed replies read as they arrive. Passes all v1 and RPC frame vectors. |
 
 A new implementation conforms when it reads every vector in `testvectors/v1/` with exactly
 the expected result (spec §10), and, for services, every frame in `testvectors/rpc-v1/`. The lockfile written by `gravenc` records every layout, so a
@@ -127,6 +127,9 @@ code generator for another language can start from it.
    [build-dependencies]
    graven-compiler = "0.3"
    ```
+
+   For `.graven` files in VS Code, install the
+   [Graven extension](https://marketplace.visualstudio.com/items?itemName=graven.graven).
 
 2. Write `schemas/bank.graven` and create its lockfile once: `gravenc update schemas/bank.graven --init`.
 3. Generate code from `build.rs` (it reads the lock and never writes it):
@@ -170,7 +173,7 @@ The [language guide](docs/graven-language.md) covers the full workflow.
 | [Implementations](docs/implementations.md) | The languages Graven runs in: [Rust](docs/sdk/rust.md) and [JavaScript / TypeScript](docs/sdk/js.md). |
 | [Coming from JSON](docs/coming-from-json.md) | Translating JSON data into a schema, piece by piece, with a worked example. |
 | [Good practice](docs/good-practice.md) | Advice for designing schemas and storing collections, with the reason behind each tip. |
-| [gravenc](docs/tools.md) | `check`, `update`, `gen`, `diff`, `inspect`, `to-json`, `from-json`, `scan`, and the VS Code extension. |
+| [gravenc](docs/tools.md) | `check`, `update`, `gen`, `diff`, `inspect`, `to-json`, `from-json`, `scan`, and the [VS Code extension](https://marketplace.visualstudio.com/items?itemName=graven.graven). |
 | [The future](docs/future.md) | Where Graven can be applied, and what each area would still need. |
 | [Benchmarks](docs/benchmarks.md) | Against FlatBuffers and Cap'n Proto: size, allocations and time. |
 | [For AI assistants](docs/for-ai.md) | A compact guide for language models (also published as `llms.txt`). |
@@ -208,7 +211,7 @@ npx wrangler pages deploy target/site --project-name graven   # Cloudflare Pages
 | `ts` | JavaScript test suite and its fuzzer (`scripts/ts.sh`, `scripts/fuzz-js.sh`). |
 | `examples/axum` | A service served by Axum and called from Rust and JavaScript. |
 | `fuzz` | `cargo-fuzz` targets. |
-| `editors/vscode` | VS Code extension: highlighting, go to definition, references, hover and outline for `.graven`. |
+| `editors/vscode` | VS Code extension ([Marketplace](https://marketplace.visualstudio.com/items?itemName=graven.graven)): highlighting, go to definition, references, hover and outline for `.graven`. |
 | `site` | Website sources: landing page, translations, documentation renderer. |
 | `docs/history` | How we got here: the original designs, plans and benchmark reports (not normative). |
 
@@ -217,7 +220,7 @@ npx wrangler pages deploy target/site --project-name graven   # Cloudflare Pages
 Format v1 is frozen: the specification and vectors will not change. Any change to the
 wire format will be format v2, announced by a new `format_version` in the envelope.
 Services and their RPC frames are in alpha: the frame layout and the generated APIs may
-still change between 0.x releases, as they did in 0.3.1.
+still change between 0.x releases, as they did in 0.3.1 and 0.3.2.
 
 ## License
 

@@ -132,6 +132,12 @@ for await (const p of await inv.list((w) => w.prefix("cafe"))) {
   console.log(p.name());
 }
 
+// Many small items: batches() hands over every item already received in one array, so one
+// await covers a whole network chunk.
+for await (const batch of (await inv.list((w) => w.prefix("cafe"))).batches()) {
+  for (const p of batch) console.log(p.name());
+}
+
 // Per-call timeout override (otherwise uses the schema's declared timeoutMs):
 await inv.get((w) => w.sku("cafe-500g"), { timeoutMs: 100 });
 
@@ -141,6 +147,9 @@ await inv.get((w) => w.sku("cafe-500g"), { maxFrameBytes: 1 << 20 });
 ```
 
 - **Protocol faults:** throws `RpcFault` with `code` (`FaultCode`), `faultMessage` (optional diagnostic string; absent on `Invalid`), `message` (`Error.message`), and `broken` (`BrokenRule` on `Invalid` faults: `tableName`, `field?`, `index?`, `rule`, `min?`, `max?`, `reason?`, the same codes as a `ValidationFailure`).
+- **Streams:** a stream method returns an `ItemStream<T>`: an `AsyncIterable<T>` with
+  `batches(): AsyncIterable<T[]>`. It is consumed once; leaving the loop early cancels the
+  reply. Items before a fault are delivered, then the fault is thrown.
 - **Protocol violations:** throws `RpcProtocolError` (`EmptyReply`, `Truncated`, `TooLarge`, `TrailingBytes`, `UnexpectedKind`, etc.). Transport errors thrown by `Sender` propagate untouched.
 - **Metadata:** `<SERVICE>_SERVICE_ID` (`bigint`) and frozen `<service>_timeouts.<METHOD>_MS`.
 

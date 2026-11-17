@@ -311,9 +311,15 @@ async function callWith(method: Method, reply: Uint8Array): Promise<void> {
     case "reserve":
       deepRead(await client.reserve((w) => w.sku("espresso").qty(1)));
       return;
-    case "watch":
-      for await (const ev of await client.watch((w) => w.sku("espresso"))) deepRead(ev);
+    case "watch": {
+      const items = await client.watch((w) => w.sku("espresso"));
+      if (rand(2) === 0) {
+        for await (const ev of items) deepRead(ev);
+      } else {
+        for await (const batch of items.batches()) for (const ev of batch) deepRead(ev);
+      }
       return;
+    }
     case "batch": {
       const r = await client.batch((w) => w.count(2));
       if (r.ok) {

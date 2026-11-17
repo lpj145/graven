@@ -215,7 +215,7 @@ incomplete record and a corrupt one can never be confused.
 
 ## Editor support
 
-The repository includes a Visual Studio Code extension in `editors/vscode`:
+The [Graven extension](https://marketplace.visualstudio.com/items?itemName=graven.graven) for Visual Studio Code (sources in `editors/vscode`):
 
 - highlighting for `.graven` schemas (services, methods and validation attributes included)
   and `.graven.lock` files;
@@ -224,10 +224,8 @@ The repository includes a Visual Studio Code extension in `editors/vscode`:
 - hover with a type's kind, qualified name and `///` comment;
 - outline, breadcrumbs and workspace symbol search.
 
-To install it:
+Install it from the Marketplace: search for "Graven" in the Extensions view, or run
 
 ```sh
-cd editors/vscode
-npx @vscode/vsce package
-code --install-extension graven-0.1.0.vsix --force
+code --install-extension graven.graven
 ```

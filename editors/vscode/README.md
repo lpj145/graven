@@ -16,7 +16,12 @@ Navigation across every `.graven` file of the workspace, following unsaved edits
 - **Go to symbol in workspace** (Ctrl+T). Comment toggling, bracket matching and
 indentation work as in other languages.
 
-## Install from this repository
+## Install
+
+From the [Visual Studio Marketplace](https://marketplace.visualstudio.com/items?itemName=graven.graven):
+search for "Graven" in the Extensions view, or run `code --install-extension graven.graven`.
+
+To build it from this repository instead:
 
 ```sh
 cd editors/vscode

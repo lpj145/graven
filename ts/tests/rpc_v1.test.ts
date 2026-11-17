@@ -141,6 +141,56 @@ describe("chunked stream & protocol checks on InventoryClient", () => {
     assert.equal(count, 2);
   });
 
+  it("batches() returns every item already received in one array", async () => {
+    const ev = (seq: bigint) => {
+      const b = new Builder();
+      EventW.root(b).seq(seq).stock(1);
+      return encodeFrame(replyHeader(FrameKind.Item), b.finish());
+    };
+    const frames = [ev(1n), ev(2n), ev(3n), ev(4n), encodeEnd()];
+    const cat = (fs: Uint8Array[]) => {
+      const out = new Uint8Array(fs.reduce((n, f) => n + f.length, 0));
+      let at = 0;
+      for (const f of fs) {
+        out.set(f, at);
+        at += f.length;
+      }
+      return out;
+    };
+    // Two chunks: the first holds items 1-3 and half of item 4.
+    const all = cat(frames);
+    const cut = ev(0n).length * 3 + 5;
+    const client = new InventoryClient(async () => {
+      async function* two(): AsyncIterable<Uint8Array> {
+        yield all.subarray(0, cut);
+        yield all.subarray(cut);
+      }
+      return two();
+    });
+    const stream = await client.watch((w) => w.sku("coffee"));
+    const sizes: number[] = [];
+    const seqs: bigint[] = [];
+    for await (const batch of stream.batches()) {
+      sizes.push(batch.length);
+      for (const e of batch) seqs.push(e.seq());
+    }
+    assert.deepEqual(sizes, [3, 1]);
+    assert.deepEqual(seqs, [1n, 2n, 3n, 4n]);
+    // A stream is consumed once.
+    await assert.rejects(async () => {
+      for await (const _ of stream) void _;
+    }, TypeError);
+
+    // A whole reply in one buffer is one batch; a fault after items throws once they are delivered.
+    const faulted = cat([ev(1n), ev(2n), encodeFaultFrame({ code: FaultCode.Internal })]);
+    const c2 = new InventoryClient(async () => faulted);
+    const got: number[] = [];
+    await assert.rejects(async () => {
+      for await (const batch of (await c2.watch((w) => w.sku("x"))).batches()) got.push(batch.length);
+    }, RpcFault);
+    assert.deepEqual(got, [2]);
+  });
+
   it("reports declared default timeout vs override", async () => {
     const observed: Array<number | undefined> = [];
     const ib = new Builder();

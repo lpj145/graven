@@ -619,6 +619,10 @@ def site_files(out, docs):
 def main():
     out = sys.argv[1]
     shutil.copytree(os.path.join(HERE, "assets"), os.path.join(out, "assets"), dirs_exist_ok=True)
+    # Search engine ownership checks (Google Search Console): served as-is at the root.
+    for name in os.listdir(HERE):
+        if name.startswith("google") and name.endswith(".html"):
+            shutil.copy(os.path.join(HERE, name), os.path.join(out, name))
     with open(os.path.join(out, "index.html"), "w", encoding="utf8") as f:
         f.write(seo_head(SRC, ""))
     for code, pairs in LANGS.items():

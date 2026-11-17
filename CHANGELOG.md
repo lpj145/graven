@@ -1,7 +1,13 @@
 # Changelog
 
-## Unreleased
+## 0.3.2
 
+- **JavaScript: streamed replies are faster, and can be read in batches.** A stream method
+  returns an `ItemStream<T>`: still an `AsyncIterable<T>`, plus `batches()`, which hands over
+  every item already received in one array. The frames of a network chunk are copied out
+  once instead of one by one: with 22-byte items in 64 KiB chunks, `for await` went from
+  0.81 to 0.23 µs per item, and `batches()` reads one in 0.13 µs. Items before a fault are
+  delivered before the fault is thrown.
 - **Rust: reads of a verified view cannot fail, so they no longer return `Result`.** On
   `XVerified` (`from_bytes`, `verified`, and every view a client `Response` or a server call
   hands out), strings, bytes, lists, nested tables and unions return the value itself
@@ -16,7 +22,7 @@
 - **Axum example** (`examples/axum`): a service served by Axum, with tests that call it
   through the generated Rust client, and a JavaScript client; documented in the Rust SDK
   ("Serving over HTTP").
-- **VS Code extension:** go to definition, find references, hover, outline and workspace
+- **VS Code extension, on the [Marketplace](https://marketplace.visualstudio.com/items?itemName=graven.graven):** go to definition, find references, hover, outline and workspace
   symbols for `.graven` schemas; highlighting for services, methods and attributes with
   arguments.
 

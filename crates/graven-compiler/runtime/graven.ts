@@ -2315,49 +2315,103 @@ class FrameStreamReader {
     this.len = avail + chunk.length;
   }
 
+  /** The next frame if it is already complete in the buffer, without waiting for input. */
+  bufferedFrame(): Frame | undefined {
+    const avail = this.len - this.pos;
+    if (avail === 0) return undefined;
+    const view = this.buf.subarray(this.pos, this.len);
+    try {
+      const frame = decodeFrame(view);
+      if (frame.totalLen > this.maxBytes) throw tooLarge(frame.totalLen, this.maxBytes);
+      // The scratch buffer is reused, so the frame is copied out once; the views a caller
+      // keeps point into the copy.
+      const copy = view.slice(0, frame.totalLen);
+      const at = frame.payload.byteOffset - view.byteOffset;
+      this.pos += frame.totalLen;
+      if (this.pos === this.len) {
+        this.pos = 0;
+        this.len = 0;
+      }
+      return { ...frame, payload: copy.subarray(at, at + frame.payload.length) };
+    } catch (e) {
+      return this.frameError(e);
+    }
+  }
+
+  /** Maps a decoding error: `undefined` when the frame is only incomplete so far. */
+  private frameError(e: unknown): undefined {
+    if (e instanceof GravenError && e.kind === "Incomplete") {
+      // The header already announces the frame's size: refuse it before buffering it.
+      if (e.needed !== undefined && e.needed > this.maxBytes) {
+        throw tooLarge(e.needed, this.maxBytes);
+      }
+      if (this.eof) {
+        throw new RpcProtocolError("Truncated");
+      }
+      return undefined;
+    }
+    if (e instanceof GravenError) {
+      throw new RpcProtocolError("Frame", { causeError: e });
+    }
+    throw e;
+  }
+
+  /**
+   * Every frame already complete in the buffer, up to and including the first one that is not
+   * an `Item`, copied out together: one allocation for the whole batch instead of one per frame.
+   * It stops before a frame that fails, and throws only when that frame is the first.
+   */
+  takeBuffered(): Frame[] {
+    const start = this.pos;
+    const view = this.buf.subarray(0, this.len);
+    const found: Frame[] = [];
+    let off = start;
+    while (off < this.len) {
+      let f: Frame;
+      try {
+        f = decodeFrameAt(view, off);
+        if (f.totalLen > this.maxBytes) throw tooLarge(f.totalLen, this.maxBytes);
+      } catch (e) {
+        if (found.length > 0) break;
+        this.frameError(e);
+        return found;
+      }
+      found.push(f);
+      off += f.totalLen;
+      if (f.header.kind !== FrameKind.Item) break;
+    }
+    if (found.length === 0) return found;
+    const copy = this.buf.slice(start, off);
+    this.pos = off;
+    if (this.pos === this.len) {
+      this.pos = 0;
+      this.len = 0;
+    }
+    for (let i = 0; i < found.length; i++) {
+      const f = found[i]!;
+      const at = f.payload.byteOffset - start;
+      found[i] = { header: f.header, payload: copy.subarray(at, at + f.payload.length), totalLen: f.totalLen };
+    }
+    return found;
+  }
+
+  /** Reads one more chunk of input; false once the input has ended. */
+  async fill(): Promise<boolean> {
+    if (this.eof) return false;
+    const chunk = await this.src.next();
+    if (chunk === undefined) {
+      this.eof = true;
+    } else if (chunk.length > 0) {
+      this.append(chunk);
+    }
+    return true;
+  }
+
   async nextFrame(): Promise<Frame | undefined> {
     while (true) {
-      const avail = this.len - this.pos;
-      if (avail > 0) {
-        const view = this.buf.subarray(this.pos, this.len);
-        try {
-          const frame = decodeFrame(view);
-          if (frame.totalLen > this.maxBytes) throw tooLarge(frame.totalLen, this.maxBytes);
-          // The scratch buffer is reused, so the frame is copied out once; the views a caller
-          // keeps point into the copy.
-          const copy = view.slice(0, frame.totalLen);
-          const at = frame.payload.byteOffset - view.byteOffset;
-          this.pos += frame.totalLen;
-          if (this.pos === this.len) {
-            this.pos = 0;
-            this.len = 0;
-          }
-          return { ...frame, payload: copy.subarray(at, at + frame.payload.length) };
-        } catch (e) {
-          if (e instanceof GravenError && e.kind === "Incomplete") {
-            // The header already announces the frame's size: refuse it before buffering it.
-            if (e.needed !== undefined && e.needed > this.maxBytes) {
-              throw tooLarge(e.needed, this.maxBytes);
-            }
-            if (this.eof) {
-              throw new RpcProtocolError("Truncated");
-            }
-          } else if (e instanceof GravenError) {
-            throw new RpcProtocolError("Frame", { causeError: e });
-          } else {
-            throw e;
-          }
-        }
-      } else if (this.eof) {
-        return undefined;
-      }
-
-      const chunk = await this.src.next();
-      if (chunk === undefined) {
-        this.eof = true;
-      } else if (chunk.length > 0) {
-        this.append(chunk);
-      }
+      const frame = this.bufferedFrame();
+      if (frame !== undefined) return frame;
+      if (!(await this.fill())) return undefined;
     }
   }
 
@@ -2471,39 +2525,100 @@ export async function rpcUnaryResult<IW, IV, OW, OV, EW, EV>(
   }
 }
 
-async function* iterateStreamFrames<OW, OV>(
-  reader: FrameStreamReader,
-  first: Frame,
-  outCodec: RpcCodec<OW, OV>,
-): AsyncIterableIterator<OV> {
-  let pending: Frame | undefined = first;
-  try {
-    while (true) {
-      const frame = pending ?? (await reader.nextFrame());
-      pending = undefined;
-      if (frame === undefined) {
-        throw new RpcProtocolError("Truncated");
+/**
+ * The items of a streamed reply. Iterate it with `for await` for one item at a time, or call
+ * `batches()` to get every item that has already arrived in one array: one `await` then covers
+ * many items, which matters when items are small and numerous. Either way it can be consumed
+ * once; breaking out of the loop cancels the reply.
+ */
+export interface ItemStream<T> extends AsyncIterable<T> {
+  batches(): AsyncIterable<T[]>;
+}
+
+class StreamItems<OW, OV> implements ItemStream<OV> {
+  private pending?: Frame;
+  private finished = false;
+  private used = false;
+  private failure?: { error: unknown };
+
+  constructor(
+    private readonly reader: FrameStreamReader,
+    first: Frame,
+    private readonly outCodec: RpcCodec<OW, OV>,
+  ) {
+    this.pending = first;
+  }
+
+  /** Handles one frame: pushes an item, or returns true at the end of the stream. */
+  private take(frame: Frame, out: OV[]): boolean {
+    switch (frame.header.kind) {
+      case FrameKind.Item:
+        out.push(this.outCodec.verify(frame.header.variant, frame.payload));
+        return false;
+      case FrameKind.End:
+      case FrameKind.Fault: {
+        const trailing = this.reader.trailingCount();
+        if (trailing > 0) throw new RpcProtocolError("TrailingBytes", { trailing });
+        if (frame.header.kind === FrameKind.Fault) throw decodeFaultFrameError(frame);
+        return true;
       }
-      if (frame.header.kind === FrameKind.Item) {
-        yield outCodec.verify(frame.header.variant, frame.payload);
-      } else if (frame.header.kind === FrameKind.End) {
-        const trailing = reader.trailingCount();
-        if (trailing > 0) {
-          throw new RpcProtocolError("TrailingBytes", { trailing });
-        }
-        return;
-      } else if (frame.header.kind === FrameKind.Fault) {
-        const trailing = reader.trailingCount();
-        if (trailing > 0) {
-          throw new RpcProtocolError("TrailingBytes", { trailing });
-        }
-        throw decodeFaultFrameError(frame);
-      } else {
+      default:
         throw new RpcProtocolError("UnexpectedKind", { frameKind: frame.header.kind });
-      }
     }
-  } finally {
-    await reader.close();
+  }
+
+  /** The next batch: waits for at least one frame, then takes every frame already buffered. */
+  private async nextBatch(): Promise<OV[] | undefined> {
+    if (this.failure !== undefined) throw this.failure.error;
+    if (this.finished) return undefined;
+    const out: OV[] = [];
+    try {
+      const first = this.pending;
+      this.pending = undefined;
+      if (first !== undefined && this.take(first, out)) {
+        this.finished = true;
+        return out;
+      }
+      while (true) {
+        for (const frame of this.reader.takeBuffered()) {
+          if (this.take(frame, out)) {
+            this.finished = true;
+            return out;
+          }
+        }
+        if (out.length > 0) return out;
+        if (!(await this.reader.fill())) throw new RpcProtocolError("Truncated");
+      }
+    } catch (error) {
+      // The items before a failure were delivered: hand them over, then fail on the next call.
+      if (out.length === 0) throw error;
+      this.failure = { error };
+      return out;
+    }
+  }
+
+  private claim(): void {
+    if (this.used) throw new TypeError("a streamed reply can be iterated only once");
+    this.used = true;
+  }
+
+  async *batches(): AsyncIterableIterator<OV[]> {
+    this.claim();
+    try {
+      while (true) {
+        const batch = await this.nextBatch();
+        if (batch === undefined) return;
+        if (batch.length > 0) yield batch;
+      }
+    } finally {
+      await this.reader.close();
+    }
+  }
+
+  async *[Symbol.asyncIterator](): AsyncIterableIterator<OV> {
+    for await (const batch of this.batches()) {
+      for (const item of batch) yield item;
+    }
   }
 }
 
@@ -2550,7 +2665,7 @@ export async function rpcStream<IW, IV, OW, OV>(
   defaultTimeoutMs: number | undefined,
   fn: (w: IW) => void,
   opts?: CallOptions,
-): Promise<AsyncIterable<OV>> {
+): Promise<ItemStream<OV>> {
   const call = encodeCallFrame(inCodec, serviceIdVal, method, fn);
   const timeout = opts?.timeoutMs !== undefined ? opts.timeoutMs : defaultTimeoutMs;
   const reply = await send(call, timeout);
@@ -2559,7 +2674,7 @@ export async function rpcStream<IW, IV, OW, OV>(
     await reader.close();
     throw new RpcProtocolError("UnexpectedKind", { frameKind: FrameKind.Err });
   }
-  return iterateStreamFrames(reader, first, outCodec);
+  return new StreamItems(reader, first, outCodec);
 }
 
 export async function rpcStreamResult<IW, IV, OW, OV, EW, EV>(
@@ -2572,7 +2687,7 @@ export async function rpcStreamResult<IW, IV, OW, OV, EW, EV>(
   defaultTimeoutMs: number | undefined,
   fn: (w: IW) => void,
   opts?: CallOptions,
-): Promise<RpcResult<AsyncIterable<OV>, EV>> {
+): Promise<RpcResult<ItemStream<OV>, EV>> {
   const call = encodeCallFrame(inCodec, serviceIdVal, method, fn);
   const timeout = opts?.timeoutMs !== undefined ? opts.timeoutMs : defaultTimeoutMs;
   const reply = await send(call, timeout);
@@ -2586,6 +2701,6 @@ export async function rpcStreamResult<IW, IV, OW, OV, EW, EV>(
   }
   return {
     ok: true,
-    value: iterateStreamFrames(reader, first, outCodec),
+    value: new StreamItems(reader, first, outCodec),
   };
 }

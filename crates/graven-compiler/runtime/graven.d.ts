@@ -554,6 +554,15 @@ export declare function encodeCallFrame<W, V>(codec: RpcCodec<W, V>, serviceIdVa
 export declare function rpcOneWay<IW, IV>(send: Sender, inCodec: RpcCodec<IW, IV>, serviceIdVal: bigint, method: number, fn: (w: IW) => void, opts?: CallOptions): Promise<void>;
 export declare function rpcUnary<IW, IV, OW, OV>(send: Sender, inCodec: RpcCodec<IW, IV>, outCodec: RpcCodec<OW, OV>, serviceIdVal: bigint, method: number, defaultTimeoutMs: number | undefined, fn: (w: IW) => void, opts?: CallOptions): Promise<OV>;
 export declare function rpcUnaryResult<IW, IV, OW, OV, EW, EV>(send: Sender, inCodec: RpcCodec<IW, IV>, outCodec: RpcCodec<OW, OV>, errCodec: RpcCodec<EW, EV>, serviceIdVal: bigint, method: number, defaultTimeoutMs: number | undefined, fn: (w: IW) => void, opts?: CallOptions): Promise<RpcResult<OV, EV>>;
-export declare function rpcStream<IW, IV, OW, OV>(send: Sender, inCodec: RpcCodec<IW, IV>, outCodec: RpcCodec<OW, OV>, serviceIdVal: bigint, method: number, defaultTimeoutMs: number | undefined, fn: (w: IW) => void, opts?: CallOptions): Promise<AsyncIterable<OV>>;
-export declare function rpcStreamResult<IW, IV, OW, OV, EW, EV>(send: Sender, inCodec: RpcCodec<IW, IV>, outCodec: RpcCodec<OW, OV>, errCodec: RpcCodec<EW, EV>, serviceIdVal: bigint, method: number, defaultTimeoutMs: number | undefined, fn: (w: IW) => void, opts?: CallOptions): Promise<RpcResult<AsyncIterable<OV>, EV>>;
+/**
+ * The items of a streamed reply. Iterate it with `for await` for one item at a time, or call
+ * `batches()` to get every item that has already arrived in one array: one `await` then covers
+ * many items, which matters when items are small and numerous. Either way it can be consumed
+ * once; breaking out of the loop cancels the reply.
+ */
+export interface ItemStream<T> extends AsyncIterable<T> {
+    batches(): AsyncIterable<T[]>;
+}
+export declare function rpcStream<IW, IV, OW, OV>(send: Sender, inCodec: RpcCodec<IW, IV>, outCodec: RpcCodec<OW, OV>, serviceIdVal: bigint, method: number, defaultTimeoutMs: number | undefined, fn: (w: IW) => void, opts?: CallOptions): Promise<ItemStream<OV>>;
+export declare function rpcStreamResult<IW, IV, OW, OV, EW, EV>(send: Sender, inCodec: RpcCodec<IW, IV>, outCodec: RpcCodec<OW, OV>, errCodec: RpcCodec<EW, EV>, serviceIdVal: bigint, method: number, defaultTimeoutMs: number | undefined, fn: (w: IW) => void, opts?: CallOptions): Promise<RpcResult<ItemStream<OV>, EV>>;
 export {};

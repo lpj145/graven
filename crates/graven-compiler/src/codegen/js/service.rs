@@ -226,11 +226,11 @@ impl<'a> JsCx<'a> {
                     ),
                 ),
                 (MethodShape::Stream, Some(o), None) => (
-                    format!("Promise<AsyncIterable<{}>>", self.rpc_verified(o)),
+                    format!("Promise<_graven.ItemStream<{}>>", self.rpc_verified(o)),
                     format!("_graven.rpcStream(this._send, {in_codec}, {}, {sid_const}, {id}, {def_timeout}, fn, opts)", codec(o)),
                 ),
                 (MethodShape::Stream, Some(o), Some(e)) => (
-                    format!("Promise<_graven.RpcResult<AsyncIterable<{}>, {}>>", self.rpc_verified(o), self.rpc_verified(e)),
+                    format!("Promise<_graven.RpcResult<_graven.ItemStream<{}>, {}>>", self.rpc_verified(o), self.rpc_verified(e)),
                     format!(
                         "_graven.rpcStreamResult(this._send, {in_codec}, {}, {}, {sid_const}, {id}, {def_timeout}, fn, opts)",
                         codec(o),
