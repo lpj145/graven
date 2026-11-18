@@ -223,6 +223,45 @@ impl<'b> TelemetryW<'b> {
         f(&mut TelemetryW::root(b));
         b.flush_envelope(Telemetry::SCHEMA_ID)
     }
+    /// Writes a new `Telemetry` from `from`: `f` writes the fields that change, then every field it did not write is copied from `from` ([`fill_from`](Self::fill_from)). Returns the envelope, as [`to_bytes`](Self::to_bytes) does.
+    ///
+    /// # Panics
+    /// As [`to_bytes`](Self::to_bytes).
+    #[inline]
+    pub fn rebuild(
+        b: &mut ::graven::Builder<'_>,
+        from: &TelemetryVerified<'_>,
+        f: impl ::core::ops::FnOnce(&mut TelemetryW<'_>),
+    ) -> ::core::result::Result<::graven::Bytes, ::graven::Error> {
+        {
+            let mut w = TelemetryW::root(b);
+            f(&mut w);
+            w.fill_from(from);
+        }
+        b.flush_envelope(Telemetry::SCHEMA_ID)
+    }
+    /// Copies from `from` every field this writer has not written yet, keeping presence: an absent field stays absent. Nested tables, lists of tables and unions are copied with their own `fill_from`. Fields and union variants `Telemetry` does not know (written by a newer schema) are not copied.
+    #[inline]
+    #[allow(clippy::collapsible_if, clippy::single_match)]
+    pub fn fill_from(&mut self, from: &TelemetryVerified<'_>) -> &mut Self {
+        let src = from.reader().0;
+        if !self.0.is_set(telemetry::DEVICE_BIT) {
+            self.0.copy_inline(&src, telemetry::DEVICE, 4, telemetry::DEVICE_BIT);
+        }
+        if !self.0.is_set(telemetry::TS_BIT) {
+            self.0.copy_inline(&src, telemetry::TS, 8, telemetry::TS_BIT);
+        }
+        if !self.0.is_set(telemetry::TEMP_BIT) {
+            self.0.copy_inline(&src, telemetry::TEMP, 4, telemetry::TEMP_BIT);
+        }
+        if !self.0.is_set(telemetry::HUMIDITY_BIT) {
+            self.0.copy_inline(&src, telemetry::HUMIDITY, 4, telemetry::HUMIDITY_BIT);
+        }
+        if !self.0.is_set(telemetry::BATTERY_BIT) {
+            self.0.copy_inline(&src, telemetry::BATTERY, 1, telemetry::BATTERY_BIT);
+        }
+        self
+    }
     /// Like [`to_bytes`](Self::to_bytes), but seals the envelope into the builder's batch
     /// (take it with `Builder::take_frames`).
     ///

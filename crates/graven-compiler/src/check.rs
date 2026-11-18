@@ -669,7 +669,7 @@ impl Cx {
                     placeholder
                 }
             };
-            return Field { id: f.id, name, ty, presence, allow_breaking, rules: FieldRules::default(), span: f.span };
+            return Field { id: f.id, name, ty, presence, allow_breaking, rules: FieldRules::default(), align: None, span: f.span };
         }
 
         let name = f.name.clone().unwrap();
@@ -702,8 +702,8 @@ impl Cx {
             (None, false) => Presence::Required,
         };
         let resolved_ty = ty.unwrap_or(placeholder);
-        let (rules, allow_breaking) = self.field_attrs(ir, &name, f, &resolved_ty, &presence);
-        Field { id: f.id, name, ty: resolved_ty, presence, allow_breaking, rules, span: f.span }
+        let (rules, allow_breaking, align) = self.field_attrs(ir, &name, f, &resolved_ty, &presence);
+        Field { id: f.id, name, ty: resolved_ty, presence, allow_breaking, rules, align, span: f.span }
     }
 
     fn field_attrs(
@@ -713,9 +713,10 @@ impl Cx {
         f: &ast::FieldDecl,
         ty: &Ty,
         presence: &Presence,
-    ) -> (FieldRules, bool) {
+    ) -> (FieldRules, bool, Option<u16>) {
         let mut rules = FieldRules::default();
         let mut allow_breaking_attr = None;
+        let mut align: Option<u16> = None;
         let mut seen_checks = HashSet::new();
 
         for a in &f.attrs {
@@ -805,6 +806,28 @@ impl Cx {
                         }
                     }
                 }
+                "align" => {
+                    if align.is_some() {
+                        self.err(a.span, format!("duplicate `align` attribute on field `{field_name}`"));
+                        continue;
+                    }
+                    let alignable = match ty {
+                        Ty::Bytes => true,
+                        Ty::List(elem) => matches!(&**elem, Ty::Scalar(_)),
+                        _ => false,
+                    };
+                    if !alignable {
+                        self.err(
+                            a.span,
+                            format!(
+                                "`align` is only valid on `bytes` or lists of numbers (`[f32]`, `[u64]`, …), not `{}`",
+                                ir.ty_name(ty)
+                            ),
+                        );
+                        continue;
+                    }
+                    align = self.parse_align(a);
+                }
                 other => {
                     self.err(a.span, format!("unknown attribute `#[{other}]`"));
                 }
@@ -829,7 +852,31 @@ impl Cx {
             self.check_default_rules(f.span, field_name, val, &rules);
         }
 
-        (rules, allow_breaking)
+        (rules, allow_breaking, align)
+    }
+
+    /// `#[align(to = N)]`, `N` a power of two from 2 to 4096.
+    fn parse_align(&mut self, a: &ast::Attr) -> Option<u16> {
+        let mut to = None;
+        for arg in &a.args {
+            if arg.name != "to" {
+                self.err(arg.span, format!("unknown `align` argument `{}` (expected `to = N`)", arg.name));
+                continue;
+            }
+            let n = match &arg.value {
+                Some(ast::Literal::Int(i)) => u64::try_from(*i).ok(),
+                Some(ast::Literal::UInt(u)) => u64::try_from(*u).ok(),
+                _ => None,
+            };
+            match n {
+                Some(n) if n.is_power_of_two() && (2..=4096).contains(&n) => to = Some(n as u16),
+                _ => self.err(arg.span, "`align(to = N)`: `N` must be a power of two from 2 to 4096".to_string()),
+            }
+        }
+        if a.args.is_empty() {
+            self.err(a.span, "`align` needs `to = N`, e.g. `#[align(to = 16)]`".to_string());
+        }
+        to
     }
 
     fn parse_range(&mut self, p: Prim, a: &ast::Attr) -> Option<(Option<RangeBound>, Option<RangeBound>)> {

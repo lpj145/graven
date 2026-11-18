@@ -72,6 +72,26 @@ for (const e of tx.entries()) {
 - **Errors:** malformed messages throw `GravenError` whose `.kind` matches [format v1 §7.6](../spec/graven-format-v1.md#76-error-vocabulary) (`"OutOfBounds"`, `"InvalidUtf8"`, `"Missing"`, `"ChecksumMismatch"`, etc.).
 - **Writing:** `XW.toBytes(fn)` returns an enveloped `Uint8Array`. For batches, `XW.seal(builder, fn)` appends enveloped frames and `builder.takeFrames()` returns them. Nested tables return their writer (`w.child().x(1)`); unions expose `<field>_<Variant>()` (`w.choice_Leaf()`); lists accept a known count (`w.items(n)`, calling `.close()` when done) or stream via `w.items_streaming()` (a streamed list of scalars must get all its `push()` calls before any other string, bytes or list field is written; otherwise `push()` throws). Output matches the Rust canonical writer byte for byte.
 
+### Changing a stored message
+
+```js
+const old = Product.fromBytes(stored);
+const updated = ProductW.rebuild(old, (w) => w.name("Café 1 kg"));
+```
+
+The closure writes what changes; every other field is copied from `old` (`w.fillFrom(view)`
+does the same on any writer, including a nested one). Presence is kept, and fields or union
+variants the schema does not know are not copied
+([proposal 0006](../proposals/0006-rebuild-and-alignment.md)).
+
+### Aligned data
+
+- A list with `#[align(to = N)]` is written aligned; `list.asTypedArray()` returns a
+  `Float32Array`, `BigInt64Array`… over the message's bytes, without copying, when the
+  elements are aligned in memory, and `undefined` otherwise (and for `u128`/`i128`, enums,
+  structs and `bool`).
+- `new Builder().withRecordAlign(r)` pads every envelope to a multiple of `r` bytes.
+
 ## Validation
 
 Schemas with rules emit a `Checks` interface in `<schema>.d.ts`:
@@ -157,7 +177,7 @@ await inv.get((w) => w.sku("cafe-500g"), { maxFrameBytes: 1 << 20 });
 
 ### Generated per schema (`<schema>.js` / `<schema>.d.ts`)
 
-- **Table `X`:** `X.read(buf)`, `X.verified(buf)`, `X.verifiedWith(buf, ctx)`, `X.fromBytes(env)`, `X.SCHEMA_ID`, `verify(ctx)`; `XVerified` (`reader()`, accessors, `validate`, `validateAll`); `XW` (`root`, `toBytes`, `toBytesWith`, `seal`, `toBytesValidated`, setters); `X_SCHEMA_ID`.
+- **Table `X`:** `X.read(buf)`, `X.verified(buf)`, `X.verifiedWith(buf, ctx)`, `X.fromBytes(env)`, `X.SCHEMA_ID`, `verify(ctx)`; `XVerified` (`reader()`, accessors, `validate`, `validateAll`); `XW` (`root`, `toBytes`, `toBytesWith`, `seal`, `toBytesValidated`, `rebuild`, `fillFrom`, setters); `X_SCHEMA_ID`.
 - **Enum `E`:** `type E = number` + frozen object with `E.name(v)`. **Struct `S`:** readonly interface. **Union `U`:** `U`, `UVerified`, and `UW` (with `--side client`).
 - **Validation & RPC:** `Checks` interface, `<Service>Client`, `<SERVICE>_SERVICE_ID`, `<service>_timeouts`.
 
@@ -166,7 +186,8 @@ await inv.get((w) => w.sku("cafe-500g"), { maxFrameBytes: 1 << 20 });
 | Export | Purpose |
 |---|---|
 | `GravenError` | Structural read/verify/write errors with `.kind` and data fields. |
-| `Builder`, `TableW` | Message writer (`finish`, `finishEnvelope`, `seal`, `sealEnvelope`, `takeFrames`). |
+| `Builder`, `TableW` | Message writer (`finish`, `finishEnvelope`, `seal`, `sealEnvelope`, `takeFrames`, `withRecordAlign`). |
+| `ScalarList`, `NumericArray` | Numeric lists: `get`, iteration, `asBytes`, `asTypedArray`. |
 | `TableRef`, `VerifyCtx` | Low-level unchecked/verified buffer navigation. |
 | `encodeEnvelope`, `decodeEnvelope`, `openEnvelope`, `envelopes` | Envelope v1 encoding, validation, and iteration. |
 | `crc32c`, `schemaId` | Table-driven CRC-32C and 64-bit FNV-1a `schemaId` (`bigint`). |

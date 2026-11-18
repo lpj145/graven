@@ -219,7 +219,7 @@ npx wrangler pages deploy target/site --project-name graven   # Cloudflare Pages
 Format v1 is frozen: the specification and vectors will not change. Any change to the
 wire format will be format v2, announced by a new `format_version` in the envelope.
 Services and their RPC frames are in alpha: the frame layout and the generated APIs may
-still change between 0.x releases, as they did in 0.3.1 and 0.3.2.
+still change between 0.x releases, as they did in 0.3.1, 0.3.2 and 0.3.4.
 
 ## License
 

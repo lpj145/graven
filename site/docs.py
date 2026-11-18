@@ -654,6 +654,8 @@ def llms_files(out_dir):
         "- [Proposal 0002: validation](docs/proposals/0002-validation.md): built-in rules and named checks.",
         "- [Proposal 0003: services](docs/proposals/0003-services.md): RPC framing, typed errors, client and server edge.",
         "- [Proposal 0004: JavaScript / TypeScript](docs/proposals/0004-typescript.md): JS runtime and .d.ts codegen.",
+        "- [Proposal 0005: wire frames](docs/proposals/0005-wire-frames.md): one message, two containers (envelope at rest, frame in flight).",
+        "- [Proposal 0006: rebuild and alignment](docs/proposals/0006-rebuild-and-alignment.md): rebuilding a message with some fields changed, aligned lists and records.",
         "- [Complete documentation in one file](llms-full.txt)",
         "",
     ]

@@ -560,3 +560,24 @@ fn service_rules_enforced() {
         "PickW",
     );
 }
+
+#[test]
+fn align_attribute_checked() {
+    let ir = ok("namespace a;\n\
+         table T {\n\
+           #[align(to = 16)] v @0: [f32];\n\
+           #[align(to = 2)] b @1: bytes?;\n\
+           #[align(to = 4096), len(max = 100)] p @2: [u8]?;\n\
+         }");
+    let t = &ir.tables[0];
+    assert_eq!(t.fields.iter().map(|f| f.align).collect::<Vec<_>>(), vec![Some(16), Some(2), Some(4096)]);
+    one_diag("namespace a; table T { #[align(to = 8)] s @0: string; }", "`align` is only valid on `bytes` or lists of numbers");
+    one_diag("namespace a; struct P { x: u8 } table T { #[align(to = 8)] s @0: [P]; }", "`align` is only valid on");
+    one_diag("namespace a; table T { #[align(to = 8)] s @0: [bool]; }", "`align` is only valid on");
+    one_diag("namespace a; table T { #[align(to = 12)] v @0: [u32]; }", "must be a power of two from 2 to 4096");
+    one_diag("namespace a; table T { #[align(to = 1)] v @0: [u32]; }", "must be a power of two from 2 to 4096");
+    one_diag("namespace a; table T { #[align(to = 8192)] v @0: [u32]; }", "must be a power of two from 2 to 4096");
+    one_diag("namespace a; table T { #[align] v @0: [u32]; }", "`align` needs `to = N`");
+    one_diag("namespace a; table T { #[align(by = 8)] v @0: [u32]; }", "unknown `align` argument `by`");
+    one_diag("namespace a; table T { #[align(to = 8), align(to = 16)] v @0: [u32]; }", "duplicate `align`");
+}

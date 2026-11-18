@@ -249,6 +249,45 @@ impl<'b> EntityW<'b> {
         f(&mut EntityW::root(b));
         b.flush_envelope(Entity::SCHEMA_ID)
     }
+    /// Writes a new `Entity` from `from`: `f` writes the fields that change, then every field it did not write is copied from `from` ([`fill_from`](Self::fill_from)). Returns the envelope, as [`to_bytes`](Self::to_bytes) does.
+    ///
+    /// # Panics
+    /// As [`to_bytes`](Self::to_bytes).
+    #[inline]
+    pub fn rebuild(
+        b: &mut ::graven::Builder<'_>,
+        from: &EntityVerified<'_>,
+        f: impl ::core::ops::FnOnce(&mut EntityW<'_>),
+    ) -> ::core::result::Result<::graven::Bytes, ::graven::Error> {
+        {
+            let mut w = EntityW::root(b);
+            f(&mut w);
+            w.fill_from(from);
+        }
+        b.flush_envelope(Entity::SCHEMA_ID)
+    }
+    /// Copies from `from` every field this writer has not written yet, keeping presence: an absent field stays absent. Nested tables, lists of tables and unions are copied with their own `fill_from`. Fields and union variants `Entity` does not know (written by a newer schema) are not copied.
+    #[inline]
+    #[allow(clippy::collapsible_if, clippy::single_match)]
+    pub fn fill_from(&mut self, from: &EntityVerified<'_>) -> &mut Self {
+        let src = from.reader().0;
+        if !self.0.is_set(entity::ID_BIT) {
+            self.0.copy_inline(&src, entity::ID, 4, entity::ID_BIT);
+        }
+        if !self.0.is_set(entity::POS_BIT) {
+            self.0.copy_inline(&src, entity::POS, 12, entity::POS_BIT);
+        }
+        if !self.0.is_set(entity::VEL_BIT) {
+            self.0.copy_inline(&src, entity::VEL, 12, entity::VEL_BIT);
+        }
+        if !self.0.is_set(entity::HP_BIT) {
+            self.0.copy_inline(&src, entity::HP, 2, entity::HP_BIT);
+        }
+        if !self.0.is_set(entity::ALIVE_BIT) {
+            self.0.copy_bool(&src, entity::ALIVE_BIT);
+        }
+        self
+    }
     /// Like [`to_bytes`](Self::to_bytes), but seals the envelope into the builder's batch
     /// (take it with `Builder::take_frames`).
     ///
@@ -494,6 +533,40 @@ impl<'b> FrameW<'b> {
     ) -> ::core::result::Result<::graven::Bytes, ::graven::Error> {
         f(&mut FrameW::root(b));
         b.flush_envelope(Frame::SCHEMA_ID)
+    }
+    /// Writes a new `Frame` from `from`: `f` writes the fields that change, then every field it did not write is copied from `from` ([`fill_from`](Self::fill_from)). Returns the envelope, as [`to_bytes`](Self::to_bytes) does.
+    ///
+    /// # Panics
+    /// As [`to_bytes`](Self::to_bytes).
+    #[inline]
+    pub fn rebuild(
+        b: &mut ::graven::Builder<'_>,
+        from: &FrameVerified<'_>,
+        f: impl ::core::ops::FnOnce(&mut FrameW<'_>),
+    ) -> ::core::result::Result<::graven::Bytes, ::graven::Error> {
+        {
+            let mut w = FrameW::root(b);
+            f(&mut w);
+            w.fill_from(from);
+        }
+        b.flush_envelope(Frame::SCHEMA_ID)
+    }
+    /// Copies from `from` every field this writer has not written yet, keeping presence: an absent field stays absent. Nested tables, lists of tables and unions are copied with their own `fill_from`. Fields and union variants `Frame` does not know (written by a newer schema) are not copied.
+    #[inline]
+    #[allow(clippy::collapsible_if, clippy::single_match)]
+    pub fn fill_from(&mut self, from: &FrameVerified<'_>) -> &mut Self {
+        let src = from.reader().0;
+        if !self.0.is_set(frame::TICK_BIT) {
+            self.0.copy_inline(&src, frame::TICK, 8, frame::TICK_BIT);
+        }
+        if !self.0.has_slot(frame::ENTITIES, 4) {
+            let l = from.entities();
+            let mut lw = self.entities(l.len() as u32);
+            for e in l.iter() {
+                lw.push().fill_from(&e);
+            }
+        }
+        self
     }
     /// Like [`to_bytes`](Self::to_bytes), but seals the envelope into the builder's batch
     /// (take it with `Builder::take_frames`).

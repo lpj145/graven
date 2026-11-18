@@ -110,6 +110,10 @@ pub fn diff(old: &Lock, new: &Lock, findings: &[Finding]) -> Report {
                     if of.name != nf.name && nf.presence != "reserved" {
                         parts.push(format!("renamed {} → {}", of.name, nf.name));
                     }
+                    if of.align != nf.align && nf.presence != "reserved" {
+                        let text = |a: Option<u16>| a.map_or("none".to_string(), |n| n.to_string());
+                        parts.push(format!("align {} → {}", text(of.align), text(nf.align)));
+                    }
                     if parts.is_empty() {
                         // Only the slot/bit moved: a consequence of an earlier field's size
                         // change (reported there), unless the checker flags it by itself.
@@ -121,7 +125,11 @@ pub fn diff(old: &Lock, new: &Lock, findings: &[Finding]) -> Report {
                         }
                         parts.push("layout changed".into());
                     }
-                    let allowed = if parts.iter().any(|p| p.starts_with("renamed")) && parts.len() == 1 {
+                    let allowed = if parts.iter().all(|p| p.starts_with("align")) {
+                        "align-changed"
+                    } else if parts.iter().any(|p| p.starts_with("renamed"))
+                        && parts.iter().all(|p| p.starts_with("renamed") || p.starts_with("align"))
+                    {
                         "field-renamed"
                     } else if nf.presence == "reserved" {
                         "reserved-optional"

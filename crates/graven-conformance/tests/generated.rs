@@ -667,6 +667,18 @@ fn mutation_gate_generated() {
                 let a = to_value(&view);
                 assert_eq!(a, to_value_checked(&checked), "case {case}: view ≠ checked reader");
                 assert_eq!(Ok(&a), interp.as_ref(), "case {case}: generated ≠ interpreter");
+                // Whatever verified also rebuilds, and reads the same (an unknown union
+                // variant is the one thing not copied).
+                let rebuilt = rebuild_unchanged(&buf, false);
+                let rv = g::Root::verified(&rebuilt).unwrap_or_else(|e| panic!("case {case}: rebuilt does not verify: {e:?}"));
+                let (mut want, mut got) = (a.clone(), to_value(&rv));
+                if matches!(view.choice(), Some(g::ChoiceVerified::Unknown(_))) {
+                    for m in [&mut want, &mut got] {
+                        let Value::Table(t) = m else { panic!() };
+                        t.remove("choice");
+                    }
+                }
+                assert_eq!(got, want, "case {case}: rebuilt ≠ original");
             }
             Err(e) => {
                 assert!(interp.is_err(), "case {case}: generated refused ({e:?}) but the interpreter accepted");
@@ -711,4 +723,91 @@ fn mutation_gate_extra_holder() {
         }
     }
     assert!(checked > if cfg!(miri) { 200 } else { 1000 }, "too few mutations: {checked}");
+}
+
+// ------------------------------------------------------------- rebuild (proposal 0006)
+
+/// Rebuilds a message from its verified view without changing anything.
+fn rebuild_unchanged(bytes: &[u8], enveloped: bool) -> Vec<u8> {
+    let mut b = if enveloped { Builder::new_enveloped(&graven::LocalPool) } else { Builder::new(&graven::LocalPool) };
+    if enveloped {
+        let v = g::Root::from_bytes(bytes).unwrap();
+        g::RootW::rebuild(&mut b, &v, |_| {}).unwrap().to_vec()
+    } else {
+        let v = g::Root::verified(bytes).unwrap();
+        g::RootW::root(&mut b).fill_from(&v);
+        b.finished().unwrap().to_vec()
+    }
+}
+
+/// `fill_from` copies in ID order, as the reference writer writes: rebuilding a canonical
+/// vector without changes reproduces it byte for byte. The vectors a typed writer cannot
+/// produce, and the streamed one (its layout differs on purpose), still read the same.
+#[test]
+fn rebuild_reproduces_vectors() {
+    let mut exact = 0;
+    for (name, bytes, j) in vectors() {
+        let ExpectJson::Value(v) = &j.expect else { continue };
+        if j.schema != "conformance.v1.Root" || name == "env_concat" {
+            continue;
+        }
+        let got = rebuild_unchanged(&bytes, j.enveloped);
+        if NOT_TYPED_WRITABLE.contains(&name.as_str()) || name == "streaming_leaves" {
+            if name == "unknown_union_tag" {
+                // A union variant this schema does not know is not copied.
+                let r = g::Root::verified(&got).unwrap();
+                assert!(r.choice().is_none(), "{name}: unknown variant copied");
+                continue;
+            }
+            let back = evaluate(&got, &j.schema, j.enveloped).unwrap();
+            assert_eq!(&back, v, "{name}: rebuilt message reads differently");
+        } else {
+            assert!(got == bytes, "{name}: rebuild does not reproduce the .bin");
+            exact += 1;
+        }
+    }
+    assert!(exact >= 6, "only {exact} vectors reproduced exactly");
+}
+
+/// The closure's fields win; every other field, nested ones included, is copied; an absent
+/// field stays absent (a defaulted one is not written with its default).
+#[test]
+fn rebuild_changes_only_what_the_closure_writes() {
+    let mut b = Builder::new_enveloped(&graven::LocalPool);
+    let old = g::RootW::to_bytes(&mut b, |w| {
+        w.a_u8(1).flag2(true).name("old name").nums(&[1, 2, 3]).blob(b"xyz");
+        w.color(g::Color::Blue).point(g::Point { x: 4, y: -5 });
+        w.names(["a", "b"]);
+        w.child().n(9).s("kept");
+        {
+            let mut l = w.leaves(2);
+            l.push().n(1);
+            l.push().n(2).s("two");
+        }
+        w.choice_leaf().n(77);
+    })
+    .unwrap();
+    let ov = g::Root::from_bytes(&old).unwrap();
+    let new = g::RootW::rebuild(&mut b, &ov, |w| {
+        w.name("new name");
+        let mut c = w.child();
+        c.s("changed");
+        c.fill_from(&ov.child().unwrap());
+    })
+    .unwrap();
+    let nv = g::Root::from_bytes(&new).unwrap();
+    assert_eq!(nv.name(), Some("new name"));
+    assert_eq!(nv.child().unwrap().s(), Some("changed"));
+    assert_eq!(nv.child().unwrap().n(), 9);
+    let mut want = to_value(&ov);
+    let mut got = to_value(&nv);
+    for m in [&mut want, &mut got] {
+        let Value::Table(t) = m else { panic!() };
+        t.remove("name");
+        t.remove("child");
+    }
+    assert_eq!(got, want);
+    // `a_u32` (default 7) was absent: it stays absent.
+    let payload = &new[graven::envelope::HEADER_LEN..new.len() - graven::envelope::TRAILER_LEN];
+    assert!(!graven::TableRef::at(payload, 0).unwrap().bit(g::root::A_U32_BIT));
 }

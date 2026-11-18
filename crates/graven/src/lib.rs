@@ -35,8 +35,9 @@
 //! ```
 #![cfg_attr(not(feature = "std"), no_std)]
 #![forbid(unsafe_op_in_unsafe_fn)]
-// The only `unsafe` is `TableRef::str_unchecked` and the support for generated verified
-// views in `rt` (`FromVerified`, `VListR`, `VStrList`); each carries its own `#[allow]`.
+// The only `unsafe` is `TableRef::str_unchecked`, `ScalarList::as_slice` (with the `Plain`
+// trait) and the support for generated verified views in `rt` (`FromVerified`, `VListR`,
+// `VStrList`); each carries its own `#[allow]`.
 #![deny(unsafe_code)]
 extern crate alloc;
 
@@ -49,7 +50,7 @@ pub mod read;
 pub use bytes::Bytes;
 pub use crc::crc32c;
 pub use error::Error;
-pub use le::Le;
+pub use le::{Le, Plain};
 pub use read::{Bit, Frames, ScalarList, StrList, TableList, TableRef, frames};
 #[cfg(feature = "std")]
 pub use pool::{LocalPool, SimplePool};

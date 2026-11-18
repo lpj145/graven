@@ -339,6 +339,36 @@ impl<'b> SmallW<'b> {
         f(&mut SmallW::root(b));
         b.flush_envelope(Small::SCHEMA_ID)
     }
+    /// Writes a new `Small` from `from`: `f` writes the fields that change, then every field it did not write is copied from `from` ([`fill_from`](Self::fill_from)). Returns the envelope, as [`to_bytes`](Self::to_bytes) does.
+    ///
+    /// # Panics
+    /// As [`to_bytes`](Self::to_bytes).
+    #[inline]
+    pub fn rebuild(
+        b: &mut ::graven::Builder<'_>,
+        from: &SmallVerified<'_>,
+        f: impl ::core::ops::FnOnce(&mut SmallW<'_>),
+    ) -> ::core::result::Result<::graven::Bytes, ::graven::Error> {
+        {
+            let mut w = SmallW::root(b);
+            f(&mut w);
+            w.fill_from(from);
+        }
+        b.flush_envelope(Small::SCHEMA_ID)
+    }
+    /// Copies from `from` every field this writer has not written yet, keeping presence: an absent field stays absent. Nested tables, lists of tables and unions are copied with their own `fill_from`. Fields and union variants `Small` does not know (written by a newer schema) are not copied.
+    #[inline]
+    #[allow(clippy::collapsible_if, clippy::single_match)]
+    pub fn fill_from(&mut self, from: &SmallVerified<'_>) -> &mut Self {
+        let src = from.reader().0;
+        if !self.0.is_set(small::V_BIT) {
+            self.0.copy_inline(&src, small::V, 4, small::V_BIT);
+        }
+        if !self.0.is_set(small::OK_BIT) {
+            self.0.copy_bool(&src, small::OK_BIT);
+        }
+        self
+    }
     /// Like [`to_bytes`](Self::to_bytes), but seals the envelope into the builder's batch
     /// (take it with `Builder::take_frames`).
     ///
@@ -562,6 +592,35 @@ impl<'b> BigW<'b> {
     ) -> ::core::result::Result<::graven::Bytes, ::graven::Error> {
         f(&mut BigW::root(b));
         b.flush_envelope(Big::SCHEMA_ID)
+    }
+    /// Writes a new `Big` from `from`: `f` writes the fields that change, then every field it did not write is copied from `from` ([`fill_from`](Self::fill_from)). Returns the envelope, as [`to_bytes`](Self::to_bytes) does.
+    ///
+    /// # Panics
+    /// As [`to_bytes`](Self::to_bytes).
+    #[inline]
+    pub fn rebuild(
+        b: &mut ::graven::Builder<'_>,
+        from: &BigVerified<'_>,
+        f: impl ::core::ops::FnOnce(&mut BigW<'_>),
+    ) -> ::core::result::Result<::graven::Bytes, ::graven::Error> {
+        {
+            let mut w = BigW::root(b);
+            f(&mut w);
+            w.fill_from(from);
+        }
+        b.flush_envelope(Big::SCHEMA_ID)
+    }
+    /// Copies from `from` every field this writer has not written yet, keeping presence: an absent field stays absent. Nested tables, lists of tables and unions are copied with their own `fill_from`. Fields and union variants `Big` does not know (written by a newer schema) are not copied.
+    #[inline]
+    #[allow(clippy::collapsible_if, clippy::single_match)]
+    pub fn fill_from(&mut self, from: &BigVerified<'_>) -> &mut Self {
+        if !self.0.has_slot(big::S, 4) {
+            self.s(from.s());
+        }
+        if !self.0.has_slot(big::B, 4) {
+            self.b(from.b());
+        }
+        self
     }
     /// Like [`to_bytes`](Self::to_bytes), but seals the envelope into the builder's batch
     /// (take it with `Builder::take_frames`).
@@ -1332,6 +1391,143 @@ impl<'b> EdgeW<'b> {
     ) -> ::core::result::Result<::graven::Bytes, ::graven::Error> {
         f(&mut EdgeW::root(b));
         b.flush_envelope(Edge::SCHEMA_ID)
+    }
+    /// Writes a new `Edge` from `from`: `f` writes the fields that change, then every field it did not write is copied from `from` ([`fill_from`](Self::fill_from)). Returns the envelope, as [`to_bytes`](Self::to_bytes) does.
+    ///
+    /// # Panics
+    /// As [`to_bytes`](Self::to_bytes).
+    #[inline]
+    pub fn rebuild(
+        b: &mut ::graven::Builder<'_>,
+        from: &EdgeVerified<'_>,
+        f: impl ::core::ops::FnOnce(&mut EdgeW<'_>),
+    ) -> ::core::result::Result<::graven::Bytes, ::graven::Error> {
+        {
+            let mut w = EdgeW::root(b);
+            f(&mut w);
+            w.fill_from(from);
+        }
+        b.flush_envelope(Edge::SCHEMA_ID)
+    }
+    /// Copies from `from` every field this writer has not written yet, keeping presence: an absent field stays absent. Nested tables, lists of tables and unions are copied with their own `fill_from`. Fields and union variants `Edge` does not know (written by a newer schema) are not copied.
+    #[inline]
+    #[allow(clippy::collapsible_if, clippy::single_match)]
+    pub fn fill_from(&mut self, from: &EdgeVerified<'_>) -> &mut Self {
+        let src = from.reader().0;
+        if !self.0.is_set(edge::TYPE_BIT) {
+            self.0.copy_inline(&src, edge::TYPE, 1, edge::TYPE_BIT);
+        }
+        if !self.0.has_slot(edge::REQ_STR, 4) {
+            self.req_str(from.req_str());
+        }
+        if !self.0.has_slot(edge::REQ_BYTES, 4) {
+            self.req_bytes(from.req_bytes());
+        }
+        if !self.0.has_slot(edge::REQ_NUMS, 4) {
+            let l = from.req_nums();
+            self.0.set_scalars_raw(edge::REQ_NUMS, l.len() as u32, l.as_bytes());
+        }
+        if !self.0.has_slot(edge::REQ_NAMES, 4) {
+            self.req_names(from.req_names().iter());
+        }
+        if !self.0.has_slot(edge::REQ_BLOBS, 4) {
+            let l = from.req_blobs();
+            self.0
+                .set_bytes_list(
+                    edge::REQ_BLOBS,
+                    (0..l.len()).map(|i| ::graven::rt::trusted(l.get_bytes(i))),
+                );
+        }
+        if !self.0.has_slot(edge::REQ_SMALL, 4) {
+            let l = from.req_small();
+            let mut lw = self.req_small(l.len() as u32);
+            for e in l.iter() {
+                lw.push().fill_from(&e);
+            }
+        }
+        if !self.0.has_slot(edge::REQ_BIG, 4) {
+            let l = from.req_big();
+            let mut lw = self.req_big(l.len() as u32);
+            for e in l.iter() {
+                lw.push().fill_from(&e);
+            }
+        }
+        if !self.0.has_slot(edge::REQ_TAB, 4) {
+            self.req_tab().fill_from(&from.req_tab());
+        }
+        if !self.0.has_slot(edge::REQ_PICK, 2) {
+            match from.req_pick() {
+                PickVerified::Small(t) => {
+                    self.req_pick_small().fill_from(&t);
+                }
+                PickVerified::Big(t) => {
+                    self.req_pick_big().fill_from(&t);
+                }
+                _ => {}
+            }
+        }
+        if !self.0.is_set(edge::D_I8_BIT) {
+            self.0.copy_inline(&src, edge::D_I8, 1, edge::D_I8_BIT);
+        }
+        if !self.0.is_set(edge::D_I64_BIT) {
+            self.0.copy_inline(&src, edge::D_I64, 8, edge::D_I64_BIT);
+        }
+        if !self.0.is_set(edge::D_F32_BIT) {
+            self.0.copy_inline(&src, edge::D_F32, 4, edge::D_F32_BIT);
+        }
+        if !self.0.is_set(edge::D_F64_BIT) {
+            self.0.copy_inline(&src, edge::D_F64, 8, edge::D_F64_BIT);
+        }
+        if !self.0.is_set(edge::D_BOOL_BIT) {
+            self.0.copy_bool(&src, edge::D_BOOL_BIT);
+        }
+        if !self.0.is_set(edge::D_MODE_BIT) {
+            self.0.copy_inline(&src, edge::D_MODE, 2, edge::D_MODE_BIT);
+        }
+        if !self.0.is_set(edge::PIXEL_BIT) {
+            self.0.copy_inline(&src, edge::PIXEL, 5, edge::PIXEL_BIT);
+        }
+        if !self.0.is_set(edge::PAIR_BIT) {
+            self.0.copy_inline(&src, edge::PAIR, 13, edge::PAIR_BIT);
+        }
+        if !self.0.has_slot(edge::BOOLS, 4) {
+            if let ::core::option::Option::Some(v) = from.bools() {
+                let l = v;
+                self.0.set_scalars_raw(edge::BOOLS, l.len() as u32, l.as_bytes());
+            }
+        }
+        if !self.0.has_slot(edge::MODES, 4) {
+            if let ::core::option::Option::Some(v) = from.modes() {
+                let l = v;
+                self.0.set_scalars_raw(edge::MODES, l.len() as u32, l.as_bytes());
+            }
+        }
+        if !self.0.has_slot(edge::PIXELS, 4) {
+            if let ::core::option::Option::Some(v) = from.pixels() {
+                let l = v;
+                self.0.set_scalars_raw(edge::PIXELS, l.len() as u32, l.as_bytes());
+            }
+        }
+        if !self.0.has_slot(edge::OPT_TAB, 4) {
+            if let ::core::option::Option::Some(v) = from.opt_tab() {
+                self.opt_tab().fill_from(&v);
+            }
+        }
+        if !self.0.has_slot(edge::OPT_PICK, 2) {
+            match from.opt_pick() {
+                ::core::option::Option::Some(PickVerified::Small(t)) => {
+                    self.opt_pick_small().fill_from(&t);
+                }
+                ::core::option::Option::Some(PickVerified::Big(t)) => {
+                    self.opt_pick_big().fill_from(&t);
+                }
+                _ => {}
+            }
+        }
+        if !self.0.is_set(edge::LAST_BIT) {
+            self.0.copy_inline(&src, edge::LAST, 1, edge::LAST_BIT);
+        }
+        self
     }
     /// Like [`to_bytes`](Self::to_bytes), but seals the envelope into the builder's batch
     /// (take it with `Builder::take_frames`).

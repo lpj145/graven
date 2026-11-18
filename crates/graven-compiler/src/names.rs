@@ -287,7 +287,7 @@ fn table_fields(
         reader.map.insert(m.into(), (FIXED.into(), "reader item".into()));
     }
     view.map.insert("reader".into(), (FIXED.into(), "view method".into()));
-    for m in ["root", "to_bytes", "seal"] {
+    for m in ["root", "to_bytes", "seal", "rebuild", "fill_from"] {
         writer.map.insert(m.into(), (FIXED.into(), "writer method".into()));
     }
     if has_rules {

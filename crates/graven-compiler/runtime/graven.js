@@ -400,12 +400,41 @@ export class ScalarList {
     asBytes() {
         return this.buf.subarray(this.data, this.data + this.length * this.codec.size);
     }
+    /**
+     * The elements as a typed array over the message's bytes, without copying: `undefined`
+     * when they are not aligned in memory for their type (then iterate, or use `get`), and for
+     * `u128` / `i128` / `bool` / enum / struct lists, which have no typed array. A list written
+     * with `#[align(to = N)]`, in a buffer that starts aligned, is always aligned.
+     */
+    asTypedArray() {
+        const ctor = TYPED_ARRAYS.get(this.codec);
+        if (ctor === undefined || !LITTLE_ENDIAN)
+            return undefined;
+        const at = this.buf.byteOffset + this.data;
+        if (at % ctor.BYTES_PER_ELEMENT !== 0)
+            return undefined;
+        return new ctor(this.buf.buffer, at, this.length);
+    }
     *[Symbol.iterator]() {
         for (let i = 0; i < this.length; i++) {
             yield this.codec.read(this.dv, this.data + i * this.codec.size);
         }
     }
 }
+/** Typed arrays use the platform byte order; the wire format is little-endian. */
+const LITTLE_ENDIAN = new Uint8Array(new Uint16Array([1]).buffer)[0] === 1;
+const TYPED_ARRAYS = new Map([
+    [leU8, Uint8Array],
+    [leI8, Int8Array],
+    [leU16, Uint16Array],
+    [leI16, Int16Array],
+    [leU32, Uint32Array],
+    [leI32, Int32Array],
+    [leU64, BigUint64Array],
+    [leI64, BigInt64Array],
+    [leF32, Float32Array],
+    [leF64, Float64Array],
+]);
 /** Low-level view over `[Table]` fixed parts. */
 export class TableList {
     buf;
@@ -926,8 +955,22 @@ export class Builder {
     msgStart;
     sealMode;
     pendingClose = [];
+    recordAlign = 0;
     constructor(initialCapacity = 256) {
         this.main = new GrowBuf(initialCapacity);
+    }
+    /**
+     * Pads the end of every envelope this builder writes with zero bytes, so that each envelope
+     * (`24 + payload_len` bytes) is a multiple of `r` (a power of two from 2 to 65536).
+     * Envelopes written one after another from offset 0 then all start at a multiple of `r`.
+     * The padding is inside the payload, after the message: unreferenced bytes, valid v1.
+     */
+    withRecordAlign(r) {
+        if (!Number.isInteger(r) || r < 2 || r > 65536 || (r & (r - 1)) !== 0) {
+            throw new RangeError(`withRecordAlign: ${r} is not a power of two from 2 to 65536`);
+        }
+        this.recordAlign = r;
+        return this;
     }
     root(fixedLen) {
         this.pendingClose = [];
@@ -940,8 +983,10 @@ export class Builder {
         this.main.allocZero(prefix);
         const ms = this.main.len;
         this.msgStart = ms;
+        // `#[align]` counts from the envelope's first byte, or from the message's without one.
+        const base = this.sealMode === "frame" || this.sealMode === "rpc" ? ms : ms - ENVELOPE_HEADER_LEN;
         const start = allocTableW(this.main, fixedLen);
-        return new TableW(this.main, undefined, start, this.pendingClose);
+        return new TableW(this.main, undefined, start, this.pendingClose, base);
     }
     _startRpc() {
         this.main.clear();
@@ -1019,7 +1064,7 @@ export class Builder {
             return new Uint8Array(0);
         }
         const payloadLen = this.main.len - ms;
-        if (payloadLen > I32_MAX) {
+        if (payloadLen + this.recordAlign > I32_MAX) {
             this.main.clear();
             throw new GravenError("TooLarge");
         }
@@ -1064,7 +1109,7 @@ export class Builder {
         if (ms === undefined)
             return;
         const payloadLen = this.main.len - ms;
-        if (payloadLen > I32_MAX) {
+        if (payloadLen + this.recordAlign > I32_MAX) {
             this.main.len = this.sealed;
             throw new GravenError("TooLarge");
         }
@@ -1084,6 +1129,12 @@ export class Builder {
         return out;
     }
     closeEnvelope(ms, id, payloadLen) {
+        if (this.recordAlign > 1) {
+            const total = ENVELOPE_HEADER_LEN + payloadLen + 4;
+            const pad = (this.recordAlign - (total % this.recordAlign)) % this.recordAlign;
+            this.main.allocZero(pad);
+            payloadLen += pad;
+        }
         const hdrStart = ms - ENVELOPE_HEADER_LEN;
         writeEnvelopeHeader(this.main.buf, hdrStart, id, payloadLen);
         const crc = crc32cRange(this.main.buf, hdrStart, this.main.len);
@@ -1121,11 +1172,65 @@ export class TableW {
     aux;
     start;
     pendingClose;
-    constructor(main, aux, start, pendingClose = []) {
+    /** Offset in `main` that `alignData` counts from (start of the container). */
+    base;
+    constructor(main, aux, start, pendingClose = [], base = 0) {
         this.main = main;
         this.aux = aux;
         this.start = start;
         this.pendingClose = pendingClose;
+        this.base = base;
+    }
+    /**
+     * Pads with zero bytes so that the data of the next variable-size value (after its 4-byte
+     * length or count) starts at a multiple of `align` from the start of the container
+     * (`#[align(to = N)]`).
+     */
+    alignData(align) {
+        const at = this.main.len + 4 - this.base;
+        const pad = (align - (at % align)) % align;
+        if (pad > 0)
+            this.main.allocZero(pad);
+        return this;
+    }
+    /** Whether the presence bit `b` is set: the field was written. */
+    isSet(b) {
+        const t = this.fixedTarget();
+        return (((t.buf[this.start + b.byte] ?? 0) >> b.shift) & 1) === 1;
+    }
+    /** Whether the pointer slot `off` (or a union slot's tag) was written. */
+    hasSlot(off, size) {
+        const t = this.fixedTarget();
+        for (let i = 0; i < size; i++) {
+            if ((t.buf[this.start + off + i] ?? 0) !== 0)
+                return true;
+        }
+        return false;
+    }
+    /** Copies an inline field (`size` bytes at `off`) from `src` when present there. */
+    copyInline(src, off, size, presence) {
+        if (!src.bit(presence))
+            return this;
+        const t = this.fixedTarget();
+        for (let i = 0; i < size; i++)
+            t.buf[this.start + off + i] = src.fixedByte(off + i);
+        this.setBit(presence);
+        return this;
+    }
+    /** Copies a `bool` field (presence and value bits) from `src` when present there. */
+    copyBool(src, presence) {
+        if (src.bit(presence)) {
+            this.setBool(presence, src.bit({ byte: presence.byte, shift: presence.shift + 1 }));
+        }
+        return this;
+    }
+    /** A list of `count` scalars from their little-endian bytes. */
+    setScalarsRaw(off, count, raw) {
+        const pos = this.main.len;
+        this.main.pushU32(count);
+        this.main.pushBytes(raw);
+        this.patch(off, pos);
+        return this;
     }
     fixedTarget() {
         return this.aux ?? this.main;
@@ -1225,7 +1330,7 @@ export class TableW {
         const pos = this.main.len;
         const start = allocTableW(this.main, fixedLen);
         this.patch(off, pos);
-        return new TableW(this.main, undefined, start, this.pendingClose);
+        return new TableW(this.main, undefined, start, this.pendingClose, this.base);
     }
     union(off, tag, fixedLen) {
         if (tag === 0) {
@@ -1245,7 +1350,7 @@ export class TableW {
         this.main.allocZero(6 + size);
         this.main.dv.setUint16(pos + 4, elemFixedLen, true);
         this.patch(off, pos);
-        return new TableListW(this.main, pos, first, elemFixedLen, count, this.pendingClose);
+        return new TableListW(this.main, pos, first, elemFixedLen, count, this.pendingClose, this.base);
     }
     tablesStreaming(off, elemFixedLen, ptrSlots) {
         const list = new StreamListW(this, off, elemFixedLen, ptrSlots);
@@ -1267,14 +1372,16 @@ export class TableListW {
     efl;
     cap;
     pendingClose;
+    base;
     count = 0;
-    constructor(main, pos, first, efl, cap, pendingClose = []) {
+    constructor(main, pos, first, efl, cap, pendingClose = [], base = 0) {
         this.main = main;
         this.pos = pos;
         this.first = first;
         this.efl = efl;
         this.cap = cap;
         this.pendingClose = pendingClose;
+        this.base = base;
     }
     push() {
         if (this.count >= this.cap) {
@@ -1283,7 +1390,7 @@ export class TableListW {
         const start = this.first + this.count * this.efl;
         this.count++;
         this.main.dv.setUint32(this.pos, this.count, true);
-        return new TableW(this.main, undefined, start, this.pendingClose);
+        return new TableW(this.main, undefined, start, this.pendingClose, this.base);
     }
     close() {
         this.main.dv.setUint32(this.pos, this.count, true);
@@ -1310,7 +1417,7 @@ export class StreamListW {
         }
         const start = this.aux.allocZero(this.efl);
         this.count++;
-        return new TableW(this.parent.main, this.aux, start, this.parent.pendingClose);
+        return new TableW(this.parent.main, this.aux, start, this.parent.pendingClose, this.parent.base);
     }
     close() {
         if (this.closed)

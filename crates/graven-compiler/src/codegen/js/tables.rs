@@ -45,7 +45,7 @@ impl<'a> JsCx<'a> {
         // Member names already taken on each class.
         let mut r_used = member_scope(&["_ref", "verify", "_verifyContent"]);
         let mut v_used = member_scope(&["_ref", "reader", "validate", "validateAll", "_validateAllInto"]);
-        let mut w_used = member_scope(&["_w"]);
+        let mut w_used = member_scope(&["_w", "fillFrom"]);
 
         let tfields: Vec<TField<'_>> = fields
             .into_iter()
@@ -186,6 +186,17 @@ impl<'a> JsCx<'a> {
             &[format!("fn({name_w}.root(b));"), format!("b.sealEnvelope({name}.SCHEMA_ID);")],
         );
         self.emit_to_bytes_validated(out, &name, &name_w);
+        out.method(
+            "  ",
+            true,
+            "rebuild",
+            &[p("from", name_v.clone()), p("fn", format!("(w: {name_w}) => void"))],
+            "Uint8Array",
+            &[format!(
+                "return _graven.withBuilder((b) => {{ const w = {name_w}.root(b); fn(w); w.fillFrom(from); return b.finishEnvelope({name}.SCHEMA_ID); }});"
+            )],
+        );
+        self.emit_fill_from(out, &name_v, &tfields);
         for tf in &tfields {
             self.emit_setter(out, t, tf);
         }
@@ -435,6 +446,63 @@ impl<'a> JsCx<'a> {
         }
     }
 
+    /// `fillFrom(from)`: copies every field this writer has not written yet (proposal 0006).
+    fn emit_fill_from(&self, out: &mut Out, name_v: &str, tfields: &[TField<'_>]) {
+        let mut body = vec!["const src = from._ref;".to_string()];
+        for tf in tfields {
+            let f = tf.f;
+            let bit = tf.bit.map(|(b, s)| format!("{{ byte: {b}, shift: {s} }}"));
+            match &f.ty {
+                Ty::Bool => {
+                    let bit = bit.unwrap();
+                    body.push(format!("if (!this._w.isSet({bit})) this._w.copyBool(src, {bit});"));
+                }
+                Ty::Scalar(_) | Ty::Enum(_) | Ty::Struct(_) => {
+                    let bit = bit.unwrap();
+                    let off = tf.slot.unwrap();
+                    let FieldKind::Scalar { size } = self.ir.field_kind(&f.ty) else { unreachable!() };
+                    body.push(format!("if (!this._w.isSet({bit})) this._w.copyInline(src, {off}, {size}, {bit});"));
+                }
+                Ty::Union(_) => {
+                    let off = tf.slot.unwrap();
+                    let v = &tf.v_name;
+                    let mut sw = format!("if (!this._w.hasSlot({off}, 2)) {{ const u = from.{v}(); if (u !== undefined) switch (u.tag) {{");
+                    for (uname, tag, _) in &tf.w_unions {
+                        sw.push_str(&format!(" case {tag}: this.{uname}().fillFrom(u.value); break;"));
+                    }
+                    // A variant this schema does not know is not copied.
+                    sw.push_str(" } }");
+                    body.push(sw);
+                }
+                _ => {
+                    let off = tf.slot.unwrap();
+                    let v = &tf.v_name;
+                    let w = &tf.w_name;
+                    let al = align_js(f);
+                    let copy = match &f.ty {
+                        Ty::Str | Ty::Bytes => format!("const v = src.bytes({off}); if (v !== undefined) {{ {al}this._w.setBytes({off}, v); }}"),
+                        Ty::Table(_) => format!("const v = from.{v}(); if (v !== undefined) this.{w}().fillFrom(v);"),
+                        Ty::List(elem) => match &**elem {
+                            Ty::Str => format!("const v = from.{v}(); if (v !== undefined) this._w.setStrs({off}, v);"),
+                            Ty::Bytes => format!("const v = from.{v}(); if (v !== undefined) this._w.setBytesList({off}, v);"),
+                            Ty::Table(_) => format!(
+                                "const v = from.{v}(); if (v !== undefined) {{ const l = this.{w}(v.length); for (const e of v) l.push().fillFrom(e); }}"
+                            ),
+                            inline => format!(
+                                "const v = src.scalars({off}, {}); if (v !== undefined) {{ {al}this._w.setScalarsRaw({off}, v.length, v.asBytes()); }}",
+                                self.codec(inline)
+                            ),
+                        },
+                        _ => unreachable!("pointer field"),
+                    };
+                    body.push(format!("if (!this._w.hasSlot({off}, 4)) {{ {copy} }}"));
+                }
+            }
+        }
+        body.push("return this;".into());
+        out.method("  ", false, "fillFrom", &[p("from", name_v)], "this", &body);
+    }
+
     fn emit_setter(&self, out: &mut Out, t: &Table, tf: &TField<'_>) {
         let f = tf.f;
         let w_name = tf.w_name.as_str();
@@ -458,7 +526,7 @@ impl<'a> JsCx<'a> {
                 );
             }
             Ty::Str => set(out, "string".into(), format!("this._w.setStr({}, v);", tf.slot.unwrap())),
-            Ty::Bytes => set(out, "Uint8Array".into(), format!("this._w.setBytes({}, v);", tf.slot.unwrap())),
+            Ty::Bytes => set(out, "Uint8Array".into(), format!("{}this._w.setBytes({}, v);", align_js(f), tf.slot.unwrap())),
             Ty::List(elem) => {
                 let off = tf.slot.unwrap();
                 match &**elem {
@@ -492,7 +560,8 @@ impl<'a> JsCx<'a> {
                     inline => {
                         let ety = self.inline_ty(inline);
                         let codec = self.codec(inline);
-                        set(out, format!("Iterable<{ety}>"), format!("this._w.setScalars({off}, {codec}, v);"));
+                        let al = align_js(f);
+                        set(out, format!("Iterable<{ety}>"), format!("{al}this._w.setScalars({off}, {codec}, v);"));
                         if let Some(sn) = &tf.w_stream {
                             out.method(
                                 "  ",
@@ -500,7 +569,7 @@ impl<'a> JsCx<'a> {
                                 sn,
                                 &[],
                                 &format!("_graven.ScalarListW<{ety}>"),
-                                &[format!("return this._w.scalarsStreaming({off}, {codec});")],
+                                &[format!("{al}return this._w.scalarsStreaming({off}, {codec});")],
                             );
                         }
                     }
@@ -534,5 +603,13 @@ fn descends(ty: &Ty) -> bool {
         Ty::Table(_) | Ty::Union(_) => true,
         Ty::List(elem) => matches!(&**elem, Ty::Table(_)),
         _ => false,
+    }
+}
+
+/// `this._w.alignData(N); ` for a field with `#[align(to = N)]`.
+fn align_js(f: &Field) -> String {
+    match f.align {
+        Some(n) => format!("this._w.alignData({n}); "),
+        None => String::new(),
     }
 }

@@ -1,0 +1,18 @@
+// Aligned data (proposal 0006): `#[align(to = N)]` on numeric lists and bytes.
+namespace aligned;
+
+table Samples {
+  name @0: string;
+  #[align(to = 16)]
+  values @1: [f32];
+  #[align(to = 8)]
+  ids @2: [u64]?;
+  #[align(to = 64)]
+  blob @3: bytes?;
+  #[align(to = 4096)]
+  page @4: [u8]?;
+}
+
+table Batch {
+  items @0: [Samples];
+}

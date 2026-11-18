@@ -269,6 +269,8 @@ struct F<'a> {
     ty: &'a Ty,
     presence: &'a Presence,
     rules: &'a FieldRules,
+    /// `#[align(to = N)]`.
+    align: Option<u16>,
     slot: Option<u16>,
     bit: Option<(u16, u8)>,
     /// accessor / setter name
@@ -292,6 +294,7 @@ impl<'a> Cx<'a> {
                 ty: &f.ty,
                 presence: &f.presence,
                 rules: &f.rules,
+                align: f.align,
                 slot: l.slot,
                 bit: l.presence,
                 id: ident(&f.name),

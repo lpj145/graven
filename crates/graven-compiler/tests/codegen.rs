@@ -25,6 +25,8 @@ const SCHEMAS: &[(&str, &str)] = &[
     ("conformance", "graven-conformance/schemas/conformance.graven"),
     // Edge cases (required pointers, defaults, nested scalar-only tables, …).
     ("edge", "graven-codegen-tests/schemas/edge.graven"),
+    // `#[align(to = N)]` (proposal 0006).
+    ("aligned", "graven-codegen-tests/schemas/aligned.graven"),
 ];
 
 /// Parse + check against the committed lock (`<schema>.lock`), which must be current.

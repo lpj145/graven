@@ -189,6 +189,39 @@ impl<'b> ChunkW<'b> {
         f(&mut ChunkW::root(b));
         b.flush_envelope(Chunk::SCHEMA_ID)
     }
+    /// Writes a new `Chunk` from `from`: `f` writes the fields that change, then every field it did not write is copied from `from` ([`fill_from`](Self::fill_from)). Returns the envelope, as [`to_bytes`](Self::to_bytes) does.
+    ///
+    /// # Panics
+    /// As [`to_bytes`](Self::to_bytes).
+    #[inline]
+    pub fn rebuild(
+        b: &mut ::graven::Builder<'_>,
+        from: &ChunkVerified<'_>,
+        f: impl ::core::ops::FnOnce(&mut ChunkW<'_>),
+    ) -> ::core::result::Result<::graven::Bytes, ::graven::Error> {
+        {
+            let mut w = ChunkW::root(b);
+            f(&mut w);
+            w.fill_from(from);
+        }
+        b.flush_envelope(Chunk::SCHEMA_ID)
+    }
+    /// Copies from `from` every field this writer has not written yet, keeping presence: an absent field stays absent. Nested tables, lists of tables and unions are copied with their own `fill_from`. Fields and union variants `Chunk` does not know (written by a newer schema) are not copied.
+    #[inline]
+    #[allow(clippy::collapsible_if, clippy::single_match)]
+    pub fn fill_from(&mut self, from: &ChunkVerified<'_>) -> &mut Self {
+        let src = from.reader().0;
+        if !self.0.is_set(chunk::STREAM_ID_BIT) {
+            self.0.copy_inline(&src, chunk::STREAM_ID, 8, chunk::STREAM_ID_BIT);
+        }
+        if !self.0.is_set(chunk::SEQ_BIT) {
+            self.0.copy_inline(&src, chunk::SEQ, 4, chunk::SEQ_BIT);
+        }
+        if !self.0.has_slot(chunk::DATA, 4) {
+            self.data(from.data());
+        }
+        self
+    }
     /// Like [`to_bytes`](Self::to_bytes), but seals the envelope into the builder's batch
     /// (take it with `Builder::take_frames`).
     ///

@@ -187,6 +187,9 @@ pub struct Field {
     /// required, or confirming a tightened/added validation rule).
     pub allow_breaking: bool,
     pub rules: FieldRules,
+    /// `#[align(to = N)]`: the writer aligns the data of this `bytes` or numeric list field.
+    /// A layout choice of the writer, not part of compatibility.
+    pub align: Option<u16>,
     pub span: Span,
 }
 

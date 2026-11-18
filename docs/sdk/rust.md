@@ -88,6 +88,34 @@ fn main() -> Result<(), graven::Error> {
 - **Return types:** on a verified view (`from_bytes`, `verified`), every accessor returns the value itself: `T` for a required field, `Option<T>` for an optional one, `&str`, `&[u8]`, lists and nested views included. The message was verified once, so reading it cannot fail. On a checked reader (`read`), strings, bytes, lists and nested tables return `Result<_, graven::Error>`, because nothing was verified yet. Enums decode to `E::Variant` or `E::Unknown(raw)`; unions decode to `U::Variant(view)` or `U::Unknown(tag)`. Lists of a verified view iterate over their elements directly, and `get(i)` returns `None` past the end.
 - **Writing:** `XW::to_bytes(&mut builder, |w| ...)` emits a single enveloped message; `XW::seal(&mut builder, |w| ...)` appends into a batch collected by `builder.take_frames()`. Use `w.entries(n)` for known-length lists or `w.entries_streaming()` when streaming elements without knowing the count upfront. Buffers come from a pool: `LocalPool` keeps a few per thread, with no lock and nothing to set up, so steady-state writing allocates nothing; `SimplePool` is one shared pool with a lock; any type implementing `BufPool` works. `LocalPool` needs the `std` feature (on by default).
 
+### Changing a stored message
+
+Messages are written in one pass and never edited. To change some fields, rebuild the
+message from its verified view: the closure writes what changes, and everything else is
+copied ([proposal 0006](../proposals/0006-rebuild-and-alignment.md)).
+
+```rust
+let old = Product::from_bytes(&stored)?;
+let new = ProductW::rebuild(&mut b, &old, |w| {
+    w.name("Café 1 kg");
+})?;
+```
+
+`w.fill_from(&view)` does the same copy on any writer, so a nested table can be rebuilt too
+(`let mut s = w.supplier(); s.city("Lisboa"); s.fill_from(&old.supplier());`). Copying keeps
+presence: an absent field stays absent. Fields and union variants that the schema does not
+know (written by a newer schema) are not copied, so rebuild with the schema that owns the
+data.
+
+### Aligned data
+
+- A list declared with `#[align(to = N)]` ([Schema language](../graven-language.md#aligned-data))
+  is written aligned. `ScalarList::as_slice()` returns the elements as a `&[T]` without
+  copying when they are aligned in memory, and `None` otherwise (then `iter()`).
+- `Builder::new_enveloped(&pool).with_record_align(r)` pads every envelope to a multiple of
+  `r` bytes, so envelopes appended to a file start at a cache line (64) or a page (4096).
+  With both, the lists of a memory-mapped file are aligned in memory.
+
 ## Validation
 
 When a schema declares validation rules (`#[range]`, `#[len]`, `#[finite]`, `#[known]`, `#[check(name)]`), the generator emits a `Checks` trait (if only built-in rules exist, `Checks` is implemented for `()`, so `&()` works):
@@ -195,7 +223,7 @@ The full rustdoc API documentation is published alongside this site:
 
 ### Generated items summary
 
-- **Table `X`:** `X<'a>` (`read`, `verified`, `verified_with`, `from_bytes`, `SCHEMA_ID`, `verify`), `XVerified<'a>` (`reader()`, unchecked-UTF8 accessors, `validate`, `validate_all`), `XW<'b>` (`root`, `to_bytes`, `to_bytes_validated`, `seal`, chainable setters, `<list>_streaming()`, `<union>_<variant>()`), layout module `mod x`, `XE`, `XListW`, `X_REQ`, `X_MASK`, `X_SCHEMA_ID`.
+- **Table `X`:** `X<'a>` (`read`, `verified`, `verified_with`, `from_bytes`, `SCHEMA_ID`, `verify`), `XVerified<'a>` (`reader()`, unchecked-UTF8 accessors, `validate`, `validate_all`), `XW<'b>` (`root`, `to_bytes`, `to_bytes_validated`, `seal`, `rebuild`, `fill_from`, chainable setters, `<list>_streaming()`, `<union>_<variant>()`), layout module `mod x`, `XE`, `XListW`, `X_REQ`, `X_MASK`, `X_SCHEMA_ID`.
 - **Enum `E`:** `enum E { ..., Unknown(base) }` (`from_raw`, `to_raw`, `Default`, `graven::Le`).
 - **Struct `S`:** `struct S { pub ... }` (`Copy`, `Default`, `PartialEq`, `Eq` if no floats, `graven::Le`).
 - **Union `U`:** `enum U<'a>` and `enum UVerified<'a>` (`Variant(view)` / `Unknown(u16)`), plus `UW` writer when services are enabled.

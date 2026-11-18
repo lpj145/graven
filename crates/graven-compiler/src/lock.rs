@@ -130,6 +130,9 @@ pub struct LockField {
     pub presence: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub rules: Option<LockRules>,
+    /// `#[align(to = N)]` (proposal 0006): how the writer places the data; compatible to change.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub align: Option<u16>,
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
@@ -283,6 +286,7 @@ pub fn lock_from_ir(ir: &Ir, prev: Option<&Lock>) -> Lock {
                     bit: l.presence,
                     presence: presence_text(&f.presence, &f.ty),
                     rules: lock_rules(&f.rules, &f.ty),
+                    align: f.align,
                 })
                 .collect();
             LockTable { name: t.name.clone(), schema_id, fixed_len: t.layout.fixed_len, fields, checks: t.checks.clone() }

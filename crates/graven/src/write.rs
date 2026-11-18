@@ -35,6 +35,8 @@ pub struct Builder<'p> {
     msg_start: Option<usize>,
     /// Bytes reserved before each message: 4 (frame length) or `HEADER_LEN` (envelope).
     prefix: usize,
+    /// Envelope size multiple set by `with_record_align` (0: none).
+    record_align: usize,
 }
 
 const FRAME_PREFIX: usize = 4;
@@ -96,7 +98,27 @@ impl<'p> Builder<'p> {
             sealed: 0,
             msg_start: None,
             prefix,
+            record_align: 0,
         }
+    }
+
+    /// Pads the end of every envelope this builder writes with zero bytes, so that each
+    /// envelope (`24 + payload_len` bytes) is a multiple of `r`. Envelopes written one after
+    /// another from offset 0 (an append-only file) then all start at a multiple of `r`: a
+    /// cache line (64) or a page (4096). The padding is inside the payload, after the message:
+    /// unreferenced bytes, which every v1 reader accepts.
+    ///
+    /// # Panics
+    /// Unless the builder was made with [`new_enveloped`](Self::new_enveloped) and `r` is a
+    /// power of two from 2 to 65536.
+    #[inline]
+    pub fn with_record_align(mut self, r: usize) -> Self {
+        if self.prefix != HEADER_LEN {
+            mode_mismatch();
+        }
+        assert!(r.is_power_of_two() && (2..=65536).contains(&r), "with_record_align: {r} is not a power of two from 2 to 65536");
+        self.record_align = r;
+        self
     }
 
     /// Start the root table of a new message (an unsealed previous message is discarded).
@@ -105,8 +127,9 @@ impl<'p> Builder<'p> {
         let main = self.buf.as_mut().expect("builder already finished");
         let ms = begin_msg(main, self.sealed, self.chunk, self.prefix);
         self.msg_start = Some(ms);
+        let base = if self.prefix == HEADER_LEN { ms - HEADER_LEN } else { ms };
         let start = alloc_table(main, fixed_len);
-        TableW { main, aux: None, start, pool: self.pool, stash: &mut self.stash }
+        TableW { main, aux: None, start, base, pool: self.pool, stash: &mut self.stash }
     }
 
     /// Root table with only scalar fields (no pointers) and compile-time size `N`.
@@ -200,7 +223,12 @@ impl<'p> Builder<'p> {
     /// Write the envelope header into the slot before the message at `ms` and
     /// append the CRC. `buf` must end at the end of the message.
     #[inline]
-    fn close_envelope(buf: &mut BytesMut, ms: usize, schema_id: u64) {
+    fn close_envelope(buf: &mut BytesMut, ms: usize, schema_id: u64, record_align: usize) {
+        if record_align > 1 {
+            let total = HEADER_LEN + (buf.len() - ms) + envelope::TRAILER_LEN;
+            let pad = (record_align - total % record_align) % record_align;
+            buf.resize(buf.len() + pad, 0);
+        }
         let len = buf.len() - ms;
         buf[ms - HEADER_LEN..ms].copy_from_slice(&envelope::header(schema_id, len as u32));
         let crc = crate::crc32c(&buf[ms - HEADER_LEN..]);
@@ -218,11 +246,11 @@ impl<'p> Builder<'p> {
         }
         let Some(ms) = self.msg_start.take() else { return Ok(()) };
         let buf = self.buf.as_mut().expect("builder already finished");
-        if buf.len() - ms > i32::MAX as usize {
+        if buf.len() - ms + self.record_align > i32::MAX as usize {
             buf.truncate(self.sealed);
             return Err(Error::TooLarge);
         }
-        Self::close_envelope(buf, ms, schema_id);
+        Self::close_envelope(buf, ms, schema_id, self.record_align);
         self.sealed = buf.len();
         Ok(())
     }
@@ -243,11 +271,11 @@ impl<'p> Builder<'p> {
             buf.clear();
             return Ok(Bytes::new());
         };
-        if buf.len() - ms > i32::MAX as usize {
+        if buf.len() - ms + self.record_align > i32::MAX as usize {
             buf.clear();
             return Err(Error::TooLarge);
         }
-        Self::close_envelope(buf, ms, schema_id);
+        Self::close_envelope(buf, ms, schema_id, self.record_align);
         let mut env = buf.split().freeze();
         env.advance(ms - HEADER_LEN); // 0 today (sealed == 0); kept symmetric with `flush`
         Ok(env)
@@ -323,6 +351,32 @@ impl<'a, const N: usize> FixedW<'a, N> {
         self.fixed[presence.byte as usize] |= 1 << presence.shift;
     }
 
+    /// Whether the presence bit `b` is set: the field was written.
+    #[inline(always)]
+    pub fn is_set(&self, b: Bit) -> bool {
+        (self.fixed[b.byte as usize] >> b.shift) & 1 == 1
+    }
+
+    /// See [`TableW::copy_inline`].
+    #[inline]
+    pub fn copy_inline(&mut self, src: &crate::TableRef<'_>, off: u16, size: u16, presence: Bit) {
+        if !src.bit(presence) {
+            return;
+        }
+        for k in 0..size {
+            self.fixed[(off + k) as usize] = src.fixed_byte(off + k);
+        }
+        self.fixed[presence.byte as usize] |= 1 << presence.shift;
+    }
+
+    /// See [`TableW::copy_bool`].
+    #[inline]
+    pub fn copy_bool(&mut self, src: &crate::TableRef<'_>, presence: Bit) {
+        if src.bit(presence) {
+            self.set_bool(presence, src.bit(Bit { byte: presence.byte, shift: presence.shift + 1 }));
+        }
+    }
+
     #[inline(always)]
     pub fn set_bool(&mut self, presence: Bit, v: bool) {
         let b = &mut self.fixed[presence.byte as usize];
@@ -348,6 +402,8 @@ pub struct TableW<'b> {
     main: &'b mut BytesMut,
     aux: Option<&'b mut BytesMut>,
     start: usize,
+    /// Offset in `main` that `align_data` counts from (start of the container).
+    base: usize,
     pool: &'b dyn BufPool,
     stash: &'b mut Vec<BytesMut>,
 }
@@ -395,6 +451,72 @@ impl<'b> TableW<'b> {
         self.set_bit(presence);
         let value = Bit { byte: presence.byte, shift: presence.shift + 1 };
         if v { self.set_bit(value) } else { self.clear_bit(value) }
+    }
+
+    /// Pads `main` with zero bytes so that the data of the next variable-size value (after
+    /// its 4-byte length or count) starts at a multiple of `align`, counted from the start of
+    /// the container (`#[align(to = N)]`). `align` is a power of two.
+    #[inline]
+    pub fn align_data(&mut self, align: usize) {
+        debug_assert!(align.is_power_of_two());
+        let at = self.main.len() + 4 - self.base;
+        let pad = (align - at % align) % align;
+        if pad > 0 {
+            self.main.resize(self.main.len() + pad, 0);
+        }
+    }
+
+    /// Whether the presence bit `b` is set: the field was written.
+    #[inline]
+    pub fn is_set(&self, b: Bit) -> bool {
+        let fixed = match self.aux.as_deref() {
+            Some(a) => a,
+            None => &*self.main,
+        };
+        (fixed[self.start + b.byte as usize] >> b.shift) & 1 == 1
+    }
+
+    /// Whether the pointer slot `off` (or the union slot's tag at `off`) was written.
+    #[inline]
+    pub fn has_slot(&self, off: u16, size: u16) -> bool {
+        let fixed = match self.aux.as_deref() {
+            Some(a) => a,
+            None => &*self.main,
+        };
+        let i = self.start + off as usize;
+        fixed[i..i + size as usize].iter().any(|&b| b != 0)
+    }
+
+    /// Copies an inline field (scalar, enum, struct: `size` bytes at `off`) from `src` when it
+    /// is present there, keeping its presence. Unknown enum values are copied as they are.
+    #[inline]
+    pub fn copy_inline(&mut self, src: &crate::TableRef<'_>, off: u16, size: u16, presence: Bit) {
+        if !src.bit(presence) {
+            return;
+        }
+        let i = self.start + off as usize;
+        for k in 0..size {
+            let v = src.fixed_byte(off + k);
+            self.fixed_buf()[i + k as usize] = v;
+        }
+        self.set_bit(presence);
+    }
+
+    /// Copies a `bool` field (its presence and value bits) from `src` when it is present there.
+    #[inline]
+    pub fn copy_bool(&mut self, src: &crate::TableRef<'_>, presence: Bit) {
+        if src.bit(presence) {
+            self.set_bool(presence, src.bit(Bit { byte: presence.byte, shift: presence.shift + 1 }));
+        }
+    }
+
+    /// A list of `count` scalars from their little-endian bytes (`raw.len()` = `count × size`).
+    pub fn set_scalars_raw(&mut self, off: u16, count: u32, raw: &[u8]) {
+        let pos = self.main.len();
+        self.main.reserve(4 + raw.len());
+        put(self.main, count);
+        self.main.extend_from_slice(raw);
+        self.patch(off, pos);
     }
 
     #[inline]
@@ -448,7 +570,7 @@ impl<'b> TableW<'b> {
         let pos = self.main.len();
         let start = alloc_table(self.main, fixed_len);
         self.patch(off, pos);
-        TableW { main: &mut *self.main, aux: None, start, pool: self.pool, stash: &mut *self.stash }
+        TableW { main: &mut *self.main, aux: None, start, base: self.base, pool: self.pool, stash: &mut *self.stash }
     }
 
     /// Union slot `[u16 tag][i32 ptr]` with a nested table variant.
@@ -487,6 +609,7 @@ impl<'b> TableW<'b> {
         self.patch(off, pos);
         TableListW {
             main: &mut *self.main,
+            base: self.base,
             pool: self.pool,
             stash: &mut *self.stash,
             pos,
@@ -537,6 +660,7 @@ impl<'b> TableW<'b> {
 /// Known-count list writer. On drop the count is set to the number pushed.
 pub struct TableListW<'a> {
     main: &'a mut BytesMut,
+    base: usize,
     pool: &'a dyn BufPool,
     stash: &'a mut Vec<BytesMut>,
     pos: usize,
@@ -553,7 +677,7 @@ impl TableListW<'_> {
         assert!(self.count < self.cap, "TableListW: pushed more elements than reserved");
         let start = self.first + self.count as usize * self.efl as usize;
         self.count += 1;
-        TableW { main: &mut *self.main, aux: None, start, pool: self.pool, stash: &mut *self.stash }
+        TableW { main: &mut *self.main, aux: None, start, base: self.base, pool: self.pool, stash: &mut *self.stash }
     }
 }
 
@@ -622,6 +746,7 @@ impl<'b> StreamListW<'_, 'b> {
             main: &mut *self.parent.main,
             aux: Some(&mut self.aux),
             start,
+            base: self.parent.base,
             pool: self.parent.pool,
             stash: &mut *self.parent.stash,
         }
@@ -703,6 +828,67 @@ impl<T: Le> Drop for ScalarListW<'_, T> {
 mod tests {
     use super::*;
     use crate::pool::{BufPool, SimplePool};
+
+    #[test]
+    fn align_data_and_as_slice() {
+        let pool = crate::LocalPool;
+        for enveloped in [false, true] {
+            let mut b = if enveloped { Builder::new_enveloped(&pool) } else { Builder::new(&pool) };
+            {
+                let mut w = b.root(8);
+                w.set_str(0, "abc");
+                w.align_data(16);
+                w.set_scalars::<f64>(4, &[1.5, -2.0, 3.25]);
+            }
+            let (whole, base) = if enveloped {
+                (b.flush_envelope(7).unwrap().to_vec(), 0)
+            } else {
+                (b.finished().unwrap().to_vec(), 0)
+            };
+            // Copy to a 16-aligned address, as a mapped file would be.
+            let mut store = vec![0u8; whole.len() + 16];
+            let at = (16 - store.as_ptr() as usize % 16) % 16;
+            store[at..at + whole.len()].copy_from_slice(&whole);
+            let whole = &store[at..at + whole.len()];
+            let msg = if enveloped { crate::envelope::decode(whole).unwrap().payload } else { whole };
+            let t = crate::TableRef::at(msg, 0).unwrap();
+            let l = t.scalars::<f64>(4).unwrap().unwrap();
+            let off = l.as_bytes().as_ptr() as usize - whole.as_ptr() as usize - base;
+            assert_eq!(off % 16, 0, "enveloped = {enveloped}");
+            assert_eq!(l.as_slice(), Some(&[1.5, -2.0, 3.25][..]));
+            // One byte off: no slice, same values.
+            let mut shifted = vec![0u8; whole.len() + 1];
+            shifted[1..].copy_from_slice(whole);
+            let whole2 = &shifted[1..];
+            let msg2 = if enveloped { crate::envelope::decode(whole2).unwrap().payload } else { whole2 };
+            let l2 = crate::TableRef::at(msg2, 0).unwrap().scalars::<f64>(4).unwrap().unwrap();
+            assert_eq!(l2.as_slice(), None);
+            assert_eq!(l2.iter().collect::<Vec<_>>(), vec![1.5, -2.0, 3.25]);
+        }
+    }
+
+    #[test]
+    fn record_align_pads_the_envelope() {
+        let pool = crate::LocalPool;
+        let mut b = Builder::new_enveloped(&pool).with_record_align(64);
+        for n in [0usize, 1, 39, 40, 41, 100] {
+            {
+                let mut w = b.root(4);
+                w.set_str(0, &"z".repeat(n));
+            }
+            let env = b.flush_envelope(1).unwrap();
+            assert_eq!(env.len() % 64, 0, "{n}");
+            let e = crate::envelope::decode(&env).unwrap();
+            let t = crate::TableRef::at(e.payload, 0).unwrap();
+            assert_eq!(t.str(0).unwrap().unwrap().len(), n);
+        }
+    }
+
+    #[test]
+    #[should_panic(expected = "builder mode mismatch")]
+    fn record_align_needs_an_enveloped_builder() {
+        let _ = Builder::new(&crate::LocalPool).with_record_align(64);
+    }
     use crate::{Bit, TableRef};
     use bytes::BytesMut;
     use core::cell::Cell;

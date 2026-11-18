@@ -132,6 +132,21 @@ translation.
 **What would make it go further.** Code generators for more languages, and importers from
 JSON Schema, Protocol Buffers or OpenAPI definitions that produce a first `.graven` file.
 
+## What v1 already allows
+
+The specification accepts more layouts than the reference writer produces: data in any
+order, backward pointers and unreferenced bytes are all valid (§7.5, §10.2).
+[Proposal 0006](proposals/0006-rebuild-and-alignment.md) uses that room, without a new
+format version, for aligned numeric lists (`#[align(to = N)]`), envelopes padded to a cache
+line or a page, and rebuilding a message with a few fields changed.
+
+One idea in the same room is still open: **patching a stored message in place**. A string
+of the same or a smaller size would be rewritten where it is; a larger one appended at the
+end and its slot re-pointed; then the envelope's length and CRC recomputed. It saves a
+rebuild on large records that change a little, but leaves unreferenced bytes that a later
+`compact()` would have to remove, and a field with no slot (added by a newer schema) still
+needs a rebuild.
+
 ## How the format itself can evolve
 
 Format v1 is frozen and will stay readable for good. Ideas that do not fit in v1 are

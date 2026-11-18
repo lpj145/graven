@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.3.4 — rebuild and alignment
+
+[Proposal 0006](docs/proposals/0006-rebuild-and-alignment.md): rebuilding messages, and
+alignment. The wire format does not change; every message is format v1.
+
+- **Rebuild.** `XW::rebuild(&mut b, &old, |w| …)` (JavaScript `XW.rebuild(old, (w) => …)`)
+  writes a new message where the closure writes the fields that change and every other field
+  is copied from `old`; `fill_from` / `fillFrom` does the copy on any writer, nested ones
+  included. Presence is kept (an absent field stays absent); fields and union variants the
+  schema does not know are not copied. Rebuilding a canonical message without changes
+  reproduces it byte for byte (checked on the conformance vectors, and under mutation).
+  `rebuild` and `fill_from` are now reserved field names.
+- **`#[align(to = N)]`** on `bytes` and numeric lists: the writer pads so the data starts at
+  a multiple of `N` (2 to 4096) from the envelope start (or the message start without one).
+  Recorded in the lockfile; changing it is compatible (`gravenc diff`: `align-changed`).
+  Rust and JavaScript write the same bytes.
+- **Reading aligned lists without copying:** `ScalarList::as_slice() -> Option<&[T]>` (Rust,
+  new `Plain` trait for the numeric types) and `ScalarList.asTypedArray()` (JavaScript).
+- **Aligned records:** `Builder::with_record_align(r)` / `withRecordAlign(r)` pads every
+  envelope to a multiple of `r` (2 to 65536), so envelopes appended to a file start at a
+  cache line or a page. The padding is inside the payload, as unreferenced bytes.
+- `gravenc from-json` (the dynamic writer) does not apply `#[align]` yet: what it writes is
+  valid, without the padding.
+
 ## 0.3.3
 
 - **Rust: `LocalPool`,** a buffer pool with one free list per thread: no lock and nothing to

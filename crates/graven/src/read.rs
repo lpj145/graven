@@ -364,6 +364,28 @@ impl<'a, T: Le> ScalarList<'a, T> {
     }
 }
 
+impl<'a, T: crate::le::Plain> ScalarList<'a, T> {
+    /// The elements as a slice, without copying: `Some` when they are aligned in memory for
+    /// `T` and the target is little-endian, `None` otherwise (then use [`iter`](Self::iter)
+    /// or [`get`](Self::get)). A list written with `#[align(to = N)]`, in a container that
+    /// lies at an aligned address, is always aligned.
+    #[allow(unsafe_code)]
+    #[inline]
+    pub fn as_slice(&self) -> Option<&'a [T]> {
+        if cfg!(target_endian = "big") {
+            return None;
+        }
+        let ptr = self.data.as_ptr();
+        if !(ptr as usize).is_multiple_of(core::mem::align_of::<T>()) {
+            return None;
+        }
+        // SAFETY: `data` holds exactly `len * size_of::<T>()` bytes, borrowed for `'a`; `ptr`
+        // is aligned for `T` (checked above); `T: Plain` makes every bit pattern a valid `T`
+        // with no padding, and on a little-endian target its memory form is the wire form.
+        Some(unsafe { core::slice::from_raw_parts(ptr.cast::<T>(), self.len) })
+    }
+}
+
 /// `[u32 count][u16 elem_fixed_len][count × fixed part]`
 #[derive(Debug, Clone, Copy)]
 pub struct TableList<'a> {

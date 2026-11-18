@@ -206,6 +206,27 @@ table Promo {
 Validation never runs implicitly when a message is read or written, so old data stays
 readable. Each implementation runs it on request; see [Validation](validation.md).
 
+### Aligned data
+
+`#[align(to = N)]` on a `bytes` field or a list of numbers (`[u8]` … `[u128]`, `[i8]` …
+`[i128]`, `[f32]`, `[f64]`) makes the writer place the data at a multiple of `N` (a power of
+two from 2 to 4096), counted from the start of the envelope, or of the message when there is
+none ([proposal 0006](proposals/0006-rebuild-and-alignment.md)):
+
+```graven
+table Samples {
+  rate @0: u32;
+  #[align(to = 16)]
+  values @1: [f32];      // readable as a &[f32] / Float32Array, and by SIMD code
+  #[align(to = 4096)]
+  page @2: bytes?;       // a whole page, for direct I/O
+}
+```
+
+The writer inserts zero bytes before the data; readers need nothing new, and the message is
+format v1. Adding, changing or removing `align` is compatible (`gravenc diff` lists it as
+`align-changed`).
+
 Any other attribute is an error.
 
 ## 6. Names

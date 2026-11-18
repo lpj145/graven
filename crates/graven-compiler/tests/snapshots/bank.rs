@@ -260,6 +260,41 @@ impl<'b> EntryW<'b> {
         f(&mut EntryW::root(b));
         b.flush_envelope(Entry::SCHEMA_ID)
     }
+    /// Writes a new `Entry` from `from`: `f` writes the fields that change, then every field it did not write is copied from `from` ([`fill_from`](Self::fill_from)). Returns the envelope, as [`to_bytes`](Self::to_bytes) does.
+    ///
+    /// # Panics
+    /// As [`to_bytes`](Self::to_bytes).
+    #[inline]
+    pub fn rebuild(
+        b: &mut ::graven::Builder<'_>,
+        from: &EntryVerified<'_>,
+        f: impl ::core::ops::FnOnce(&mut EntryW<'_>),
+    ) -> ::core::result::Result<::graven::Bytes, ::graven::Error> {
+        {
+            let mut w = EntryW::root(b);
+            f(&mut w);
+            w.fill_from(from);
+        }
+        b.flush_envelope(Entry::SCHEMA_ID)
+    }
+    /// Copies from `from` every field this writer has not written yet, keeping presence: an absent field stays absent. Nested tables, lists of tables and unions are copied with their own `fill_from`. Fields and union variants `Entry` does not know (written by a newer schema) are not copied.
+    #[inline]
+    #[allow(clippy::collapsible_if, clippy::single_match)]
+    pub fn fill_from(&mut self, from: &EntryVerified<'_>) -> &mut Self {
+        let src = from.reader().0;
+        if !self.0.is_set(entry::ACCOUNT_BIT) {
+            self.0.copy_inline(&src, entry::ACCOUNT, 8, entry::ACCOUNT_BIT);
+        }
+        if !self.0.is_set(entry::AMOUNT_BIT) {
+            self.0.copy_inline(&src, entry::AMOUNT, 8, entry::AMOUNT_BIT);
+        }
+        if !self.0.has_slot(entry::MEMO, 4) {
+            if let ::core::option::Option::Some(v) = from.memo() {
+                self.memo(v);
+            }
+        }
+        self
+    }
     /// Like [`to_bytes`](Self::to_bytes), but seals the envelope into the builder's batch
     /// (take it with `Builder::take_frames`).
     ///
@@ -581,6 +616,65 @@ impl<'b> TransactionW<'b> {
     ) -> ::core::result::Result<::graven::Bytes, ::graven::Error> {
         f(&mut TransactionW::root(b));
         b.flush_envelope(Transaction::SCHEMA_ID)
+    }
+    /// Writes a new `Transaction` from `from`: `f` writes the fields that change, then every field it did not write is copied from `from` ([`fill_from`](Self::fill_from)). Returns the envelope, as [`to_bytes`](Self::to_bytes) does.
+    ///
+    /// # Panics
+    /// As [`to_bytes`](Self::to_bytes).
+    #[inline]
+    pub fn rebuild(
+        b: &mut ::graven::Builder<'_>,
+        from: &TransactionVerified<'_>,
+        f: impl ::core::ops::FnOnce(&mut TransactionW<'_>),
+    ) -> ::core::result::Result<::graven::Bytes, ::graven::Error> {
+        {
+            let mut w = TransactionW::root(b);
+            f(&mut w);
+            w.fill_from(from);
+        }
+        b.flush_envelope(Transaction::SCHEMA_ID)
+    }
+    /// Copies from `from` every field this writer has not written yet, keeping presence: an absent field stays absent. Nested tables, lists of tables and unions are copied with their own `fill_from`. Fields and union variants `Transaction` does not know (written by a newer schema) are not copied.
+    #[inline]
+    #[allow(clippy::collapsible_if, clippy::single_match)]
+    pub fn fill_from(&mut self, from: &TransactionVerified<'_>) -> &mut Self {
+        let src = from.reader().0;
+        if !self.0.is_set(transaction::ID_BIT) {
+            self.0.copy_inline(&src, transaction::ID, 8, transaction::ID_BIT);
+        }
+        if !self.0.is_set(transaction::TS_BIT) {
+            self.0.copy_inline(&src, transaction::TS, 8, transaction::TS_BIT);
+        }
+        if !self.0.is_set(transaction::CURRENCY_BIT) {
+            self.0
+                .copy_inline(&src, transaction::CURRENCY, 2, transaction::CURRENCY_BIT);
+        }
+        if !self.0.is_set(transaction::FROM_SHARD_BIT) {
+            self.0
+                .copy_inline(
+                    &src,
+                    transaction::FROM_SHARD,
+                    4,
+                    transaction::FROM_SHARD_BIT,
+                );
+        }
+        if !self.0.is_set(transaction::TO_SHARD_BIT) {
+            self.0
+                .copy_inline(&src, transaction::TO_SHARD, 4, transaction::TO_SHARD_BIT);
+        }
+        if !self.0.has_slot(transaction::ENTRIES, 4) {
+            let l = from.entries();
+            let mut lw = self.entries(l.len() as u32);
+            for e in l.iter() {
+                lw.push().fill_from(&e);
+            }
+        }
+        if !self.0.has_slot(transaction::NOTE, 4) {
+            if let ::core::option::Option::Some(v) = from.note() {
+                self.note(v);
+            }
+        }
+        self
     }
     /// Like [`to_bytes`](Self::to_bytes), but seals the envelope into the builder's batch
     /// (take it with `Builder::take_frames`).

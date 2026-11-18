@@ -346,6 +346,43 @@ impl<'b> LeafW<'b> {
         f(&mut LeafW::root(b));
         b.flush_envelope(Leaf::SCHEMA_ID)
     }
+    /// Writes a new `Leaf` from `from`: `f` writes the fields that change, then every field it did not write is copied from `from` ([`fill_from`](Self::fill_from)). Returns the envelope, as [`to_bytes`](Self::to_bytes) does.
+    ///
+    /// # Panics
+    /// As [`to_bytes`](Self::to_bytes).
+    #[inline]
+    pub fn rebuild(
+        b: &mut ::graven::Builder<'_>,
+        from: &LeafVerified<'_>,
+        f: impl ::core::ops::FnOnce(&mut LeafW<'_>),
+    ) -> ::core::result::Result<::graven::Bytes, ::graven::Error> {
+        {
+            let mut w = LeafW::root(b);
+            f(&mut w);
+            w.fill_from(from);
+        }
+        b.flush_envelope(Leaf::SCHEMA_ID)
+    }
+    /// Copies from `from` every field this writer has not written yet, keeping presence: an absent field stays absent. Nested tables, lists of tables and unions are copied with their own `fill_from`. Fields and union variants `Leaf` does not know (written by a newer schema) are not copied.
+    #[inline]
+    #[allow(clippy::collapsible_if, clippy::single_match)]
+    pub fn fill_from(&mut self, from: &LeafVerified<'_>) -> &mut Self {
+        let src = from.reader().0;
+        if !self.0.is_set(leaf::N_BIT) {
+            self.0.copy_inline(&src, leaf::N, 4, leaf::N_BIT);
+        }
+        if !self.0.has_slot(leaf::S, 4) {
+            if let ::core::option::Option::Some(v) = from.s() {
+                self.s(v);
+            }
+        }
+        if !self.0.has_slot(leaf::NEXT, 4) {
+            if let ::core::option::Option::Some(v) = from.next() {
+                self.next().fill_from(&v);
+            }
+        }
+        self
+    }
     /// Like [`to_bytes`](Self::to_bytes), but seals the envelope into the builder's batch
     /// (take it with `Builder::take_frames`).
     ///
@@ -929,6 +966,125 @@ impl<'b> RootW<'b> {
     ) -> ::core::result::Result<::graven::Bytes, ::graven::Error> {
         f(&mut RootW::root(b));
         b.flush_envelope(Root::SCHEMA_ID)
+    }
+    /// Writes a new `Root` from `from`: `f` writes the fields that change, then every field it did not write is copied from `from` ([`fill_from`](Self::fill_from)). Returns the envelope, as [`to_bytes`](Self::to_bytes) does.
+    ///
+    /// # Panics
+    /// As [`to_bytes`](Self::to_bytes).
+    #[inline]
+    pub fn rebuild(
+        b: &mut ::graven::Builder<'_>,
+        from: &RootVerified<'_>,
+        f: impl ::core::ops::FnOnce(&mut RootW<'_>),
+    ) -> ::core::result::Result<::graven::Bytes, ::graven::Error> {
+        {
+            let mut w = RootW::root(b);
+            f(&mut w);
+            w.fill_from(from);
+        }
+        b.flush_envelope(Root::SCHEMA_ID)
+    }
+    /// Copies from `from` every field this writer has not written yet, keeping presence: an absent field stays absent. Nested tables, lists of tables and unions are copied with their own `fill_from`. Fields and union variants `Root` does not know (written by a newer schema) are not copied.
+    #[inline]
+    #[allow(clippy::collapsible_if, clippy::single_match)]
+    pub fn fill_from(&mut self, from: &RootVerified<'_>) -> &mut Self {
+        let src = from.reader().0;
+        if !self.0.is_set(root::A_U8_BIT) {
+            self.0.copy_inline(&src, root::A_U8, 1, root::A_U8_BIT);
+        }
+        if !self.0.is_set(root::A_I16_BIT) {
+            self.0.copy_inline(&src, root::A_I16, 2, root::A_I16_BIT);
+        }
+        if !self.0.is_set(root::A_U32_BIT) {
+            self.0.copy_inline(&src, root::A_U32, 4, root::A_U32_BIT);
+        }
+        if !self.0.is_set(root::A_I64_BIT) {
+            self.0.copy_inline(&src, root::A_I64, 8, root::A_I64_BIT);
+        }
+        if !self.0.is_set(root::A_U128_BIT) {
+            self.0.copy_inline(&src, root::A_U128, 16, root::A_U128_BIT);
+        }
+        if !self.0.is_set(root::A_I128_BIT) {
+            self.0.copy_inline(&src, root::A_I128, 16, root::A_I128_BIT);
+        }
+        if !self.0.is_set(root::A_F32_BIT) {
+            self.0.copy_inline(&src, root::A_F32, 4, root::A_F32_BIT);
+        }
+        if !self.0.is_set(root::A_F64_BIT) {
+            self.0.copy_inline(&src, root::A_F64, 8, root::A_F64_BIT);
+        }
+        if !self.0.is_set(root::FLAG_BIT) {
+            self.0.copy_bool(&src, root::FLAG_BIT);
+        }
+        if !self.0.is_set(root::FLAG2_BIT) {
+            self.0.copy_bool(&src, root::FLAG2_BIT);
+        }
+        if !self.0.is_set(root::COLOR_BIT) {
+            self.0.copy_inline(&src, root::COLOR, 1, root::COLOR_BIT);
+        }
+        if !self.0.is_set(root::POINT_BIT) {
+            self.0.copy_inline(&src, root::POINT, 8, root::POINT_BIT);
+        }
+        if !self.0.has_slot(root::NAME, 4) {
+            if let ::core::option::Option::Some(v) = from.name() {
+                self.name(v);
+            }
+        }
+        if !self.0.has_slot(root::BLOB, 4) {
+            if let ::core::option::Option::Some(v) = from.blob() {
+                self.blob(v);
+            }
+        }
+        if !self.0.has_slot(root::NUMS, 4) {
+            if let ::core::option::Option::Some(v) = from.nums() {
+                let l = v;
+                self.0.set_scalars_raw(root::NUMS, l.len() as u32, l.as_bytes());
+            }
+        }
+        if !self.0.has_slot(root::POINTS, 4) {
+            if let ::core::option::Option::Some(v) = from.points() {
+                let l = v;
+                self.0.set_scalars_raw(root::POINTS, l.len() as u32, l.as_bytes());
+            }
+        }
+        if !self.0.has_slot(root::LEAVES, 4) {
+            if let ::core::option::Option::Some(v) = from.leaves() {
+                let l = v;
+                let mut lw = self.leaves(l.len() as u32);
+                for e in l.iter() {
+                    lw.push().fill_from(&e);
+                }
+            }
+        }
+        if !self.0.has_slot(root::NAMES, 4) {
+            if let ::core::option::Option::Some(v) = from.names() {
+                self.names(v.iter());
+            }
+        }
+        if !self.0.has_slot(root::BLOBS, 4) {
+            if let ::core::option::Option::Some(v) = from.blobs() {
+                let l = v;
+                self.0
+                    .set_bytes_list(
+                        root::BLOBS,
+                        (0..l.len()).map(|i| ::graven::rt::trusted(l.get_bytes(i))),
+                    );
+            }
+        }
+        if !self.0.has_slot(root::CHILD, 4) {
+            if let ::core::option::Option::Some(v) = from.child() {
+                self.child().fill_from(&v);
+            }
+        }
+        if !self.0.has_slot(root::CHOICE, 2) {
+            match from.choice() {
+                ::core::option::Option::Some(ChoiceVerified::Leaf(t)) => {
+                    self.choice_leaf().fill_from(&t);
+                }
+                _ => {}
+            }
+        }
+        self
     }
     /// Like [`to_bytes`](Self::to_bytes), but seals the envelope into the builder's batch
     /// (take it with `Builder::take_frames`).
@@ -1654,6 +1810,128 @@ impl<'b> RootV2W<'b> {
         f(&mut RootV2W::root(b));
         b.flush_envelope(RootV2::SCHEMA_ID)
     }
+    /// Writes a new `RootV2` from `from`: `f` writes the fields that change, then every field it did not write is copied from `from` ([`fill_from`](Self::fill_from)). Returns the envelope, as [`to_bytes`](Self::to_bytes) does.
+    ///
+    /// # Panics
+    /// As [`to_bytes`](Self::to_bytes).
+    #[inline]
+    pub fn rebuild(
+        b: &mut ::graven::Builder<'_>,
+        from: &RootV2Verified<'_>,
+        f: impl ::core::ops::FnOnce(&mut RootV2W<'_>),
+    ) -> ::core::result::Result<::graven::Bytes, ::graven::Error> {
+        {
+            let mut w = RootV2W::root(b);
+            f(&mut w);
+            w.fill_from(from);
+        }
+        b.flush_envelope(RootV2::SCHEMA_ID)
+    }
+    /// Copies from `from` every field this writer has not written yet, keeping presence: an absent field stays absent. Nested tables, lists of tables and unions are copied with their own `fill_from`. Fields and union variants `RootV2` does not know (written by a newer schema) are not copied.
+    #[inline]
+    #[allow(clippy::collapsible_if, clippy::single_match)]
+    pub fn fill_from(&mut self, from: &RootV2Verified<'_>) -> &mut Self {
+        let src = from.reader().0;
+        if !self.0.is_set(root_v2::A_U8_BIT) {
+            self.0.copy_inline(&src, root_v2::A_U8, 1, root_v2::A_U8_BIT);
+        }
+        if !self.0.is_set(root_v2::A_I16_BIT) {
+            self.0.copy_inline(&src, root_v2::A_I16, 2, root_v2::A_I16_BIT);
+        }
+        if !self.0.is_set(root_v2::A_U32_BIT) {
+            self.0.copy_inline(&src, root_v2::A_U32, 4, root_v2::A_U32_BIT);
+        }
+        if !self.0.is_set(root_v2::A_I64_BIT) {
+            self.0.copy_inline(&src, root_v2::A_I64, 8, root_v2::A_I64_BIT);
+        }
+        if !self.0.is_set(root_v2::A_U128_BIT) {
+            self.0.copy_inline(&src, root_v2::A_U128, 16, root_v2::A_U128_BIT);
+        }
+        if !self.0.is_set(root_v2::A_I128_BIT) {
+            self.0.copy_inline(&src, root_v2::A_I128, 16, root_v2::A_I128_BIT);
+        }
+        if !self.0.is_set(root_v2::A_F32_BIT) {
+            self.0.copy_inline(&src, root_v2::A_F32, 4, root_v2::A_F32_BIT);
+        }
+        if !self.0.is_set(root_v2::A_F64_BIT) {
+            self.0.copy_inline(&src, root_v2::A_F64, 8, root_v2::A_F64_BIT);
+        }
+        if !self.0.is_set(root_v2::FLAG_BIT) {
+            self.0.copy_bool(&src, root_v2::FLAG_BIT);
+        }
+        if !self.0.is_set(root_v2::FLAG2_BIT) {
+            self.0.copy_bool(&src, root_v2::FLAG2_BIT);
+        }
+        if !self.0.is_set(root_v2::COLOR_BIT) {
+            self.0.copy_inline(&src, root_v2::COLOR, 1, root_v2::COLOR_BIT);
+        }
+        if !self.0.is_set(root_v2::POINT_BIT) {
+            self.0.copy_inline(&src, root_v2::POINT, 8, root_v2::POINT_BIT);
+        }
+        if !self.0.has_slot(root_v2::NAME, 4) {
+            if let ::core::option::Option::Some(v) = from.name() {
+                self.name(v);
+            }
+        }
+        if !self.0.has_slot(root_v2::BLOB, 4) {
+            if let ::core::option::Option::Some(v) = from.blob() {
+                self.blob(v);
+            }
+        }
+        if !self.0.has_slot(root_v2::NUMS, 4) {
+            if let ::core::option::Option::Some(v) = from.nums() {
+                let l = v;
+                self.0.set_scalars_raw(root_v2::NUMS, l.len() as u32, l.as_bytes());
+            }
+        }
+        if !self.0.has_slot(root_v2::POINTS, 4) {
+            if let ::core::option::Option::Some(v) = from.points() {
+                let l = v;
+                self.0.set_scalars_raw(root_v2::POINTS, l.len() as u32, l.as_bytes());
+            }
+        }
+        if !self.0.has_slot(root_v2::LEAVES, 4) {
+            if let ::core::option::Option::Some(v) = from.leaves() {
+                let l = v;
+                let mut lw = self.leaves(l.len() as u32);
+                for e in l.iter() {
+                    lw.push().fill_from(&e);
+                }
+            }
+        }
+        if !self.0.has_slot(root_v2::NAMES, 4) {
+            if let ::core::option::Option::Some(v) = from.names() {
+                self.names(v.iter());
+            }
+        }
+        if !self.0.has_slot(root_v2::BLOBS, 4) {
+            if let ::core::option::Option::Some(v) = from.blobs() {
+                let l = v;
+                self.0
+                    .set_bytes_list(
+                        root_v2::BLOBS,
+                        (0..l.len()).map(|i| ::graven::rt::trusted(l.get_bytes(i))),
+                    );
+            }
+        }
+        if !self.0.has_slot(root_v2::CHILD, 4) {
+            if let ::core::option::Option::Some(v) = from.child() {
+                self.child().fill_from(&v);
+            }
+        }
+        if !self.0.has_slot(root_v2::CHOICE, 2) {
+            match from.choice() {
+                ::core::option::Option::Some(ChoiceVerified::Leaf(t)) => {
+                    self.choice_leaf().fill_from(&t);
+                }
+                _ => {}
+            }
+        }
+        if !self.0.is_set(root_v2::EXTRA_BIT) {
+            self.0.copy_inline(&src, root_v2::EXTRA, 8, root_v2::EXTRA_BIT);
+        }
+        self
+    }
     /// Like [`to_bytes`](Self::to_bytes), but seals the envelope into the builder's batch
     /// (take it with `Builder::take_frames`).
     ///
@@ -2164,6 +2442,85 @@ impl<'b> ExtraW<'b> {
         f(&mut ExtraW::root(b));
         b.flush_envelope(Extra::SCHEMA_ID)
     }
+    /// Writes a new `Extra` from `from`: `f` writes the fields that change, then every field it did not write is copied from `from` ([`fill_from`](Self::fill_from)). Returns the envelope, as [`to_bytes`](Self::to_bytes) does.
+    ///
+    /// # Panics
+    /// As [`to_bytes`](Self::to_bytes).
+    #[inline]
+    pub fn rebuild(
+        b: &mut ::graven::Builder<'_>,
+        from: &ExtraVerified<'_>,
+        f: impl ::core::ops::FnOnce(&mut ExtraW<'_>),
+    ) -> ::core::result::Result<::graven::Bytes, ::graven::Error> {
+        {
+            let mut w = ExtraW::root(b);
+            f(&mut w);
+            w.fill_from(from);
+        }
+        b.flush_envelope(Extra::SCHEMA_ID)
+    }
+    /// Copies from `from` every field this writer has not written yet, keeping presence: an absent field stays absent. Nested tables, lists of tables and unions are copied with their own `fill_from`. Fields and union variants `Extra` does not know (written by a newer schema) are not copied.
+    #[inline]
+    #[allow(clippy::collapsible_if, clippy::single_match)]
+    pub fn fill_from(&mut self, from: &ExtraVerified<'_>) -> &mut Self {
+        let src = from.reader().0;
+        if !self.0.is_set(extra::FLAGS_BIT) {
+            self.0.copy_inline(&src, extra::FLAGS, 2, extra::FLAGS_BIT);
+        }
+        if !self.0.has_slot(extra::BOOLS, 4) {
+            if let ::core::option::Option::Some(v) = from.bools() {
+                let l = v;
+                self.0.set_scalars_raw(extra::BOOLS, l.len() as u32, l.as_bytes());
+            }
+        }
+        if !self.0.has_slot(extra::COLORS, 4) {
+            if let ::core::option::Option::Some(v) = from.colors() {
+                let l = v;
+                self.0.set_scalars_raw(extra::COLORS, l.len() as u32, l.as_bytes());
+            }
+        }
+        if !self.0.has_slot(extra::NAMES, 4) {
+            if let ::core::option::Option::Some(v) = from.names() {
+                self.names(v.iter());
+            }
+        }
+        if !self.0.has_slot(extra::BLOBS, 4) {
+            if let ::core::option::Option::Some(v) = from.blobs() {
+                let l = v;
+                self.0
+                    .set_bytes_list(
+                        extra::BLOBS,
+                        (0..l.len()).map(|i| ::graven::rt::trusted(l.get_bytes(i))),
+                    );
+            }
+        }
+        if !self.0.has_slot(extra::PICK, 2) {
+            match from.pick() {
+                ChoiceVerified::Leaf(t) => {
+                    self.pick_leaf().fill_from(&t);
+                }
+                _ => {}
+            }
+        }
+        if !self.0.has_slot(extra::LEAVES, 4) {
+            if let ::core::option::Option::Some(v) = from.leaves() {
+                let l = v;
+                let mut lw = self.leaves(l.len() as u32);
+                for e in l.iter() {
+                    lw.push().fill_from(&e);
+                }
+            }
+        }
+        if !self.0.is_set(extra::E_BIT) {
+            self.0.copy_inline(&src, extra::E, 0, extra::E_BIT);
+        }
+        if !self.0.has_slot(extra::TAIL, 4) {
+            if let ::core::option::Option::Some(v) = from.tail() {
+                self.tail(v);
+            }
+        }
+        self
+    }
     /// Like [`to_bytes`](Self::to_bytes), but seals the envelope into the builder's batch
     /// (take it with `Builder::take_frames`).
     ///
@@ -2431,6 +2788,36 @@ impl<'b> HolderW<'b> {
     ) -> ::core::result::Result<::graven::Bytes, ::graven::Error> {
         f(&mut HolderW::root(b));
         b.flush_envelope(Holder::SCHEMA_ID)
+    }
+    /// Writes a new `Holder` from `from`: `f` writes the fields that change, then every field it did not write is copied from `from` ([`fill_from`](Self::fill_from)). Returns the envelope, as [`to_bytes`](Self::to_bytes) does.
+    ///
+    /// # Panics
+    /// As [`to_bytes`](Self::to_bytes).
+    #[inline]
+    pub fn rebuild(
+        b: &mut ::graven::Builder<'_>,
+        from: &HolderVerified<'_>,
+        f: impl ::core::ops::FnOnce(&mut HolderW<'_>),
+    ) -> ::core::result::Result<::graven::Bytes, ::graven::Error> {
+        {
+            let mut w = HolderW::root(b);
+            f(&mut w);
+            w.fill_from(from);
+        }
+        b.flush_envelope(Holder::SCHEMA_ID)
+    }
+    /// Copies from `from` every field this writer has not written yet, keeping presence: an absent field stays absent. Nested tables, lists of tables and unions are copied with their own `fill_from`. Fields and union variants `Holder` does not know (written by a newer schema) are not copied.
+    #[inline]
+    #[allow(clippy::collapsible_if, clippy::single_match)]
+    pub fn fill_from(&mut self, from: &HolderVerified<'_>) -> &mut Self {
+        if !self.0.has_slot(holder::ITEMS, 4) {
+            let l = from.items();
+            let mut lw = self.items(l.len() as u32);
+            for e in l.iter() {
+                lw.push().fill_from(&e);
+            }
+        }
+        self
     }
     /// Like [`to_bytes`](Self::to_bytes), but seals the envelope into the builder's batch
     /// (take it with `Builder::take_frames`).

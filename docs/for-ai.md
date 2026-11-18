@@ -95,7 +95,9 @@ Write schemas that `gravenc` accepts the first time:
     them implicitly; call `view.validate(&checks)` or `XW::to_bytes_validated(&mut b, &checks, ...)`.
     Tightening or adding rules triggers `rule-tightened` / `check-added` warnings
     (confirmed with `#[allow_breaking_readers]`).
-12. Never put user-facing text in a schema or a check. A check returns a reason code
+12. `#[align(to = N)]` (N a power of two, 2 to 4096) goes only on `bytes` or a list of
+    numbers; it changes where the writer puts the data, never compatibility.
+13. Never put user-facing text in a schema or a check. A check returns a reason code
     (Rust `Err("missing_at")`, JS `"missing_at"`); a failure carries codes only (rule,
     declared `min`/`max`, `reason`), and the program showing it translates them.
 
@@ -225,6 +227,9 @@ The generated API for a table `X`:
 - `X::from_bytes(buf)` does the same for an enveloped message, after checking its schema
   id and CRC.
 - `XW` is the writer, with chainable setters, `XW::to_bytes` and `XW::seal`.
+- To change a stored message, rebuild it: `XW::rebuild(&mut b, &old_view, |w| { w.name("new"); })`
+  copies every field the closure did not write (`w.fill_from(&view)` on a nested writer).
+  Messages are never edited in place.
 - On a verified view (`from_bytes`, `verified`), every accessor returns the value itself
   (`T`, or `Option<T>` for an optional field, strings and lists included): never write `?`
   after a read of a verified view. On a checked reader (`read`), strings, lists and nested
@@ -249,12 +254,13 @@ gravenc gen schemas/shop.graven -o src/gen --lang js --side client
 - `u64`/`i64`/`u128`/`i128` map to `bigint`; `u8`–`i32`, `f32`, `f64` and enums map to
   `number`; `bytes` maps to `Uint8Array`.
 - Table API: `T.read(buf)`, `T.verified(buf)`, `T.fromBytes(env)`, `T.SCHEMA_ID`,
-  `TW.toBytes(w => …)`, `TW.toBytesValidated(w => …, checks)`. Nested tables and lists
+  `TW.toBytes(w => …)`, `TW.toBytesValidated(w => …, checks)`,
+  `TW.rebuild(oldView, w => …)` (changes some fields, copies the rest). Nested tables and lists
   return their writer: `w.child().x(1)`, `const l = w.items(2); l.push().x(1); l.close();`.
 - Client API (`--side client`): `new <Service>Client(send)` where
   `send(call, timeoutMs) => Promise<Uint8Array | ReadableStream<Uint8Array> | AsyncIterable<Uint8Array>>`.
   Methods return `Promise<Out>`, `Promise<{ ok: true, value } | { ok: false, error }>` or
-  `Promise<AsyncIterable<Item>>`, and throw `RpcFault` or `RpcProtocolError`.
+  `Promise<ItemStream<Item>>` (an `AsyncIterable` with `batches()`), and throw `RpcFault` or `RpcProtocolError`.
 
 Details: [JavaScript / TypeScript SDK](sdk/js.md).
 
@@ -279,6 +285,8 @@ Translating JSON data into a schema: [coming from JSON](coming-from-json.md).
 - **Using a struct for something that may gain fields.** Structs are frozen; use a table.
 - **Editing the lockfile by hand,** or regenerating it with `--init` to get past an error.
   That throws away the history that protects old data. Fix the schema instead.
+- **Copying every field by hand to change one.** Use `XW::rebuild` / `XW.rebuild`, which
+  also copies the fields added to the schema later.
 - **Decoding untrusted bytes without verification.** Use `from_bytes` or `verified`.
 - **Wrapping every record of a log in one big list.** Write one enveloped message per
   record. Wrap a list in a table only when it is read and written as a unit.

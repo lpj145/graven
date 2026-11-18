@@ -112,8 +112,17 @@ export declare class ScalarList<T> implements Iterable<T> {
     constructor(buf: Uint8Array, dv: DataView, data: number, length: number, codec: LeReader<T>);
     get(index: number): T | undefined;
     asBytes(): Uint8Array;
+    /**
+     * The elements as a typed array over the message's bytes, without copying: `undefined`
+     * when they are not aligned in memory for their type (then iterate, or use `get`), and for
+     * `u128` / `i128` / `bool` / enum / struct lists, which have no typed array. A list written
+     * with `#[align(to = N)]`, in a buffer that starts aligned, is always aligned.
+     */
+    asTypedArray(): NumericArray | undefined;
     [Symbol.iterator](): Iterator<T>;
 }
+/** A typed array over the elements of a numeric list (`ScalarList.asTypedArray`). */
+export type NumericArray = Uint8Array | Int8Array | Uint16Array | Int16Array | Uint32Array | Int32Array | BigUint64Array | BigInt64Array | Float32Array | Float64Array;
 /** Low-level view over `[Table]` fixed parts. */
 export declare class TableList implements Iterable<TableRef> {
     private readonly buf;
@@ -259,7 +268,15 @@ export declare class Builder {
     private msgStart;
     private sealMode;
     private pendingClose;
+    private recordAlign;
     constructor(initialCapacity?: number);
+    /**
+     * Pads the end of every envelope this builder writes with zero bytes, so that each envelope
+     * (`24 + payload_len` bytes) is a multiple of `r` (a power of two from 2 to 65536).
+     * Envelopes written one after another from offset 0 then all start at a multiple of `r`.
+     * The padding is inside the payload, after the message: unreferenced bytes, valid v1.
+     */
+    withRecordAlign(r: number): this;
     root(fixedLen: number): TableW;
     _startRpc(): void;
     get _capacity(): number;
@@ -290,7 +307,25 @@ export declare class TableW {
     private readonly aux;
     private readonly start;
     readonly pendingClose: (() => void)[];
-    constructor(main: GrowBuf, aux: GrowBuf | undefined, start: number, pendingClose?: (() => void)[]);
+    /** Offset in `main` that `alignData` counts from (start of the container). */
+    readonly base: number;
+    constructor(main: GrowBuf, aux: GrowBuf | undefined, start: number, pendingClose?: (() => void)[], base?: number);
+    /**
+     * Pads with zero bytes so that the data of the next variable-size value (after its 4-byte
+     * length or count) starts at a multiple of `align` from the start of the container
+     * (`#[align(to = N)]`).
+     */
+    alignData(align: number): this;
+    /** Whether the presence bit `b` is set: the field was written. */
+    isSet(b: Bit): boolean;
+    /** Whether the pointer slot `off` (or a union slot's tag) was written. */
+    hasSlot(off: number, size: number): boolean;
+    /** Copies an inline field (`size` bytes at `off`) from `src` when present there. */
+    copyInline(src: TableRef, off: number, size: number, presence: Bit): this;
+    /** Copies a `bool` field (presence and value bits) from `src` when present there. */
+    copyBool(src: TableRef, presence: Bit): this;
+    /** A list of `count` scalars from their little-endian bytes. */
+    setScalarsRaw(off: number, count: number, raw: Uint8Array): this;
     private fixedTarget;
     private setBit;
     private clearBit;
@@ -316,8 +351,9 @@ export declare class TableListW {
     private readonly efl;
     private readonly cap;
     private readonly pendingClose;
+    private readonly base;
     private count;
-    constructor(main: GrowBuf, pos: number, first: number, efl: number, cap: number, pendingClose?: (() => void)[]);
+    constructor(main: GrowBuf, pos: number, first: number, efl: number, cap: number, pendingClose?: (() => void)[], base?: number);
     push(): TableW;
     close(): void;
 }

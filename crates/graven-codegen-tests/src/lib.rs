@@ -65,3 +65,8 @@ pub mod validation {
 pub mod inventory {
     include!(concat!(env!("OUT_DIR"), "/inventory.rs"));
 }
+
+/// Aligned data (`schemas/aligned.graven`, proposal 0006).
+pub mod aligned {
+    include!(concat!(env!("OUT_DIR"), "/aligned.rs"));
+}

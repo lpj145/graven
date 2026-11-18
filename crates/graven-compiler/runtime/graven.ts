@@ -478,12 +478,60 @@ export class ScalarList<T> implements Iterable<T> {
     return this.buf.subarray(this.data, this.data + this.length * this.codec.size);
   }
 
+  /**
+   * The elements as a typed array over the message's bytes, without copying: `undefined`
+   * when they are not aligned in memory for their type (then iterate, or use `get`), and for
+   * `u128` / `i128` / `bool` / enum / struct lists, which have no typed array. A list written
+   * with `#[align(to = N)]`, in a buffer that starts aligned, is always aligned.
+   */
+  asTypedArray(): NumericArray | undefined {
+    const ctor = TYPED_ARRAYS.get(this.codec as LeReader<unknown>);
+    if (ctor === undefined || !LITTLE_ENDIAN) return undefined;
+    const at = this.buf.byteOffset + this.data;
+    if (at % ctor.BYTES_PER_ELEMENT !== 0) return undefined;
+    return new ctor(this.buf.buffer, at, this.length);
+  }
+
   *[Symbol.iterator](): Iterator<T> {
     for (let i = 0; i < this.length; i++) {
       yield this.codec.read(this.dv, this.data + i * this.codec.size);
     }
   }
 }
+
+/** A typed array over the elements of a numeric list (`ScalarList.asTypedArray`). */
+export type NumericArray =
+  | Uint8Array
+  | Int8Array
+  | Uint16Array
+  | Int16Array
+  | Uint32Array
+  | Int32Array
+  | BigUint64Array
+  | BigInt64Array
+  | Float32Array
+  | Float64Array;
+
+type NumericArrayCtor = {
+  readonly BYTES_PER_ELEMENT: number;
+  new (buffer: ArrayBufferLike, byteOffset: number, length: number): NumericArray;
+};
+
+/** Typed arrays use the platform byte order; the wire format is little-endian. */
+const LITTLE_ENDIAN = new Uint8Array(new Uint16Array([1]).buffer)[0] === 1;
+
+const TYPED_ARRAYS = new Map<LeReader<unknown>, NumericArrayCtor>([
+  [leU8, Uint8Array],
+  [leI8, Int8Array],
+  [leU16, Uint16Array],
+  [leI16, Int16Array],
+  [leU32, Uint32Array],
+  [leI32, Int32Array],
+  [leU64, BigUint64Array],
+  [leI64, BigInt64Array],
+  [leF32, Float32Array],
+  [leF64, Float64Array],
+]);
 
 /** Low-level view over `[Table]` fixed parts. */
 export class TableList implements Iterable<TableRef> {
@@ -1103,9 +1151,24 @@ export class Builder {
   private msgStart: number | undefined;
   private sealMode: "frame" | "envelope" | "rpc" | undefined;
   private pendingClose: (() => void)[] = [];
+  private recordAlign = 0;
 
   constructor(initialCapacity = 256) {
     this.main = new GrowBuf(initialCapacity);
+  }
+
+  /**
+   * Pads the end of every envelope this builder writes with zero bytes, so that each envelope
+   * (`24 + payload_len` bytes) is a multiple of `r` (a power of two from 2 to 65536).
+   * Envelopes written one after another from offset 0 then all start at a multiple of `r`.
+   * The padding is inside the payload, after the message: unreferenced bytes, valid v1.
+   */
+  withRecordAlign(r: number): this {
+    if (!Number.isInteger(r) || r < 2 || r > 65536 || (r & (r - 1)) !== 0) {
+      throw new RangeError(`withRecordAlign: ${r} is not a power of two from 2 to 65536`);
+    }
+    this.recordAlign = r;
+    return this;
   }
 
   root(fixedLen: number): TableW {
@@ -1120,8 +1183,10 @@ export class Builder {
     this.main.allocZero(prefix);
     const ms = this.main.len;
     this.msgStart = ms;
+    // `#[align]` counts from the envelope's first byte, or from the message's without one.
+    const base = this.sealMode === "frame" || this.sealMode === "rpc" ? ms : ms - ENVELOPE_HEADER_LEN;
     const start = allocTableW(this.main, fixedLen);
-    return new TableW(this.main, undefined, start, this.pendingClose);
+    return new TableW(this.main, undefined, start, this.pendingClose, base);
   }
 
   _startRpc(): void {
@@ -1206,7 +1271,7 @@ export class Builder {
       return new Uint8Array(0);
     }
     const payloadLen = this.main.len - ms;
-    if (payloadLen > I32_MAX) {
+    if (payloadLen + this.recordAlign > I32_MAX) {
       this.main.clear();
       throw new GravenError("TooLarge");
     }
@@ -1251,7 +1316,7 @@ export class Builder {
     this.msgStart = undefined;
     if (ms === undefined) return;
     const payloadLen = this.main.len - ms;
-    if (payloadLen > I32_MAX) {
+    if (payloadLen + this.recordAlign > I32_MAX) {
       this.main.len = this.sealed;
       throw new GravenError("TooLarge");
     }
@@ -1274,6 +1339,12 @@ export class Builder {
   }
 
   private closeEnvelope(ms: number, id: bigint, payloadLen: number): void {
+    if (this.recordAlign > 1) {
+      const total = ENVELOPE_HEADER_LEN + payloadLen + 4;
+      const pad = (this.recordAlign - (total % this.recordAlign)) % this.recordAlign;
+      this.main.allocZero(pad);
+      payloadLen += pad;
+    }
     const hdrStart = ms - ENVELOPE_HEADER_LEN;
     writeEnvelopeHeader(this.main.buf, hdrStart, id, payloadLen);
     const crc = crc32cRange(this.main.buf, hdrStart, this.main.len);
@@ -1312,12 +1383,74 @@ export class TableW {
   private readonly aux: GrowBuf | undefined;
   private readonly start: number;
   readonly pendingClose: (() => void)[];
+  /** Offset in `main` that `alignData` counts from (start of the container). */
+  readonly base: number;
 
-  constructor(main: GrowBuf, aux: GrowBuf | undefined, start: number, pendingClose: (() => void)[] = []) {
+  constructor(
+    main: GrowBuf,
+    aux: GrowBuf | undefined,
+    start: number,
+    pendingClose: (() => void)[] = [],
+    base = 0,
+  ) {
     this.main = main;
     this.aux = aux;
     this.start = start;
     this.pendingClose = pendingClose;
+    this.base = base;
+  }
+
+  /**
+   * Pads with zero bytes so that the data of the next variable-size value (after its 4-byte
+   * length or count) starts at a multiple of `align` from the start of the container
+   * (`#[align(to = N)]`).
+   */
+  alignData(align: number): this {
+    const at = this.main.len + 4 - this.base;
+    const pad = (align - (at % align)) % align;
+    if (pad > 0) this.main.allocZero(pad);
+    return this;
+  }
+
+  /** Whether the presence bit `b` is set: the field was written. */
+  isSet(b: Bit): boolean {
+    const t = this.fixedTarget();
+    return (((t.buf[this.start + b.byte] ?? 0) >> b.shift) & 1) === 1;
+  }
+
+  /** Whether the pointer slot `off` (or a union slot's tag) was written. */
+  hasSlot(off: number, size: number): boolean {
+    const t = this.fixedTarget();
+    for (let i = 0; i < size; i++) {
+      if ((t.buf[this.start + off + i] ?? 0) !== 0) return true;
+    }
+    return false;
+  }
+
+  /** Copies an inline field (`size` bytes at `off`) from `src` when present there. */
+  copyInline(src: TableRef, off: number, size: number, presence: Bit): this {
+    if (!src.bit(presence)) return this;
+    const t = this.fixedTarget();
+    for (let i = 0; i < size; i++) t.buf[this.start + off + i] = src.fixedByte(off + i);
+    this.setBit(presence);
+    return this;
+  }
+
+  /** Copies a `bool` field (presence and value bits) from `src` when present there. */
+  copyBool(src: TableRef, presence: Bit): this {
+    if (src.bit(presence)) {
+      this.setBool(presence, src.bit({ byte: presence.byte, shift: presence.shift + 1 }));
+    }
+    return this;
+  }
+
+  /** A list of `count` scalars from their little-endian bytes. */
+  setScalarsRaw(off: number, count: number, raw: Uint8Array): this {
+    const pos = this.main.len;
+    this.main.pushU32(count);
+    this.main.pushBytes(raw);
+    this.patch(off, pos);
+    return this;
   }
 
   private fixedTarget(): GrowBuf {
@@ -1427,7 +1560,7 @@ export class TableW {
     const pos = this.main.len;
     const start = allocTableW(this.main, fixedLen);
     this.patch(off, pos);
-    return new TableW(this.main, undefined, start, this.pendingClose);
+    return new TableW(this.main, undefined, start, this.pendingClose, this.base);
   }
 
   union(off: number, tag: number, fixedLen: number): TableW {
@@ -1449,7 +1582,7 @@ export class TableW {
     this.main.allocZero(6 + size);
     this.main.dv.setUint16(pos + 4, elemFixedLen, true);
     this.patch(off, pos);
-    return new TableListW(this.main, pos, first, elemFixedLen, count, this.pendingClose);
+    return new TableListW(this.main, pos, first, elemFixedLen, count, this.pendingClose, this.base);
   }
 
   tablesStreaming(off: number, elemFixedLen: number, ptrSlots: readonly number[]): StreamListW {
@@ -1474,6 +1607,7 @@ export class TableListW {
   private readonly efl: number;
   private readonly cap: number;
   private readonly pendingClose: (() => void)[];
+  private readonly base: number;
   private count = 0;
 
   constructor(
@@ -1483,6 +1617,7 @@ export class TableListW {
     efl: number,
     cap: number,
     pendingClose: (() => void)[] = [],
+    base = 0,
   ) {
     this.main = main;
     this.pos = pos;
@@ -1490,6 +1625,7 @@ export class TableListW {
     this.efl = efl;
     this.cap = cap;
     this.pendingClose = pendingClose;
+    this.base = base;
   }
 
   push(): TableW {
@@ -1499,7 +1635,7 @@ export class TableListW {
     const start = this.first + this.count * this.efl;
     this.count++;
     this.main.dv.setUint32(this.pos, this.count, true);
-    return new TableW(this.main, undefined, start, this.pendingClose);
+    return new TableW(this.main, undefined, start, this.pendingClose, this.base);
   }
 
   close(): void {
@@ -1530,7 +1666,7 @@ export class StreamListW {
     }
     const start = this.aux.allocZero(this.efl);
     this.count++;
-    return new TableW(this.parent.main, this.aux, start, this.parent.pendingClose);
+    return new TableW(this.parent.main, this.aux, start, this.parent.pendingClose, this.parent.base);
   }
 
   close(): void {
