@@ -5,6 +5,7 @@
 pub mod ast;
 pub mod build;
 pub mod check;
+pub mod cli;
 pub mod codegen;
 pub mod compat;
 pub mod diff;

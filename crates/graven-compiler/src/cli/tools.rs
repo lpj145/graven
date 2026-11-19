@@ -1,14 +1,14 @@
 //! Data tools: `inspect`, `to-json`, `from-json`, `scan` and `diff`.
 
-use crate::Failed;
+use super::Failed;
 use graven::envelope::{self, MAGIC};
 use graven::{Builder, Error, SimplePool};
-use graven_compiler::build::{analyze_set, lock_path, own_locks, with_imports};
-use graven_compiler::diff::diff as diff_locks;
-use graven_compiler::dynamic::Schema;
-use graven_compiler::ir::TableId;
-use graven_compiler::json::{table_from_json, table_to_json};
-use graven_compiler::lock::{lock_from_ir, read_lock};
+use crate::build::{analyze_set, lock_path, own_locks, with_imports};
+use crate::diff::diff as diff_locks;
+use crate::dynamic::Schema;
+use crate::ir::TableId;
+use crate::json::{table_from_json, table_to_json};
+use crate::lock::{lock_from_ir, read_lock};
 use bytes::BytesMut;
 use std::io::{Read, Write};
 use std::path::Path;

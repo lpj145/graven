@@ -20,6 +20,10 @@ Install the `gravenc` CLI to manage lockfiles and inspect binary data:
 cargo install graven-compiler
 ```
 
+Or skip the install: the lockfile can be managed from `build.rs` (see the note below), and the
+whole CLI is a library function, `graven_compiler::cli::run`, that a workspace `xtask` package
+can call (see [Without installing gravenc](#without-installing-gravenc)).
+
 Generate Rust code automatically in `build.rs`:
 
 ```rust
@@ -32,7 +36,7 @@ fn main() {
 ```
 
 > [!NOTE]
-> `Build::compile()` reads the lockfile (`schemas/bank.graven.lock`) and **never writes it**. It emits `cargo:rerun-if-changed` for both files and fails if the lock is missing, out of date, or has an error/unconfirmed warning. Add `.client()` and `.server()` to emit `service` code. Without `build.rs`, `gravenc gen schemas/bank.graven -o src/gen` writes the same files.
+> `Build::compile()` reads the lockfile (`schemas/bank.graven.lock`) and, by default, **never changes it**. It emits `cargo:rerun-if-changed` for both files and fails if the lock is missing, out of date, or has an error/unconfirmed warning. Two opt-ins: with `.init_missing_locks()`, a missing lock is created (as `gravenc update --init` does); with `GRAVEN_UPDATE=1 cargo build` (or `.update()`), an out-of-date lock is rewritten after the compatibility check (as `gravenc update` does), and an incompatible change still fails without touching it. Each lock written gets a `cargo:warning` to commit it. Add `.client()` and `.server()` to emit `service` code. Without `build.rs`, `gravenc gen schemas/bank.graven -o src/gen` writes the same files.
 
 Include each generated file inside its own empty module:
 
@@ -54,6 +58,44 @@ When schemas import each other, place sibling modules side by side named after t
 pub mod common { include!(concat!(env!("OUT_DIR"), "/common.rs")); }
 pub mod orders { include!(concat!(env!("OUT_DIR"), "/orders.rs")); }
 ```
+
+### Without installing gravenc
+
+A Rust project can do everything `gravenc` does through cargo alone:
+
+- **New schema:** `.init_missing_locks()` in `build.rs` creates its first lock.
+- **Schema change:** `GRAVEN_UPDATE=1 cargo build` applies the compatibility check and rewrites
+  the lock; without the variable an out-of-date lock is an error, so CI stays strict.
+- **Everything else** (`check --locked`, `update --from`, `diff`, `inspect`, `to-json`, …): a
+  workspace package that calls `graven_compiler::cli::run`:
+
+```toml
+# xtask/Cargo.toml
+[dependencies]
+graven-compiler = "0.3"
+```
+
+```rust
+// xtask/src/main.rs
+fn main() -> std::process::ExitCode {
+    graven_compiler::cli::run(std::env::args_os())
+}
+```
+
+```toml
+# .cargo/config.toml
+[alias]
+gravenc = "run -q -p xtask --"
+```
+
+```sh
+cargo gravenc diff schemas/bank.graven
+cargo gravenc update schemas/v2.graven --from schemas/v1.graven.lock
+```
+
+Keep it in a package of its own: a bin in the package whose `build.rs` compiles the schema
+would not run while the schema is broken, because cargo runs the build script first. The CLI
+always has the same version as the `graven-compiler` of the build.
 
 ## Reading and writing
 

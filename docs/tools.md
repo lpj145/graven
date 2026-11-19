@@ -17,7 +17,9 @@ it decodes exactly what generated code would.
 | [`gravenc scan`](#scan) | Check a file of envelopes: intact records, a cut-off tail, corruption. |
 
 Install it with `cargo install graven-compiler`, or from a clone with
-`cargo install --path crates/graven-compiler`.
+`cargo install --path crates/graven-compiler`. In a Rust workspace it can also run without
+installing, through `graven_compiler::cli::run` in an `xtask` package (see
+[Rust: without installing gravenc](sdk/rust.md#without-installing-gravenc)).
 
 Exit codes are the same for every command: `0` success, `1` an error or a problem found
 in the data, `2` incorrect usage.

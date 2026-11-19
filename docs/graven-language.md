@@ -360,7 +360,11 @@ enum or union variant; a new table.
 
 ## 9. Workflow: `gravenc check`, `update` and `gen`
 
-The lock only changes through an explicit action; the build never writes it.
+The lock only changes through an explicit action: `gravenc update`, or one of the build's
+opt-ins in `build.rs`, which apply the same rules. `Build::init_missing_locks()` creates the
+first lock of a schema that has none, as `gravenc update --init` does, and
+`GRAVEN_UPDATE=1 cargo build` rewrites an out-of-date lock, as `gravenc update` does. Without
+them, the build never writes the lock.
 
 ```text
 gravenc check  [--locked] <schema>...      validate schema(s) and compatibility with <schema>.lock

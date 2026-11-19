@@ -1,5 +1,20 @@
 # Changelog
 
+## Unreleased
+
+- **`Build::init_missing_locks()`** in `build.rs`: a schema without a lock is treated as new and
+  the build writes its first lock (the same file `gravenc update --init` writes), with a
+  `cargo:warning` to commit it. Off by default.
+- **`GRAVEN_UPDATE=1 cargo build`** (or `Build::update()`): the build rewrites an out-of-date
+  lock after the compatibility check, as `gravenc update` does; an error or an unconfirmed
+  warning still fails and leaves the lock untouched. Without it, an out-of-date lock is still
+  an error.
+- **`graven_compiler::cli::run(args)`**: the whole `gravenc` CLI as a library function, so a
+  workspace `xtask` package runs every command through cargo without installing the binary.
+  The `gravenc` binary is now that call.
+- `Build::compile` writes nothing (no lock, no code) unless every schema passes, schema id
+  collisions included (they used to be reported after the code was written).
+
 ## 0.3.4 — rebuild and alignment
 
 [Proposal 0006](docs/proposals/0006-rebuild-and-alignment.md): rebuilding messages, and

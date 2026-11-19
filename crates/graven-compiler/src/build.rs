@@ -17,10 +17,17 @@
 //! }
 //! ```
 //!
-//! [`Build::compile`] **never writes the lock**: the lock is committed and only changes with
-//! `gravenc update`, which is what applies the compatibility check. The build fails if the lock
-//! does not exist, if it is out of date (regenerating it would change something), if the
-//! compatibility check has an error or an unconfirmed warning, or if the schema fails parse/check.
+//! By default [`Build::compile`] **never changes an existing lock**: the lock is committed and
+//! only changes with `gravenc update`, which is what applies the compatibility check. The build
+//! fails if the lock is out of date (regenerating it would change something), if the
+//! compatibility check has an error or an unconfirmed warning, or if the schema fails
+//! parse/check. Two opt-ins let a Rust project manage its locks without `gravenc`:
+//!
+//! - [`Build::init_missing_locks`]: a missing lock is created, as `gravenc update --init` does.
+//! - [`Build::update`], or `GRAVEN_UPDATE=1 cargo build` ([`UPDATE_ENV`]): an out-of-date lock
+//!   is rewritten after the compatibility check, as `gravenc update` does.
+//!
+//! Nothing is written (no lock, no code) unless every schema of the build passes.
 
 use std::fmt;
 use std::path::{Path, PathBuf};
@@ -30,7 +37,7 @@ use crate::codegen::js::{generate_js, runtime_files};
 use crate::codegen::{GenOptions, Lang, generate_with_options};
 use crate::compat::{Finding, compat};
 use crate::ir::Ir;
-use crate::lock::{Lock, LockError, lock_from_ir, read_lock, reserved_types};
+use crate::lock::{Lock, LockError, lock_from_ir, read_lock, reserved_types, write_lock};
 use crate::check::check_with_imports;
 use crate::{check, parse};
 use std::collections::HashMap;
@@ -385,14 +392,15 @@ impl fmt::Display for CompileError {
             CompileError::MissingLock { schema, lock } => {
                 write!(
                     f,
-                    "{}: lock missing; new schema: gravenc update --init {s}; moved/renamed schema: gravenc update {s} --from <old lock>",
+                    "{}: lock missing; new schema: gravenc update --init {s} (or `.init_missing_locks()` in build.rs); \
+                     moved/renamed schema: gravenc update {s} --from <old lock>",
                     lock.display(),
                     s = schema.display()
                 )
             }
             CompileError::StaleLock { schema, lock } => write!(
                 f,
-                "{}: lock out of date with respect to the schema (the build never writes the lock); run: gravenc update {}",
+                "{}: lock out of date with respect to the schema; run: gravenc update {} (or GRAVEN_UPDATE=1 cargo build)",
                 lock.display(),
                 schema.display()
             ),
@@ -421,6 +429,19 @@ pub struct Build {
     cargo: bool,
     opts: GenOptions,
     lang: Lang,
+    /// Creates a missing lock instead of failing ([`Build::init_missing_locks`]).
+    init_missing_locks: bool,
+    /// Rewrites an out-of-date lock after the compatibility check ([`Build::update`]).
+    update: bool,
+}
+
+/// The environment variable that turns on [`Build::update`] in a cargo build:
+/// `GRAVEN_UPDATE=1 cargo build`.
+pub const UPDATE_ENV: &str = "GRAVEN_UPDATE";
+
+/// `GRAVEN_UPDATE` is set to something other than empty or `0`.
+fn update_requested() -> bool {
+    std::env::var_os(UPDATE_ENV).is_some_and(|v| !v.is_empty() && v != "0")
 }
 
 impl Default for Build {
@@ -431,7 +452,7 @@ impl Default for Build {
 
 impl Build {
     pub fn new() -> Self {
-        Build { schemas: Vec::new(), out_dir: None, cargo: true, opts: GenOptions::default(), lang: Lang::Rust }
+        Build { schemas: Vec::new(), out_dir: None, cargo: true, opts: GenOptions::default(), lang: Lang::Rust, init_missing_locks: false, update: false }
     }
 
     /// Sets the target output language (`Lang::Rust`, or `Lang::Js` for `.js` with `.d.ts`).
@@ -460,6 +481,28 @@ impl Build {
         self
     }
 
+    /// A schema without a lock is treated as new: the build writes its first lock
+    /// (`<schema>.lock`, as `gravenc update --init` does) and emits a `cargo:warning` to commit
+    /// it. An existing lock is never changed: an out-of-date lock is still an error. Off by
+    /// default, so a moved or renamed schema (whose history is in another lock, see
+    /// `gravenc update --from`) is not silently started over; `gravenc check --locked` in CI
+    /// still refuses a missing lock.
+    pub fn init_missing_locks(mut self) -> Self {
+        self.init_missing_locks = true;
+        self
+    }
+
+    /// An out-of-date lock is rewritten instead of failing, as `gravenc update` does: the
+    /// compatibility check still applies first, so an error or an unconfirmed warning still
+    /// fails and leaves the lock as it was. A missing lock still needs
+    /// [`Build::init_missing_locks`] (or `gravenc update --init`). Emits a `cargo:warning` for
+    /// each lock written. In a build script it is also turned on by setting
+    /// [`UPDATE_ENV`] (`GRAVEN_UPDATE=1 cargo build`), so `build.rs` does not need to change.
+    pub fn update(mut self) -> Self {
+        self.update = true;
+        self
+    }
+
     /// Output directory; default: the `OUT_DIR` environment variable.
     pub fn out_dir(mut self, dir: impl AsRef<Path>) -> Self {
         self.out_dir = Some(dir.as_ref().to_path_buf());
@@ -475,8 +518,8 @@ impl Build {
 
     /// Generates `<out>/<file without .graven>.rs` for each schema. Emits `cargo:rerun-if-changed`
     /// for the schema and the lock (before anything else, so cargo reruns after a fix)
-    /// and `cargo:warning` for confirmed warnings. **Never writes the lock.** Stops at the
-    /// first schema with an error.
+    /// and `cargo:warning` for confirmed warnings. Writes a lock only with
+    /// [`Build::init_missing_locks`] or [`Build::update`], and only once every schema passes.
     pub fn compile(self) -> Result<(), CompileError> {
         if self.schemas.is_empty() {
             return Err(CompileError::NoSchema);
@@ -514,26 +557,69 @@ impl Build {
                 )]));
             }
         }
+        // `GRAVEN_UPDATE` is read only by a cargo build script (not by `gravenc gen`).
+        let update = self.update || (self.cargo && update_requested());
         if self.cargo {
+            println!("cargo:rerun-if-env-changed={UPDATE_ENV}");
             for schema in &self.schemas {
                 println!("cargo:rerun-if-changed={}", schema.display());
                 println!("cargo:rerun-if-changed={}", lock_path(schema).display());
             }
         }
         let mut locks: HashMap<PathBuf, Lock> = HashMap::new();
+        let mut missing: Vec<&PathBuf> = Vec::new();
         for schema in &self.schemas {
             let lock_file = lock_path(schema);
-            let lock = read_lock(&lock_file)
-                .map_err(CompileError::Lock)?
-                .ok_or_else(|| CompileError::MissingLock { schema: schema.to_path_buf(), lock: lock_file.clone() })?;
-            locks.insert(schema.clone(), lock);
+            match read_lock(&lock_file).map_err(CompileError::Lock)? {
+                Some(lock) => {
+                    locks.insert(schema.clone(), lock);
+                }
+                None if self.init_missing_locks => missing.push(schema),
+                None => return Err(CompileError::MissingLock { schema: schema.to_path_buf(), lock: lock_file }),
+            }
         }
-        // Imports are resolved among the schemas of this build.
+        // Imports are resolved among the schemas of this build; a schema without a lock is
+        // checked as new (no baseline), as `gravenc update --init` does.
         let results = analyze_set(&self.schemas, &|f: &Path| Ok(locks.get(f).cloned()));
         let analyses: Vec<Analysis> = results
             .into_iter()
             .map(|r| r.map_err(CompileError::Diagnostics))
             .collect::<Result<_, _>>()?;
+        // Everything is checked before any file is written: compatibility, the lock each
+        // schema ends up with, and schema id collisions.
+        for (schema, a) in self.schemas.iter().zip(&analyses) {
+            if a.blocking() {
+                return Err(CompileError::Diagnostics(a.finding_lines(schema)));
+            }
+        }
+        let mut writes: Vec<(&PathBuf, &str)> = Vec::new();
+        let mut ids = Vec::new();
+        for (schema, a) in self.schemas.iter().zip(&analyses) {
+            let current = locks.get(schema);
+            let fresh = lock_from_ir(&a.ir, current);
+            match current {
+                // Only reached with `init_missing_locks` (otherwise `MissingLock` above).
+                None => writes.push((schema, "lock created for a new schema")),
+                Some(l) if *l != fresh && update => writes.push((schema, "lock updated (GRAVEN_UPDATE)")),
+                Some(l) if *l != fresh => {
+                    return Err(CompileError::StaleLock { schema: schema.to_path_buf(), lock: lock_path(schema) });
+                }
+                Some(_) => {}
+            }
+            ids.extend(schema_ids(schema, &a.ir, &fresh));
+            locks.insert(schema.clone(), fresh);
+        }
+        let collisions = schema_id_collisions(&ids);
+        if !collisions.is_empty() {
+            return Err(CompileError::Diagnostics(collisions));
+        }
+        for (schema, what) in writes {
+            let lock_file = lock_path(schema);
+            write_lock(&lock_file, &locks[schema]).map_err(|source| CompileError::Io { path: lock_file.clone(), source })?;
+            if self.cargo {
+                println!("cargo:warning={}: {what}; commit it", lock_file.display());
+            }
+        }
         let mut ns_to_stem = std::collections::BTreeMap::new();
         for (schema, a) in self.schemas.iter().zip(&analyses) {
             let stem = schema.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
@@ -541,24 +627,17 @@ impl Build {
                 ns_to_stem.insert(a.ir.namespace.clone(), stem);
             }
         }
-        let mut ids = Vec::new();
+        std::fs::create_dir_all(&out).map_err(|source| CompileError::Io { path: out.clone(), source })?;
         for (schema, a) in self.schemas.iter().zip(&analyses) {
             let lock = &locks[schema];
-            if a.blocking() {
-                return Err(CompileError::Diagnostics(a.finding_lines(schema)));
-            }
             if self.cargo {
                 for l in a.finding_lines(schema) {
                     println!("cargo:warning={l}");
                 }
             }
-            if lock_from_ir(&a.ir, Some(lock)) != *lock {
-                return Err(CompileError::StaleLock { schema: schema.to_path_buf(), lock: lock_path(schema) });
-            }
             let name = schema.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
             let stem = schema.file_stem().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
             let target = out.join(format!("{stem}.{ext}"));
-            std::fs::create_dir_all(&out).map_err(|source| CompileError::Io { path: out.clone(), source })?;
             match self.lang {
                 Lang::Rust => {
                     let code = generate_with_options(&a.ir, lock, &name, self.opts);
@@ -571,19 +650,13 @@ impl Build {
                     std::fs::write(&dts, files.dts).map_err(|source| CompileError::Io { path: dts, source })?;
                 }
             }
-            ids.extend(schema_ids(schema, &a.ir, lock));
         }
         if self.lang == Lang::Js {
-            std::fs::create_dir_all(&out).map_err(|source| CompileError::Io { path: out.clone(), source })?;
             let (js, dts) = runtime_files();
             for (file, text) in [("graven.js", js), ("graven.d.ts", dts)] {
                 let path = out.join(file);
                 std::fs::write(&path, text).map_err(|source| CompileError::Io { path, source })?;
             }
-        }
-        let collisions = schema_id_collisions(&ids);
-        if !collisions.is_empty() {
-            return Err(CompileError::Diagnostics(collisions));
         }
         Ok(())
     }

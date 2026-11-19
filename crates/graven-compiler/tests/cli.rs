@@ -81,6 +81,75 @@ fn build_missing_lock_errors() {
 }
 
 #[test]
+fn build_init_missing_locks() {
+    let (d, schema, out) = setup("init-missing-locks");
+    let init = || Build::new().quiet().init_missing_locks().schema(&schema).out_dir(&out).compile().map_err(|e| e.to_string());
+    init().unwrap();
+    assert!(out.join("t.rs").exists());
+    // The same lock `gravenc update --init` writes.
+    let created = std::fs::read_to_string(lock_of(&schema)).unwrap();
+    std::fs::remove_file(lock_of(&schema)).unwrap();
+    update_ok(&schema);
+    assert_eq!(std::fs::read_to_string(lock_of(&schema)).unwrap(), created);
+    assert_eq!(ls(&d), ["out", "t.graven", "t.graven.lock"]);
+    // An existing lock is never changed: out of date is still an error.
+    write(&schema, &V1.replace("b @1: u32;", "b @1: u32;\n  c @2: u8?;"));
+    let e = init().unwrap_err();
+    assert!(e.contains("out of date"), "{e}");
+    assert_eq!(std::fs::read_to_string(lock_of(&schema)).unwrap(), created);
+    // A schema that fails the check gets no lock.
+    std::fs::remove_file(lock_of(&schema)).unwrap();
+    write(&schema, "namespace t;\ntable T { a @0: Nope; }\n");
+    assert!(init().is_err());
+    assert!(!lock_of(&schema).exists());
+}
+
+#[test]
+fn build_update_rewrites_like_gravenc_update() {
+    let (_d, schema, out) = setup("build-update");
+    let upd = || Build::new().quiet().update().schema(&schema).out_dir(&out).compile().map_err(|e| e.to_string());
+    // A missing lock still needs `--init` (or `init_missing_locks`).
+    assert!(upd().unwrap_err().contains("lock missing"));
+    update_ok(&schema);
+    let v1 = std::fs::read_to_string(lock_of(&schema)).unwrap();
+    // Compatible change: the build rewrites the lock with what `gravenc update` writes.
+    write(&schema, &V1.replace("b @1: u32;", "b @1: u32;\n  c @2: u8?;"));
+    upd().unwrap();
+    assert!(out.join("t.rs").exists());
+    let by_build = std::fs::read_to_string(lock_of(&schema)).unwrap();
+    assert_ne!(by_build, v1);
+    write(&lock_of(&schema), &v1);
+    update_ok(&schema);
+    assert_eq!(std::fs::read_to_string(lock_of(&schema)).unwrap(), by_build);
+    // Up to date: nothing to write, the build passes without `update` too.
+    build(&schema, &out).unwrap();
+    // Incompatible change or unconfirmed warning: error, the lock and the code are left as they were.
+    std::fs::remove_file(out.join("t.rs")).unwrap();
+    for bad in [V1.replace("a @0: u32", "a @0: u64"), V1.replace("b @1: u32;", "@1: reserved;")] {
+        write(&schema, &bad);
+        let e = upd().unwrap_err();
+        assert!(e.contains("type-changed") || e.contains("required-reserved"), "{e}");
+        assert_eq!(std::fs::read_to_string(lock_of(&schema)).unwrap(), by_build);
+        assert!(!out.join("t.rs").exists());
+    }
+}
+
+#[test]
+fn cli_run_as_library() {
+    use std::ffi::OsString;
+    use std::process::ExitCode;
+    let (_d, schema, _out) = setup("cli-run");
+    let run = |args: &[&str]| {
+        let argv = std::iter::once("xtask").chain(args.iter().copied()).map(OsString::from);
+        graven_compiler::cli::run(argv)
+    };
+    assert_eq!(run(&["update", "--init", s(&schema)]), ExitCode::SUCCESS);
+    assert!(lock_of(&schema).exists());
+    assert_eq!(run(&["check", "--locked", s(&schema)]), ExitCode::SUCCESS);
+    assert_eq!(run(&["nope"]), ExitCode::from(2));
+}
+
+#[test]
 fn update_then_build_ok() {
     let (_d, schema, out) = setup("update-build");
     update_ok(&schema);
