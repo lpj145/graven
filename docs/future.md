@@ -147,6 +147,19 @@ rebuild on large records that change a little, but leaves unreferenced bytes tha
 `compact()` would have to remove, and a field with no slot (added by a newer schema) still
 needs a rebuild.
 
+## Reading without generated code, from the lockfile
+
+A message does not describe itself: the envelope carries the root type's `schema_id`, not
+the schema. Reading one without generated code works today in Rust, through
+`graven_compiler::dynamic::Schema::load` and `graven_dynamic::read`, which is what
+`gravenc inspect`, `to-json` and `scan` use; but it needs the whole compiler (parser and
+checker) and the `.graven` source.
+
+The lockfile already records every layout: types, slots, presence bits, defaults and schema
+ids. A small dynamic reader that builds its model from the lock alone, in Rust and in
+JavaScript, would let a generic viewer, an admin tool or a JSON bridge read any message
+given only its lock, the role FlatBuffers' binary schemas (`.bfbs`) play there.
+
 ## How the format itself can evolve
 
 Format v1 is frozen and will stay readable for good. Ideas that do not fit in v1 are
