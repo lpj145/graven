@@ -1,6 +1,6 @@
 # JavaScript / TypeScript SDK
 
-`gravenc gen --lang js` generates **plain ES2022 modules (`.js`) alongside full TypeScript declarations (`.d.ts`)** with **zero runtime dependencies**. It runs directly in browsers, Node (>= 20), and Deno — no bundler or build step required for plain JS, and full strict type checking in TypeScript.
+`gravenc gen --lang js` emits ES2022 modules (`.js`) with TypeScript declarations (`.d.ts`) and zero runtime dependencies. The generated code runs directly in browsers, Node (>= 20), and Deno with no bundler required for plain JavaScript and strict type checking in TypeScript.
 
 ## Setup
 

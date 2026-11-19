@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.5 — gravenc without the binary
 
 - **`Build::init_missing_locks()`** in `build.rs`: a schema without a lock is treated as new and
   the build writes its first lock (the same file `gravenc update --init` writes), with a

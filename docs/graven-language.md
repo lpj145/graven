@@ -237,7 +237,7 @@ implementation cannot generate would split the ecosystem. `check` rejects (with
 `file:line:column`):
 
 - a **type name** (enum, struct, table, union) that does not start with an uppercase
-  letter `A–Z` — this rules out keywords, Rust primitives (`str`, `usize`) and
+  letter `A–Z`: this rules out keywords, Rust primitives (`str`, `usize`) and
   collisions with the layout module and with variables of the generated code;
 - a type whose (snake_case) layout module would be `self`, `super` or `crate` (`Crate`,
   `Super`, `SELF`); other modules that are keywords are emitted raw (`Type` ⇒
@@ -246,19 +246,19 @@ implementation cannot generate would split the ecosystem. `check` rejects (with
   as fields and variants and are emitted as `r#name`;
 - the enum variants `Unknown`, `from_raw` and `to_raw`; the union variant `Unknown`;
 - any generated identifier repeated in the same scope:
-  - **module** — for table `X`: `X`, `XVerified`, `XW`, `XE`, `XListW` (types and
+  - **module:** for table `X`: `X`, `XVerified`, `XW`, `XE`, `XListW` (types and
     constructors), `mod x` (snake_case), `X_REQ`, `X_MASK`, `X_SCHEMA_ID` (UPPER_CASE of
     the snake form); for union `U`: `U`, `UVerified`, `UW`; for service `S`: `SCall`,
     `SClient`, `S_SERVICE_ID`, `mod s_timeouts`; and the reserved name `SCHEMA_ID`.
     E.g. `HTTPServer` and `HttpServer` (both become `http_server`), `Foo` and `FooW`,
     `FOO` and `FOO_REQ`;
-  - a table's **layout module** — `FIXED_LEN`, `PTR_SLOTS`, `FIELD` (offset of every
+  - a table's **layout module:** `FIXED_LEN`, `PTR_SLOTS`, `FIELD` (offset of every
     non-`bool` field) and `FIELD_BIT` (scalars and `bool`). E.g. fields `fixed_len`,
     `ptr_slots`; `x` (scalar) with `x_bit`; `fooBar` with `foo_bar`;
-  - **reader methods** — `read`, `verified`, `verified_with`, `from_bytes`, `verify`,
+  - **reader methods:** `read`, `verified`, `verified_with`, `from_bytes`, `verify`,
     `SCHEMA_ID` and one accessor per field;
-  - **view methods** — `reader` and one accessor per field;
-  - **writer methods** — `root`, `to_bytes`, `seal` and: one setter per field; for a list
+  - **view methods:** `reader` and one accessor per field;
+  - **writer methods:** `root`, `to_bytes`, `seal` and: one setter per field; for a list
     (except `[string]`/`[bytes]`) also `<field>_streaming`; for a union, one
     `<field>_<variant_snake>` per variant (and no `<field>`). E.g. `xs: [u32]` with
     `xs_streaming`; `u: U` (variant `Big`) with `u_big`.
@@ -266,7 +266,7 @@ implementation cannot generate would split the ecosystem. `check` rejects (with
 `Option`, `String`, `Result`, `FnOnce` and the like are accepted: the generated code
 only uses absolute paths (`::core::…`, `::graven::…`). So is a field named `schema_id`
 (the method `schema_id()` does not collide with the const `SCHEMA_ID`). Style
-recommendation: types and variants in `CamelCase`, fields in `snake_case` — the
+recommendation: types and variants in `CamelCase`, fields in `snake_case`. The
 generator does not rename, and other styles produce lint warnings in the crate that
 includes the code.
 

@@ -26,12 +26,12 @@ DOCS = os.path.join(ROOT, "docs")
 # Sidebar sections: (Section Title, [(Page Title, Source relative to docs/, Short Description)])
 SECTIONS = [
     ("Start", [
-        ("Getting started", "getting-started.md", "Install gravenc, create a lockfile, and generate your first bindings."),
-        ("Coming from JSON", "coming-from-json.md", "Translate JSON into a .graven schema and compare code across languages."),
-        ("Good practice", "good-practice.md", "Schema evolution habits, collections, and reading untrusted input."),
+        ("Getting started", "getting-started.md", "Install gravenc, initialize a .lock file, and generate your first bindings."),
+        ("Coming from JSON", "coming-from-json.md", "Translate a JSON payload into a .graven definition and compare generated code."),
+        ("Good practice", "good-practice.md", "Evolution habits, collections, and reading untrusted input."),
     ]),
     ("Language & Format", [
-        ("Schema language", "graven-language.md", "Syntax, types, IDs, imports, names, and lockfile compatibility rules."),
+        ("Schema language", "graven-language.md", "Syntax, types, IDs, imports, names, and .lock compatibility rules."),
         ("Validation", "validation.md", "Value rules (range, len, finite, known, check) and evolution checks."),
         ("Services", "services.md", "RPC service declarations, method shapes, typed errors, and timeouts."),
         ("Format v1", "spec/graven-format-v1.md", "Normative wire format: layout, presence, verification, and envelopes."),
@@ -40,7 +40,7 @@ SECTIONS = [
         ("Conformance vectors", "conformance-vectors.md", "Frozen format and RPC frame vectors to test any implementation."),
     ]),
     ("SDKs", [
-        ("Implementations", "implementations.md", "Supported languages, capability matrix, and how to add a new SDK."),
+        ("Implementations", "implementations.md", "Supported languages, capability matrix, and how to add a new runtime."),
         ("Rust", "sdk/rust.md", "Reference runtime (no_std), build.rs codegen, validation, and RPC edge."),
         ("JavaScript / TypeScript", "sdk/js.md", "Zero-dep ES2022 .js + .d.ts bindings for browsers, Node, and Deno."),
     ]),
@@ -48,7 +48,7 @@ SECTIONS = [
         ("gravenc CLI", "tools.md", "check, update, gen, diff, inspect, JSON conversion, scan, and editor support."),
         ("Benchmarks", "benchmarks.md", "Size, allocations, and latency vs FlatBuffers and Cap'n Proto."),
         ("Testing", "testing.md", "Rust suite, fuzzing, Miri, and the JS/TS conformance & interop suite."),
-        ("The future", "future.md", "Roadmap and ecosystems where Graven fits best."),
+        ("The future", "future.md", "Where the format fits today and open ideas for future work."),
         ("For AI assistants", "for-ai.md", "Compact single-page reference plus llms.txt and llms-full.txt."),
         ("History", "history/index.md", "Design notes, plans, and benchmark records (non-normative)."),
         ("Changelog", "changelog.md", "Release history."),
@@ -539,17 +539,6 @@ def render_page(src_rel, out_dir, title, desc):
 
 
 def index_page(out_dir):
-    featured = [
-        ("Getting started", "getting-started.html", "Install gravenc, create your first schema + lockfile, and generate bindings."),
-        ("Schema language", "graven-language.html", "Tables, structs, unions, enums, imports, and lockfile compatibility rules."),
-        ("Rust SDK", "sdk/rust.html", "Zero-copy runtime (no_std), build.rs codegen, validation, and server edge."),
-        ("JavaScript / TypeScript SDK", "sdk/js.html", "Zero-dependency ES2022 .js + .d.ts modules for browsers, Node, and Deno."),
-    ]
-    cards = "\n".join(
-        f'<a class="hero-card" href="{href}"><strong>{html.escape(t)}</strong><span>{html.escape(d)}</span></a>'
-        for t, href, d in featured
-    )
-
     sections_html = []
     for section, pages in SECTIONS:
         rows = "\n".join(
@@ -562,9 +551,7 @@ def index_page(out_dir):
 
     body = (
         '<h1 id="documentation">Documentation</h1>'
-        '<p class="lede-doc">One language-neutral binary format and schema compiler, paired with native '
-        'SDKs that read and write identical bytes.</p>'
-        f'<div class="hero-cards">{cards}</div>'
+        '<p class="lede-doc">Guides, language reference, wire specifications, and runtime SDKs.</p>'
         f'{"".join(sections_html)}'
     )
     SITEMAP.append(canonical("docs/index.html"))

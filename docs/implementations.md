@@ -1,10 +1,9 @@
 # Implementations
 
-Every implementation of Graven builds on two language-neutral pillars: the
-[format specification](spec/graven-format-v1.md) (plus [RPC frames v1](spec/graven-rpc-v1.md)),
-which defines every byte, and the [conformance vectors](conformance-vectors.md) that pin exact
-decoding behavior. Because all implementations pass the same vectors and canonical layout
-rules, messages written in one language are read identically by all others.
+Every runtime follows the [format specification](spec/graven-format-v1.md) (and
+[RPC frames v1](spec/graven-rpc-v1.md) for services) and is tested against the same
+[conformance vectors](conformance-vectors.md). Bytes written by one language read back
+identically in any other.
 
 ## Supported SDKs
 

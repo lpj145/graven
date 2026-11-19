@@ -1,136 +1,116 @@
 # The future
 
-Graven is a small thing on purpose: a frozen wire format, a schema language with
-enforced evolution, and a way to prove an implementation correct. Small foundations travel
-far. This page describes where it can be applied, what already works for each area today,
-and what would still need to be built. Nothing here is a promise or a schedule; it is a
-map of where the format fits.
+This page maps out where the format fits well, what works today, and what is still missing
+for each area. Nothing here is a commitment or a schedule.
 
-## Records that have to outlive their software
+## Records that outlive their software
 
-Accounting entries, invoices, fiscal documents, contracts, medical and audit records:
-data that is written once, must never silently change meaning, and may have to be read
-decades later, by software that does not exist yet.
+Accounting entries, invoices, fiscal documents, contracts, medical and audit records are
+written once and may need to be read decades later by software that does not exist yet.
 
-**What already fits.** The format is frozen and specified down to the byte, with public
-conformance vectors, so a record can be decoded without the program that wrote it. Each
-envelope carries its schema id and a checksum, append-only files survive crashes, and
-[`gravenc scan`](tools.md#scan) tells a cut-off write from real corruption.
+Format v1 is frozen and specified down to the byte with public conformance vectors, so a
+record can be decoded without the original program. Each envelope carries its `schema_id`
+and a CRC32C checksum, append-only files survive crashes, and
+[`gravenc scan`](tools.md#scan) separates a cut-off write from real corruption.
 
-**What would make it go further.** Archival conventions on top of the format: a manifest
-that stores the schemas next to the data, periodic integrity reports, and signed
-envelopes for records that must be tamper-evident.
+What is still open here is archival tooling on top of the format: manifests that bundle
+definitions alongside stored files, periodic integrity checks, and signed envelopes for
+tamper-evident records.
 
 ## Libraries and SDKs shipped to other people
 
-When code runs at a customer's site, you no longer choose when it upgrades. Ten versions
-of a client may be talking to the same server at once.
+When code runs on a customer's machine, you do not control upgrade timing. Ten client
+versions may talk to the same server at once.
 
-**What already fits.** The lockfile and the compatibility rules guarantee that old and new
-code read each other's messages without guessing; changes that would break that are
-refused at build time, and [`gravenc diff`](tools.md#diff) shows the verdict of every
-change before it ships.
+The `.lock` file and compatibility rules ensure old and new code decode each other's
+messages without guessing. Breaking edits fail at build time, and
+[`gravenc diff`](tools.md#diff) reports the verdict of every edit before a release.
 
-**What would make it go further.** Implementations in more of the languages SDKs are
-written in, such as Python, Go, Java, Kotlin, Swift and C#, next to the Rust and
-[JavaScript / TypeScript](implementations.md) ones. Each one is measured against the same 42
-vectors, so "compatible" means the same thing everywhere.
+To cover more ecosystems, the project needs runtimes in languages commonly used for client
+SDKs (Python, Go, Java, Kotlin, Swift, C#) alongside Rust and
+[JavaScript / TypeScript](implementations.md). Every runtime is checked against the same
+42 format vectors.
 
 ## Event streams and messaging
 
-Payloads for Kafka, NATS, queues and webhooks are produced by one team and consumed by
+Payloads in Kafka, NATS, queues, and webhooks are produced by one service and consumed by
 many, often long after they were written.
 
-**What already fits.** The schema id in every envelope identifies the payload without a
-side channel. A consumer verifies a message once and reads fields in place, so routing
-or filtering by one field does not decode the rest.
+Because every envelope carries its `schema_id`, consumers know what type a payload is
+without an out-of-band header. A router or filter can verify a message once and read only
+the fields it cares about without decoding the rest.
 
-**What would make it go further.** A schema registry that serves lockfiles by schema id,
-and connectors for common brokers.
+Missing pieces: a registry that serves `.lock` files by `schema_id`, and ready-made
+connectors for common brokers.
 
-## Storage engines, caches and indexes
+## Storage engines, caches, and indexes
 
-Values in key-value stores, rows in embedded databases, memory-mapped files.
+Values in key-value stores, rows in embedded databases, and memory-mapped files benefit
+from zero-copy reads: a fetched value or mapped page is read field by field without
+allocating, and reading one field of a large record skips everything else.
 
-**What already fits.** Reads are zero-copy: a value fetched from storage, or a page of a
-memory-mapped file, can be read field by field without allocation. Reading one field of
-a large record costs only that field.
-
-**What would make it go further.** Export of envelope files to columnar formats such as
-Apache Arrow and Parquet for analytics, and secondary-index helpers that extract fields
-without full decoding.
+Useful additions on top of the format would be exporters from envelope files to columnar
+formats like Apache Arrow or Parquet for analytics, and secondary-index helpers that
+extract keys directly from raw buffers.
 
 ## Devices at the edge
 
-Point-of-sale terminals, scales, sensors and vehicles that collect data while offline and
-send it in batches when they can.
+Point-of-sale terminals, scales, sensors, and vehicles often collect data offline and flush
+it in batches when connectivity returns.
 
-**What already fits.** The format needs no allocator and no alignment, the Rust runtime is
-`no_std` with two dependencies, and envelopes can be concatenated into a batch that the
-receiving side checks record by record.
+The format needs no allocator and no alignment, the Rust runtime is `no_std` with two
+dependencies, and envelopes concatenate naturally into batches that the receiver checks
+record by record.
 
-**What would make it go further.** A C implementation for microcontrollers, and a
-store-and-forward library that persists a queue of envelopes on flash.
+A small C runtime for microcontrollers and a store-and-forward queue for flash storage
+would make this space much easier to target.
 
 ## Web applications
 
-Browsers and web servers exchange JSON because it is everywhere, not because it fits:
-every response is parsed in full, numbers lose precision past 2^53, and nothing stops a
-newer server from sending a shape that an older tab, still open since yesterday, cannot
-read.
+Browsers and servers default to JSON, which parses every response in full, loses integer
+precision past 2^53, and gives no compile-time check when a server changes a response shape
+while older tabs are still open.
 
-**What already fits.** The [JavaScript implementation](sdk/js.md) runs in browsers, Node
-and Deno with no dependency: `gravenc gen --lang js` writes typed readers and writers, and
-reads fields in place from a `fetch` response. It passes the same 42 vectors as Rust. The
-compatibility rules cover the case JSON leaves to discipline: old tabs keep working while
-the server moves ahead. `verify` protects the client from a malformed response, and
-[frames](services.md#the-bytes) cost 7 bytes per reply, so small messages stay small. A schema's [services](services.md) generate a
-typed client, so a page calls the server through one endpoint with typed inputs, outputs
-and errors.
+The [JavaScript runtime](sdk/js.md) runs in browsers, Node, and Deno with zero
+dependencies: `gravenc gen --lang js` produces typed readers, writers, and RPC clients that
+read fields directly from a `fetch` response and pass the same 42 vectors as Rust.
+Lockfile checks keep old tabs working as the server evolves, `verify` guards against
+malformed responses, and [RPC frames](services.md#the-bytes) add 7 bytes per reply.
 
-**What would make it go further.** The server edge in JavaScript, for servers written in
-Node or Deno, and a browser DevTools panel that shows binary responses as readable data.
+Trade-offs to keep in mind: `JSON.parse` is heavily optimized native code, so the speed
+gain matters most for large payloads or partial reads. Over gzip or brotli, the size gap to
+JSON narrows, and 64-bit integers map to `BigInt` in JavaScript, which is exact but more
+verbose than `number`.
 
-**What to expect.** `JSON.parse` is highly optimized native code, so the gain is largest
-for large messages, or when only a few fields of a response are read. With gzip or brotli
-the size gap to JSON narrows. 64-bit integers become `BigInt` in JavaScript, which is
-exact but less convenient than `number`.
+A JavaScript server edge for Node/Deno and a browser DevTools panel for inspecting binary
+responses are still unbuilt.
 
 ## Plugins and sandboxes
 
-Extensions written by third parties, often compiled to WebAssembly, that exchange data
-with the host application.
+Third-party extensions (often compiled to WebAssembly) exchange data across a trust
+boundary with no shared object model. Buffers pass as plain bytes, and `verify` bounds
+nesting depth and total traversal work so a hostile plugin output can only return an error.
 
-**What already fits.** Buffers cross the boundary as bytes, with no shared object model,
-and `verify` lets the host accept whatever a plugin returns without trusting it: depth
-and total work are bounded, so a hostile buffer can only produce an error.
-
-**What would make it go further.** A small guest-side library for WebAssembly modules and
-a documented calling convention.
+A small guest-side helper crate for WebAssembly modules and a documented calling convention
+would round this out.
 
 ## Games and real-time state
 
-Snapshots, replays, save files and network state, where reading must be fast and old
-saves must still load after an update.
+Snapshots, replays, save files, and network state need fast reads and old saves that keep
+loading across patches. In-place reads fit frame-by-frame state, and lock-checked evolution
+keeps save files readable (the repository's `game` schema is included in the benchmarks).
 
-**What already fits.** Reading in place suits frame-by-frame state, and schema evolution
-keeps old save files readable. The repository's `game` schema is used in the benchmarks.
-
-**What would make it go further.** Delta encoding between snapshots, which would be a
-library on top of the format rather than a change to it.
+Delta encoding between snapshots could be built as a library on top of the format without
+changing v1.
 
 ## Interchange between languages and teams
 
-Data shared across services written in different languages, where JSON is used today
-because it is everywhere.
+`.graven` definitions are language-neutral, `.lock` files hold every layout a code
+generator needs, and [`gravenc to-json` / `from-json`](tools.md#to-json-and-from-json)
+bridge to systems that only speak JSON (see [Coming from JSON](coming-from-json.md)).
 
-**What already fits.** The schema language is language-neutral, the lockfile records every
-layout a code generator needs, and [`gravenc to-json` and `from-json`](tools.md#to-json-and-from-json)
-bridge to systems that only speak JSON. [Coming from JSON](coming-from-json.md) shows the
-translation.
-
-**What would make it go further.** Code generators for more languages, and importers from
-JSON Schema, Protocol Buffers or OpenAPI definitions that produce a first `.graven` file.
+Beyond additional language code generators, importers from JSON Schema, Protocol Buffers,
+or OpenAPI would make migrating existing projects easier.
 
 ## What v1 already allows
 

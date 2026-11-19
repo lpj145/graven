@@ -1,8 +1,8 @@
 # Getting started
 
-Graven schemas (`.graven`) are language-neutral. The `gravenc` compiler validates schemas,
-tracks compatibility in a lockfile (`<schema>.graven.lock`), inspects binary files, and generates code for every
-supported SDK.
+A `.graven` file defines your data and services once. The `gravenc` compiler checks it,
+records layouts in a `.graven.lock` file, inspects binary files, and generates code for each
+supported language.
 
 ## 1. Install `gravenc`
 
@@ -12,7 +12,7 @@ cargo install graven-compiler
 
 *(Or from a source checkout: `cargo build --release -p graven-compiler --bin gravenc`.)*
 
-## 2. Write a schema and create its lockfile
+## 2. Define types and initialize the `.lock` file
 
 Create `schemas/bank.graven`:
 
@@ -113,22 +113,22 @@ console.log(`tx ${tx.id()} (${Currency.name(tx.currency())})`);
 See the full [JavaScript / TypeScript SDK](sdk/js.md).
 <!-- /tabs -->
 
-Every implementation reads and writes identical wire bytes — a message written in Rust is
-read directly in JavaScript/TypeScript, and vice versa.
+All implementations read and write the exact same bytes, so a message written in Rust can be
+read directly in JavaScript/TypeScript and vice versa.
 
 ## 4. Evolve and check
 
-- **After a schema change:** `gravenc update schemas/bank.graven`. Refuses breaking changes
-  against the lockfile ([compatibility rules](graven-language.md#8-compatibility-lockfile)).
-- **In CI:** `gravenc check --locked schemas/*.graven`.
+- **After an edit:** `gravenc update schemas/bank.graven` checks compatibility against the
+  `.lock` file and rejects breaking changes ([compatibility rules](graven-language.md#8-compatibility-lockfile)).
+- **In CI:** `gravenc check --locked schemas/*.graven` fails if a `.lock` file is missing or stale.
 - **Review a change:** `gravenc diff schemas/bank.graven` lists every change with its verdict.
 - **Inspect or convert data:** `gravenc inspect`, `gravenc to-json`, and `gravenc from-json`
-  work from the schema alone ([gravenc](tools.md)).
+  work directly from the `.graven` file ([gravenc](tools.md)).
 
 ## Next steps
 
-- [Coming from JSON](coming-from-json.md) — translate JSON data into a Graven schema.
-- [Schema language](graven-language.md) — types, IDs, presence, imports, and evolution rules.
-- [Validation](validation.md) — value rules and custom `check(name)` hooks.
-- [Services](services.md) — RPC services, streaming, and typed errors.
-- [Implementations](implementations.md) — supported SDKs and adding new languages.
+- [Coming from JSON](coming-from-json.md): translate JSON payloads into `.graven` types.
+- [Schema language](graven-language.md): types, IDs, presence, imports, and evolution rules.
+- [Validation](validation.md): value rules and custom `check(name)` hooks.
+- [Services](services.md): RPC services, streaming, and typed errors.
+- [Implementations](implementations.md): supported runtimes and adding new languages.
