@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Graven — an open specification for a zero-copy binary format</title>
-<meta name="description" content="Graven is an open specification for a zero-copy binary format and its schema language, with frozen conformance vectors and implementations in Rust and JavaScript.">
+<title>Graven: a zero-copy binary format for stored data and RPC</title>
+<meta name="description" content="Zero-copy binary format and RPC protocol with a .lock file for safe evolution. Read fields in place on disk and over the wire.">
 <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
 <link rel="icon" href="assets/favicon.ico" sizes="48x48">
 <link rel="apple-touch-icon" href="assets/apple-touch-icon.png">
@@ -39,20 +39,20 @@
 <section class="hero">
   <div class="wrap hero-grid">
     <div class="hero-text">
-      <p class="eyebrow">Format v1 frozen · Rust &amp; JS / TS · MIT</p>
-      <h1>A binary format built for data that lasts.</h1>
-      <p class="lede">Read fields straight from raw bytes with no parsing or allocation. One shared schema and lockfile keep Rust and TypeScript/JavaScript compatible across stored logs and RPC streams.</p>
+      <p class="eyebrow">Zero-copy &amp; RPC &amp; MIT</p>
+      <h1>A zero-copy binary format for stored data and RPC.</h1>
+      <p class="lede">Write a <code>.graven</code> file to define your tables and services. Generated code reads fields directly at their byte offsets without unpacking the message, using the same layout on disk and over the network.</p>
       <div class="actions">
         <a class="btn primary" href="#start">Get started</a>
         <a class="btn" href="docs/index.html">Read the docs</a>
       </div>
-      <p class="hero-meta">Normative <a href="docs/spec/graven-format-v1.html">format v1 spec</a> · Inspired by FlatBuffers and Cap&#39;n Proto (<a href="docs/history/index.html">how we got here</a>)</p>
+      <p class="hero-meta"><a href="docs/spec/graven-format-v1.html">Format v1 specification</a> · Borrows ideas from FlatBuffers and Cap&#39;n Proto (<a href="docs/history/index.html">history</a>)</p>
     </div>
 
     <figure class="anatomy" aria-labelledby="anatomy-title">
       <div class="anatomy-head">
         <figcaption id="anatomy-title" class="anatomy-title">One message, on disk and on the wire</figcaption>
-        <span class="anatomy-hint">Hover or tap any field</span>
+        <span class="anatomy-hint">Hover or tap a field</span>
       </div>
       <pre class="schema" aria-label="Schema"><span class="sl" data-f="sid">namespace bank;</span>
 
@@ -72,35 +72,26 @@
 <section class="band" id="why">
   <div class="wrap">
     <div class="section-head">
-      <h2>Built for data that outlives the code that wrote it</h2>
-      <p>Write records once and keep reading them as services upgrade, storage engines change, and audits run years later.</p>
+      <h2>What you can build with Graven</h2>
+      <p>Logs you read years later, fast RPC services, local caches, or binary IPC where copying and parsing cost too much.</p>
     </div>
     <div class="pillars">
       <article class="pillar">
-        <h3>Read in place</h3>
-        <p>Fields decode directly from byte offsets. Strings and byte slices borrow straight from the buffer, so untouched fields cost zero work.</p>
+        <h3>Logs, ledgers, and archives</h3>
+        <p>Every stored record has a length prefix and a CRC32C, so a crash-truncated tail reads differently from bit rot. Append data for years and read old records with new code without migrating files.</p>
       </article>
       <article class="pillar">
-        <h3>One bounded verify pass</h3>
-        <p>Untrusted bytes pass through a single <code>verify</code> walk with fixed depth (64) and work limits, returning a trusted view without re-checking on every read.</p>
+        <h3>Low-latency RPC and streams</h3>
+        <p>Put methods, streams, and error unions next to your data definitions. Replies add only 7 bytes of framing over TLS or a socket, and stream items arrive one frame at a time.</p>
       </article>
       <article class="pillar">
-        <h3>Lockfile-guarded evolution</h3>
-        <p><code>gravenc</code> records every layout in a lockfile and rejects schema edits that would make old and new readers disagree.</p>
+        <h3>Caches and memory-mapped files</h3>
+        <p>Fields live at fixed offsets, and strings or byte slices borrow directly from the input buffer. Reading one field from a large record skips everything else and allocates nothing.</p>
       </article>
       <article class="pillar">
-        <h3>Crash vs. corruption clarity</h3>
-        <p>Normative envelope checks distinguish a write cut short by a crash from a flipped bit (CRC32C)—they are never confused.</p>
+        <h3>Embedded sync and Wasm IPC</h3>
+        <p>Call <code>verify</code> once when bytes arrive from an untrusted peer or plugin. Nesting stops at 64 levels and traversal work is bounded, so malformed input cannot blow the stack or stall a reader.</p>
       </article>
-    </div>
-    <div class="use-chips">
-      <p class="uses-label">Common fits</p>
-      <span class="chip">Ledgers &amp; event logs</span>
-      <span class="chip">Browser &harr; Rust RPC</span>
-      <span class="chip">Offline &amp; embedded sync</span>
-      <span class="chip">KV storage &amp; caches</span>
-      <span class="chip">Long-term archives</span>
-      <span class="chip">Wasm plugin boundaries</span>
     </div>
   </div>
 </section>
@@ -108,34 +99,34 @@
 <section class="band" id="containers">
   <div class="wrap">
     <div class="section-head">
-      <h2>One message, two containers</h2>
-      <p>The <code>Entry</code> payload is the exact same 35 bytes everywhere. Only its outer container changes between storage and network.</p>
+      <h2>Envelopes and frames</h2>
+      <p>The <code>Entry</code> message is the same 35 bytes on disk and on the wire. Only the wrapper changes.</p>
     </div>
     <div class="boxes">
       <figure class="box">
-        <figcaption><span class="box-name">At rest: the envelope</span><span class="box-size">59 bytes</span></figcaption>
+        <figcaption><span class="box-name">On disk: envelope</span><span class="box-size">59 bytes</span></figcaption>
         <div class="strip" aria-hidden="true">
           <span class="seg g-env" style="--b:20">header 20</span><span class="seg g-val" style="--b:35">message 35</span><span class="seg g-sum" style="--b:4">CRC</span>
         </div>
-        <p>Files, logs, and queues have no call context, so the envelope adds a <code>schema_id</code>, payload length, and CRC32C checksum.</p>
+        <p>Stored bytes live without a connection, so the envelope adds a 20-byte header (magic, version, <code>schema_id</code>, length) and a 4-byte CRC32C at the end.</p>
       </figure>
       <figure class="box">
-        <figcaption><span class="box-name">In flight: the frame</span><span class="box-size">42 bytes</span></figcaption>
+        <figcaption><span class="box-name">On the wire: frame</span><span class="box-size">42 bytes</span></figcaption>
         <div class="strip" aria-hidden="true">
           <span class="seg g-tbl" style="--b:7">7</span><span class="seg g-val" style="--b:35">message 35</span>
         </div>
-        <p>Over an ordered transport (TLS, sockets), a reply needs only 7 header bytes (kind, variant, length); a call adds method and service id (17 bytes).</p>
+        <p>Over TLS or a socket, the connection handles integrity and the RPC call already knows the type. Replies use a 7-byte header (kind, variant, length); calls use 17 bytes to include the service and method IDs.</p>
       </figure>
     </div>
-    <p class="more">Zero re-encoding: a server persists what it received simply by wrapping the same payload slice in an envelope. <a href="docs/services.html#the-bytes">How frames work</a></p>
+    <p class="more">Because those inner 35 bytes are identical, a server can save an incoming RPC payload into a disk envelope without re-encoding it. <a href="docs/services.html#the-bytes">Frame layout</a></p>
   </div>
 </section>
 
 <section class="band" id="services">
   <div class="wrap">
     <div class="section-head">
-      <h2>Services from the same schema</h2>
-      <p>Declare unary methods, typed errors, and streams next to your tables. <code>gravenc</code> emits typed clients for Rust and browsers/Node, plus a <code>no_std</code> Rust server edge.</p>
+      <h2>Services</h2>
+      <p>Services live in the same file as your tables. A method can return a value, a typed error union, a stream, or nothing at all.</p>
     </div>
     <div class="evo">
       <div class="evo-col">
@@ -185,16 +176,16 @@ for await (const p of await inv.list((w) =&gt; w.limit(20)))
     </div>
     <dl class="mini-grid">
       <div>
-        <dt>Errors are part of the type</dt>
-        <dd>Declared errors travel as typed unions checked by the compiler; transport and decode faults share one uniform handler.</dd>
+        <dt>Typed errors</dt>
+        <dd>Domain errors are part of the method&#39;s return union. Transport and protocol errors stay on a separate path, so you handle them differently.</dd>
       </div>
       <div>
-        <dt>Streams yield as frames arrive</dt>
-        <dd>Self-delimiting frames deliver each streamed item as soon as its bytes arrive, enforcing configurable size limits.</dd>
+        <dt>Streams</dt>
+        <dd>Each frame starts with its byte length, so receivers yield items as they arrive instead of buffering the whole response.</dd>
       </div>
       <div>
-        <dt>Validation speaks in codes</dt>
-        <dd>Broken rules return field, rule, bounds, and check reason codes—never hardcoded server text—ready for client localization.</dd>
+        <dt>Validation codes</dt>
+        <dd>When a rule fails, the wire carries numeric codes for the field, rule, bounds, and reason. No prose strings over the wire, so clients format or translate messages themselves.</dd>
       </div>
     </dl>
   </div>
@@ -203,8 +194,8 @@ for await (const p of await inv.list((w) =&gt; w.limit(20)))
 <section class="band" id="evolution">
   <div class="wrap">
     <div class="section-head">
-      <h2>Schema changes reviewed before they ship</h2>
-      <p>Change a field type or add a required field and <code>gravenc update</code> refuses, citing rule and line. Add a default instead and the lockfile updates cleanly.</p>
+      <h2>Protocol evolution</h2>
+      <p>Every <code>.graven</code> file has a companion <code>.graven.lock</code> that you commit to git. It records the exact binary layout of every version you have shipped. When you change a definition, <code>gravenc update</code> checks your edit against the lock and refuses anything that would break old files or running clients. If the change is safe, it updates the lock.</p>
     </div>
     <div class="evo">
       <div class="evo-col">
@@ -240,8 +231,8 @@ ledger.graven.lock: written</code></pre>
 <section class="band" id="start">
   <div class="wrap">
     <div class="section-head">
-      <h2>Get started</h2>
-      <p>Shared schema and lockfile on disk; native zero-copy bindings in your language.</p>
+      <h2>Quickstart</h2>
+      <p>Install <code>gravenc</code>, create the initial <code>.lock</code> file, and run codegen.</p>
     </div>
     <div class="setup-steps">
       <div class="setup-step">
@@ -249,12 +240,12 @@ ledger.graven.lock: written</code></pre>
 <pre class="code"><code>cargo install graven-compiler</code></pre>
       </div>
       <div class="setup-step">
-        <h3><span class="step-num">2</span>Create your schema &amp; lockfile</h3>
+        <h3><span class="step-num">2</span>Initialize the <code>.lock</code> file</h3>
 <pre class="code"><code>gravenc update schemas/bank.graven --init</code></pre>
       </div>
     </div>
     <div class="setup-step">
-      <p class="step-title"><span class="step-num">3</span>Generate code, write, and verify in place</p>
+      <p class="step-title"><span class="step-num">3</span>Generate code, write a message, read it back</p>
       <div class="code-tabs tight">
         <div class="code-tabbar" role="tablist" hidden>
           <button type="button" role="tab" data-tab="rust" aria-selected="true">Rust</button>
@@ -288,15 +279,15 @@ console.log(entry.amount(), entry.memo());</code></pre>
         </div>
       </div>
     </div>
-    <p class="more">Continue with the <a href="docs/getting-started.html">getting started guide</a>, <a href="docs/coming-from-json.html">coming from JSON</a>, or the <a href="docs/graven-language.html">schema language reference</a>.</p>
+    <p class="more">Next: the <a href="docs/getting-started.html">getting started guide</a>, <a href="docs/coming-from-json.html">coming from JSON</a>, or the <a href="docs/graven-language.html">language reference</a>.</p>
   </div>
 </section>
 
 <section class="band" id="implementations">
   <div class="wrap">
     <div class="section-head">
-      <h2>Implementations &amp; verification</h2>
-      <p>The specification is the product. Every claim below is pinned by frozen conformance vectors, fuzzing, and automated checks.</p>
+      <h2>Implementations</h2>
+      <p>Both runtimes implement the frozen v1 spec and pass all 42 format vectors and 23 RPC vectors.</p>
     </div>
     <div class="sdk-cards">
       <article class="sdk-card">
@@ -304,7 +295,7 @@ console.log(entry.amount(), entry.memo());</code></pre>
           <h3>Rust</h3>
           <span class="sdk-badge">Reference · no_std</span>
         </div>
-        <p><code>no_std</code> + <code>alloc</code> runtime with two dependencies, <code>gravenc</code> compiler and lockfile checks, typed client &amp; server edge codegen, and schema interpreter. Passes all 42 v1 + 23 RPC vectors.</p>
+        <p><code>no_std</code> + <code>alloc</code> runtime (two dependencies), the <code>gravenc</code> compiler, client and server codegen, and a reference interpreter.</p>
         <p class="sdk-links"><a href="docs/sdk/rust.html">Rust SDK</a> · <a href="api/graven/index.html">API reference</a></p>
       </article>
       <article class="sdk-card">
@@ -312,36 +303,11 @@ console.log(entry.amount(), entry.memo());</code></pre>
           <h3>JavaScript / TypeScript</h3>
           <span class="sdk-badge">Zero dependencies</span>
         </div>
-        <p>ES2022 <code>.js</code> modules + <code>.d.ts</code> types generated by <code>gravenc gen --lang js</code>. Canonical writers, validation codes, and browser/Node/Deno RPC clients. Passes all 42 v1 + 23 RPC vectors.</p>
+        <p>ES2022 modules with <code>.d.ts</code> declarations generated by <code>gravenc gen --lang js</code>. Works in browsers, Node, and Deno with zero runtime dependencies.</p>
         <p class="sdk-links"><a href="docs/sdk/js.html">JS / TS SDK</a> · <a href="docs/implementations.html">Add another language</a></p>
       </article>
     </div>
-    <div class="table-scroll">
-    <table class="ledger">
-      <thead>
-        <tr><th scope="col">Guarantee</th><th scope="col">How it is checked</th></tr>
-      </thead>
-      <tbody>
-        <tr>
-          <th scope="row">Frozen wire specification</th>
-          <td>Normative RFC 2119 spec with 42 format v1 vectors and 23 RPC frame vectors. The reference writer reproduces every canonical <code>.bin</code> byte for byte.</td>
-        </tr>
-        <tr>
-          <th scope="row">Cross-implementation agreement</th>
-          <td>An independent Rust schema interpreter and generated code decode every vector and single-byte mutation identically; the JS runtime is fuzzed against Rust across millions of mutated messages and frames.</td>
-        </tr>
-        <tr>
-          <th scope="row">Bounded verification &amp; Miri clean</th>
-          <td><code>verify</code> caps depth at 64 and work at <code>max(len × 8, 1 MiB)</code>. Five fuzz targets ran &gt;80 million inputs with overflow checks, and the sole <code>unsafe</code> UTF-8 fast path runs clean under Miri.</td>
-        </tr>
-        <tr>
-          <th scope="row">Lockfile compatibility enforcement</th>
-          <td>15 hard errors reject breaking layout or method edits and 2 warnings require confirmation, verified over a corpus of multi-version schema chains.</td>
-        </tr>
-      </tbody>
-    </table>
-    </div>
-    <p class="more">Implementing Graven in another language? Use the compiler&#39;s lockfile layouts and verify against all <a href="docs/conformance-vectors.html">conformance vectors</a>.</p>
+    <p class="more">Writing a runtime in another language? Read layouts from the <code>.lock</code> file and test your encoder and decoder against the <a href="docs/conformance-vectors.html">conformance vectors</a>.</p>
   </div>
 </section>
 
